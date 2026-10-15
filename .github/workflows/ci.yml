@@ -1,0 +1,31 @@
+name: tests-and-demo
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: '4'
+      OPENBLAS_NUM_THREADS: '4'
+      MPLBACKEND: Agg
+      CRITEO_RESULTS_MODE: published
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install project
+        run: python -m pip install -e '.[notebooks]'
+      - name: Unit and synthetic end-to-end tests
+        run: python -m unittest discover -s tests -v
+      - name: Synthetic demonstration
+        run: python scripts/run_demo.py --output artifacts/ci_demo
+      - name: Execute public notebooks without raw data
+        run: python scripts/execute_notebooks.py
+      - name: Validate published snapshot hashes
+        run: python scripts/check_publication.py

@@ -1,0 +1,7 @@
+{
+  "note": "Identical anonymized feature vectors, not identified users; based on modeling float32 representation",
+  "fraction_matching_training_features": {
+    "validation": 0.018575,
+    "test": 0.01856
+  }
+}

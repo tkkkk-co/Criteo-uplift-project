@@ -1,0 +1,16 @@
+{
+  "primary_budget": 0.2,
+  "criterion": "validation HT incremental responses per 100k eligible people",
+  "selected_policy": "propensity",
+  "selected_uplift_model": "s_logistic",
+  "candidates": [
+    "random",
+    "propensity",
+    "s_logistic",
+    "t_logistic",
+    "t_xgboost",
+    "x_xgboost"
+  ],
+  "frozen_before_test": true,
+  "note": "All models remain trained on training split only; no test tuning, no train+validation refit."
+}

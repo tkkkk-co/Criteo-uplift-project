@@ -1,0 +1,28 @@
+# Inputs and local experimental outputs stay on the author's machine.
+/data/
+/artifacts/
+/.runtime/
+/.venv/
+/venv/
+/build/
+/dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+.Rhistory
+.env
+.env.*
+*.joblib
+*.pkl
+*.pickle
+*.npz
+*.npy
+*.parquet
+JD*.xlsx
+node_modules/
+# Small, reviewed aggregate results are intentionally published in reports/.

@@ -1,0 +1,10 @@
+{
+  "n_treatment": 11882655,
+  "n_control": 2096937,
+  "observed_ratio": 0.8500001287591226,
+  "expected_ratio": null,
+  "chi2": null,
+  "pvalue": null,
+  "status": "skipped",
+  "reason": "Design allocation is unknown; the observed ratio cannot be its own SRM null."
+}

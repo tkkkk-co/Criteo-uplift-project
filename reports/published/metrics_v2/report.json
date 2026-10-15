@@ -1,0 +1,50 @@
+{
+  "version": "metrics_v2",
+  "status": "complete",
+  "source_files": {
+    "predictions.npz": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/predictions.npz",
+      "size": 4777879,
+      "mtime_ns": 1791649943795601078,
+      "sha256": "0b75a19170f40a40dcedcd6b439abdcf1a2cdeef7a29e614a6e9dddeaf0a48e9"
+    },
+    "manifest.json": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/manifest.json",
+      "size": 3349,
+      "mtime_ns": 1791670783671109797,
+      "sha256": "0f6436d01e89347957140486f83398fc7f24d1a4b9983031c4a49d146d42c915"
+    },
+    "selection.json": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/selection.json",
+      "size": 442,
+      "mtime_ns": 1791649938644923521,
+      "sha256": "9c1e0f1dfb90ead855fa20101e6920de360255fa04d6ed4104c1346227b151ee"
+    }
+  },
+  "bootstrap": 200,
+  "e": 0.85041,
+  "seed": 42,
+  "frozen_selection": {
+    "primary_budget": 0.2,
+    "criterion": "validation HT incremental responses per 100k eligible people",
+    "selected_policy": "propensity",
+    "selected_uplift_model": "s_logistic",
+    "candidates": [
+      "random",
+      "propensity",
+      "s_logistic",
+      "t_logistic",
+      "t_xgboost",
+      "x_xgboost"
+    ],
+    "frozen_before_test": true,
+    "note": "All models remain trained on training split only; no test tuning, no train+validation refit."
+  },
+  "purpose": "Descriptive extension of already-viewed frozen test predictions; no fresh independent confirmation or reselection.",
+  "curves": "Lift=arm rate difference; plug-in gain=q*lift; HT gain=sum(z)/n; Qini=(R1-R0*N1/N0)/n.",
+  "integration": "All defined prefixes plus origin; trapezoids bridge initial undefined region; Qini includes control-only zero nodes.",
+  "normalization": "Population-fraction x axis; y divided by n. No perfect-ranking normalization.",
+  "ci": "Paired within-arm percentile bootstrap; models, e, tie priorities and arm sizes fixed; no multiplicity correction.",
+  "source_unchanged": true,
+  "n": 200000
+}

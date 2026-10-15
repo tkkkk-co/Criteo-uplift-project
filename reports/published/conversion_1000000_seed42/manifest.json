@@ -1,0 +1,123 @@
+{
+  "assignment_probability": 0.85041,
+  "probability_source": "training treatment fraction; plug-in estimate",
+  "ci_method": "paired within-arm percentile bootstrap, fixed learned scores and assignment probability; top-k reselected",
+  "uncertainty_excluded": [
+    "model training and selection",
+    "assignment probability estimation",
+    "unidentified user dependence"
+  ],
+  "estimand": "public-sample assignment (ITT-style) incremental outcome relative to treat-none",
+  "cost_assumption": "equal cost/value; budget is contact fraction, not currency",
+  "primary_outcome": "conversion",
+  "selection": {
+    "primary_budget": 0.2,
+    "criterion": "validation HT incremental responses per 100k eligible people",
+    "selected_policy": "propensity",
+    "selected_uplift_model": "s_logistic",
+    "candidates": [
+      "random",
+      "propensity",
+      "s_logistic",
+      "t_logistic",
+      "t_xgboost",
+      "x_xgboost"
+    ],
+    "frozen_before_test": true,
+    "note": "All models remain trained on training split only; no test tuning, no train+validation refit."
+  },
+  "models": {
+    "s_logistic": {
+      "parameters": {
+        "C": 1.0,
+        "max_iter": 500,
+        "random_state": 42
+      },
+      "seconds": 0.9483599579980364
+    },
+    "t_logistic": {
+      "parameters": {
+        "C": 1.0,
+        "max_iter": 500,
+        "random_state": 42
+      },
+      "seconds": 0.9294737090021954
+    },
+    "t_xgboost": {
+      "parameters": {
+        "colsample_bytree": 0.9,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 20,
+        "n_estimators": 150,
+        "n_jobs": 4,
+        "random_state": 42,
+        "subsample": 0.8,
+        "tree_method": "hist"
+      },
+      "seconds": 1.3203178330004448
+    },
+    "x_xgboost": {
+      "parameters": {
+        "colsample_bytree": 0.9,
+        "learning_rate": 0.05,
+        "max_depth": 4,
+        "min_child_weight": 20,
+        "n_estimators": 150,
+        "n_jobs": 4,
+        "random_state": 42,
+        "subsample": 0.8,
+        "tree_method": "hist"
+      },
+      "seconds": 2.573313375003636
+    }
+  },
+  "source": {
+    "path": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+    "size": 3248115221,
+    "mtime_ns": 1790004809431929026,
+    "sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+  },
+  "features": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11"
+  ],
+  "seed": 42,
+  "sample_n": 1000000,
+  "arguments": {
+    "data": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+    "sample_size": 1000000,
+    "outcome": "conversion",
+    "seed": 42,
+    "primary_budget": 0.2,
+    "permutations": 99,
+    "c2st_sample": 20000,
+    "bootstrap": 200,
+    "trees": 150,
+    "output": null
+  },
+  "python": "3.11.16 (main, Aug 27 2026, 14:37:43) [Clang 20.1.8 ]",
+  "platform": "macOS-15.6-arm64-arm-64bit",
+  "versions": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.5",
+    "scipy": "1.17.1",
+    "scikit-learn": "1.9.1",
+    "xgboost": "3.2.0",
+    "matplotlib": "3.11.1",
+    "joblib": "1.6.0"
+  },
+  "elapsed_seconds": 30.55926487499528,
+  "supplement": "Added traditional Qini score and curves from frozen predictions; model selection unchanged.",
+  "status": "complete"
+}

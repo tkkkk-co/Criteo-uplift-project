@@ -1,0 +1,47 @@
+{
+  "status": "complete",
+  "source_directory": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42",
+  "source_files": {
+    "predictions.npz": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/predictions.npz",
+      "size": 4777879,
+      "mtime_ns": 1791649943795601078,
+      "sha256": "0b75a19170f40a40dcedcd6b439abdcf1a2cdeef7a29e614a6e9dddeaf0a48e9"
+    },
+    "manifest.json": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/manifest.json",
+      "size": 3349,
+      "mtime_ns": 1791670783671109797,
+      "sha256": "0f6436d01e89347957140486f83398fc7f24d1a4b9983031c4a49d146d42c915"
+    },
+    "selection.json": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/selection.json",
+      "size": 442,
+      "mtime_ns": 1791649938644923521,
+      "sha256": "9c1e0f1dfb90ead855fa20101e6920de360255fa04d6ed4104c1346227b151ee"
+    }
+  },
+  "source_unchanged": true,
+  "sqlite_version": "3.53.4",
+  "database": "SQLite :memory:; one score policy loaded at a time",
+  "source_row_id": "zero-based source CSV row position; NOT a user identifier",
+  "table_origin": "normalized derived tables from public experimental test predictions; NOT real event logs",
+  "outcome": "conversion",
+  "assignment_probability": 0.85041,
+  "assignment_probability_source": "training treatment fraction; plug-in estimate",
+  "seed": 42,
+  "n_eligible": 200000,
+  "primary_budget": 0.2,
+  "frozen_selected_policy": "propensity",
+  "selection_unchanged": true,
+  "tie_break": "independent default_rng(seed).random(n), score DESC then tie priority ASC then input position ASC",
+  "metric": "HT incremental responses per 100k eligible rows; analytic random expectation at k/n",
+  "maximum_absolute_sql_python_difference": 9.521272659185342e-13,
+  "reconciliation_absolute_tolerance": 1e-07,
+  "limitations": [
+    "1:1 key integrity establishes row alignment, not user-level independence",
+    "descriptive test score bins cannot be used to reselect or recalibrate this frozen policy",
+    "no simulated timestamps, user IDs, costs, revenue, or production logs",
+    "point estimates only; uncertainty is reported by the original paired-bootstrap policy evaluation"
+  ]
+}

@@ -1,0 +1,7 @@
+table_pair,policy,assignment_rows,outcome_rows,joined_rows,missing_outcomes,orphan_outcomes,score_rows,distinct_score_rows,missing_scores
+assignment_outcome,,200000.0,200000.0,200000,0.0,0.0,,,
+assignment_outcome_scores,s_logistic,,,200000,,,200000.0,200000.0,0.0
+assignment_outcome_scores,t_logistic,,,200000,,,200000.0,200000.0,0.0
+assignment_outcome_scores,t_xgboost,,,200000,,,200000.0,200000.0,0.0
+assignment_outcome_scores,x_xgboost,,,200000,,,200000.0,200000.0,0.0
+assignment_outcome_scores,propensity,,,200000,,,200000.0,200000.0,0.0

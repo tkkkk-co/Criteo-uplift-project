@@ -1,0 +1,7 @@
+{
+  "sample_n": 20000,
+  "train_n": 14000,
+  "test_n": 6000,
+  "seed": 42,
+  "interpretation": "Exploratory check of observable assignment predictability on development data. A nonsignificant result does not prove randomization. A significant result requires investigation of design, sampling, and feature timing. Permutation exchangeability assumes an unstratified random assignment mechanism; unknown blocking or multiple experiments may require a different permutation scheme."
+}

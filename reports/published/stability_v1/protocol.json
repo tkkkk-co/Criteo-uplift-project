@@ -1,0 +1,125 @@
+{
+  "study": "development_training_size_and_split_sensitivity_v1",
+  "status": "frozen_before_model_fits",
+  "seeds": [
+    17,
+    29,
+    83
+  ],
+  "training_fractions": [
+    0.25,
+    0.5,
+    1.0
+  ],
+  "primary_budget": 0.2,
+  "outcome": "conversion",
+  "features": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11"
+  ],
+  "provenance": {
+    "cache": {
+      "path": "[PROJECT_ROOT]/artifacts/cache/sample_1000000_seed42.npz",
+      "size": 9570318,
+      "mtime_ns": 1791649730869349359,
+      "sha256": "407426c56bd0b92edce2e91652055af71fa0f3736efbc64081ced23cbcc0c2d8"
+    },
+    "cache_metadata": {
+      "path": "[PROJECT_ROOT]/artifacts/cache/sample_1000000_seed42.json",
+      "size": 5146,
+      "mtime_ns": 1791649916255321039,
+      "sha256": "fc46fd0f3e9678cf710e2a6e6caf7eb6f5b789ae28a6f089f9d8c6502d58a698"
+    },
+    "base_manifest": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/manifest.json",
+      "size": 3349,
+      "mtime_ns": 1791670783671109797,
+      "sha256": "0f6436d01e89347957140486f83398fc7f24d1a4b9983031c4a49d146d42c915"
+    },
+    "old_test_id_file": {
+      "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42/test_row_ids.csv",
+      "size": 1641197,
+      "mtime_ns": 1791649916957462167,
+      "sha256": "06e3fbbdbdd6d6978c4b9cb9a2d68e5db5ef361865cd82e0d7defa5a733fefe9"
+    },
+    "raw_source_sha256_from_existing_metadata": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef",
+    "sample_n": 1000000,
+    "old_test_n": 200000,
+    "development_n": 800000,
+    "development_row_ids_sha256": "f871971e1eab5b7dde8de819666d468a5b9e735e7484399da13c73f54377776b",
+    "old_test_row_ids_sha256": "3510a63164abfedc38218e42b5e0341e225697edd924587eb63de01c51cad564",
+    "development_old_test_overlap": 0,
+    "row_ids_sha256_encoding": "sorted little-endian signed int64, no header"
+  },
+  "candidates": [
+    "random",
+    "s_logistic",
+    "t_logistic",
+    "t_xgboost",
+    "x_xgboost",
+    "propensity"
+  ],
+  "model_parameters": {
+    "s_logistic": {
+      "C": 1.0,
+      "max_iter": 500,
+      "random_state": 17
+    },
+    "t_logistic": {
+      "C": 1.0,
+      "max_iter": 500,
+      "random_state": 17
+    },
+    "t_xgboost": {
+      "colsample_bytree": 0.9,
+      "learning_rate": 0.05,
+      "max_depth": 4,
+      "min_child_weight": 20,
+      "n_estimators": 150,
+      "n_jobs": 4,
+      "random_state": 17,
+      "subsample": 0.8,
+      "tree_method": "hist"
+    },
+    "x_xgboost": {
+      "colsample_bytree": 0.9,
+      "learning_rate": 0.05,
+      "max_depth": 4,
+      "min_child_weight": 20,
+      "n_estimators": 150,
+      "n_jobs": 4,
+      "random_state": 17,
+      "subsample": 0.8,
+      "tree_method": "hist"
+    }
+  },
+  "model_seed": "equal to the current split seed; all other model parameters are fixed",
+  "row_split": "75/25 T x Y stratified development split; all configured nested fractions",
+  "training_sampling": "within each T x Y stratum, one random permutation; floor(fraction*n_stratum), no replacement, no event oversampling",
+  "group_split": "GroupShuffleSplit 75/25 distinct 64-bit hashes of 12 float32 features; full training fraction only; row counts may differ",
+  "group_interpretation": "identical anonymous feature vectors are not established user identities; no automatic deduplication; hash collisions theoretically possible",
+  "assignment_probability": "plug-in treatment fraction of the full training partition, shared across its nested fractions; validation outcomes do not estimate it",
+  "primary_metric": "validation HT incremental conversions per 100000 eligible people at the realized floor(budget*n)/n fraction",
+  "secondary_metrics": "full-resolution HT AUUC, centered HT Qini, and separately scaled traditional Qini score",
+  "random_ranking": "analytic reference line: AUUC_HT=ATE_HT/2, centered Qini scores=0; not a sampled random ranking",
+  "response_baseline": "propensity means P(Y=1|X,T=1), reused from t_xgboost; not P(T=1|X)",
+  "selection": "one development winner per seed/split/fraction; stable ties follow candidate order; selection frequency is descriptive",
+  "uncertainty": "mean/sample std/min/max over overlapping development runs; no confidence intervals, no bootstrap, no new independent test claim",
+  "limitations": [
+    "Protocol was specified after the original study, not before the original test was seen.",
+    "Excluding old test rows prevents direct reuse but does not erase earlier analyst knowledge.",
+    "The group holdout changes feature support; its values are sensitivity results, not a matched causal comparison of splitting methods.",
+    "Rare-event counts and performance associations do not establish a causal explanation for model differences.",
+    "Equal contact cost and conversion value are assumptions; public-sample assignment effects are not online revenue."
+  ]
+}

@@ -1,0 +1,4 @@
+p0_assumed,p1_assumed,absolute_mde,relative_mde,alpha_two_sided,target_power,allocation_ratio_A_over_B,n_policy_B,n_policy_A,n_total,contact_fraction_each_policy,contacts_B,contacts_A,approximate_achieved_power,assumption
+0.003,0.00315,0.00015,0.049999999999999996,0.05,0.8,1.0,2138763,2138763,4277526,0.2,427752,427752,0.8000010891958594,Hypothetical policy CVRs on all eligible users; not inferred online rates from Criteo.
+0.003,0.0033,0.0003,0.09999999999999999,0.05,0.8,1.0,547690,547690,1095380,0.2,109538,109538,0.8000011577728009,Hypothetical policy CVRs on all eligible users; not inferred online rates from Criteo.
+0.003,0.0036,0.0006,0.19999999999999998,0.05,0.8,1.0,143421,143421,286842,0.2,28684,28684,0.8000034423035906,Hypothetical policy CVRs on all eligible users; not inferred online rates from Criteo.
