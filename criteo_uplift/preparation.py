@@ -90,7 +90,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
         per_arm=args.c2st_sample // 2,
         audit_enabled=not reuse,
         diagnostics_enabled=True,
-        progress=log,
+        progress=progress,
         source=current,
     )
     if reuse:
