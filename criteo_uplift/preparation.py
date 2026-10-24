@@ -26,7 +26,7 @@ from .diagnostics import scan_raw_data
 #     still fingerprinted and scanned for current diagnostics.
 # ----------------------------------------------------------------------------
 def prepare_sample(args, *, root: Path = ROOT, progress=None):
-    #args 保留运行参数:(参考 run_pipeline.py line743)
+    # args 保留 run_pipeline.py 的命令行配置，供样本准备与诊断步骤使用。
     # - args.data:data的绝对路径
     # - args.sample_size:抽样规模，0=全量
     # - args.seed
