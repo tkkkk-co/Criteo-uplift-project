@@ -81,8 +81,17 @@ python scripts/run_sql_audit.py --output artifacts/sql_repeat
 README.md                    项目入口、结果与运行方式
 pyproject.toml               依赖和可安装代码包
 .gitignore                   排除数据/缓存/模型/本机环境
-criteo_uplift/                可复用的数据、模型、评价、SQL、planning
-run_pipeline.py              完整真实实验入口
+criteo_uplift/
+  data.py                    数据列、路径保护、缓存与数据划分
+  preparation.py             缓存校验与单次原始数据扫描的协调
+  diagnostics.py             全量审计、SMD/KS、SRM、C2ST 与可学习性
+  evaluation.py              ATE、Uplift 排序指标、策略评价与区间
+  training.py                结果可学习性检查、候选模型拟合与验证集选型
+  holdout_evaluation.py      冻结模型的测试集评价与预测产物
+  pipeline_io.py             划分/审计/重叠/manifest 文件与报告收尾
+  models.py                  S/T/X learner 与模型工厂
+  reporting.py               已保存结果的 HTML 报告和图表
+run_pipeline.py              按阶段串联完整真实实验的入口
 run_stability.py             排除旧 test 的开发敏感性研究
 score_policy.py              加载本地冻结模型生成预算名单
 scripts/                     演示、Notebook、快照、发布检查
