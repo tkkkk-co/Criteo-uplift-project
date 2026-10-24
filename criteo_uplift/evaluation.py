@@ -94,6 +94,62 @@ def _mean_difference(y, t):
     }
 
 
+# ----------------------------------------------------------------------------
+# Function: aggregate_ate_from_audit — reconstruct full-source ATE from counts.
+# Inputs:
+#     audit: aggregate audit dictionary produced by scan_raw_data().
+#     outcome: binary outcome column name, currently conversion or visit.
+# Outputs:
+#     Dictionary with group sizes/rates, ATE, standard error, confidence interval,
+#     two-sided null p-value, and relative uplift.
+# Notes:
+#     Uses only aggregate counts; does not reload row-level source data.
+# ----------------------------------------------------------------------------
+def aggregate_ate_from_audit(audit, outcome):
+    """Calculate a full-source treated-minus-control outcome-rate difference.
+
+    Args:
+        audit: full-source aggregate audit dictionary.
+        outcome: binary outcome name, such as conversion or visit.
+
+    Returns:
+        Dictionary containing group counts, response rates, ATE, standard error,
+        95% confidence interval, two-sided p-value, and relative uplift.
+    """
+    from scipy.stats import norm
+
+    n0, n1 = (
+        audit["groups"][str(arm)]["n"]
+        for arm in (0, 1)
+    )
+    r0, r1 = (
+        audit["groups"][str(arm)][outcome]["positive"]
+        for arm in (0, 1)
+    )
+    p0, p1 = r0 / n0, r1 / n1
+    delta = p1 - p0
+    se = np.sqrt(
+        p1 * (1 - p1) / (n1 - 1)
+        + p0 * (1 - p0) / (n0 - 1)
+    )
+    pooled = (r0 + r1) / (n0 + n1)
+    nullse = np.sqrt(pooled * (1 - pooled) * (1 / n0 + 1 / n1))
+    return {
+        "outcome": outcome,
+        "n": n0 + n1,
+        "n_control": n0,
+        "n_treatment": n1,
+        "response_control": p0,
+        "response_treatment": p1,
+        "ate": delta,
+        "standard_error": se,
+        "ci_low": delta - 1.95996398454 * se,
+        "ci_high": delta + 1.95996398454 * se,
+        "p_value": 2 * norm.sf(abs(delta / nullse)) if nullse > 0 else 1.0,
+        "relative_uplift": delta / p0 if p0 else None,
+    }
+
+
 def ate_summary(y, t) -> dict:
     """Binary difference-in-means ATE, unpooled SE/Wald CI and pooled z test.
 
