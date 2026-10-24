@@ -27,7 +27,7 @@ from criteo_uplift.training import (
     fit_and_select_models,
     run_learnability_diagnostics,
 )
-from criteo_uplift.test_evaluation import evaluate_test_set
+from criteo_uplift.holdout_evaluation import evaluate_test_set
 from criteo_uplift.pipeline_io import (
     finalize_run,
     update_diagnostics_only,
@@ -177,6 +177,16 @@ def run(args):
     return finalize_run(out, policies, args.primary_budget, progress=log)
 
 
+# ----------------------------------------------------------------------------
+# Function: parse_args — define and validate the command-line configuration.
+# Inputs:
+#     argv: optional list of CLI tokens; None reads sys.argv.
+# Outputs:
+#     argparse.Namespace containing source, sampling, diagnostics, modeling,
+#     evaluation, and output settings.
+# Notes:
+#     Parsing only validates configuration; it does not read data or run models.
+# ----------------------------------------------------------------------------
 def parse_args(argv=None):
     """Parse CLI options.
 
