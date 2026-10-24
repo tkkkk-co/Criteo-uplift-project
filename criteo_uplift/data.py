@@ -1,14 +1,8 @@
-"""只读原始 CSV;全量流式审计与等概率 reservoir 抽样。
-
-每行独立 U(0,1) priority,保留最小 k 个，等价无放回简单随机抽样。
-不按 treatment/outcome 过采样，不把文件头 k 行误当随机样本。
-"""
-
-# 流式处理（Streaming Processing）：不一次性将所有数据读入内存，而是分批读取和处理。
-
-# Reservoir Sampling（水库抽样）：一种从大量数据中随机保留固定数量样本的方法。
-# 不过，这份代码采用的是带随机优先级的水库抽样，而不是经典的逐行替换式水库抽样。
-
+#-----------------------------------------------------------------------------------------------------------------------
+# 定义数据列名、路径保护、文件指纹、格式转换、缓存读写和数据划分等辅助功能。
+# 全量读取、审计、抽样和诊断统一由 diagnostics.py 的 scan_raw_data() 负责。
+# 导入本模块不会自动读取原始数据或启动分析。
+#-----------------------------------------------------------------------------------------------------------------------
 
 from pathlib import Path
 import hashlib
@@ -25,19 +19,45 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = ROOT / 'data'
 DEFAULT_DATA = DATA_ROOT / 'raw/criteo-uplift-v2.1.csv'
 
-# 保护原始数据
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：safe_output —— 检查结果保存路径，保护原始数据目录。
+# 输入：
+#     path：准备写入结果的文件或目录路径。
+# 输出：
+#     path：解析后的绝对路径对象。
+# 说明：禁止向项目 data 目录及其内部写入结果，符号链接指向该目录时也会被识别。
+#-----------------------------------------------------------------------------------------------------------------------
 def safe_output(path):
-    """拒绝向受保护 data/（包括 symlink 指向）写入结果。"""
     path = Path(path).resolve()
     if path == DATA_ROOT.resolve() or DATA_ROOT.resolve() in path.parents:
         raise ValueError('data/ 只读：请把输出放到 artifacts/。')
     return path
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：write_json —— 将数据保存为 JSON 文件。
+# 输入：
+#     value：需要保存的 Python 对象。
+#     path：目标 JSON 文件路径。
+# 输出：
+#     返回值：None。
+# 保存文件：
+#     path：转换后保存的 JSON 文件。
+# 说明：检查保存路径、创建父目录，将 NumPy 数值和路径等转换为 JSON 可保存的形式后写入。
+#-----------------------------------------------------------------------------------------------------------------------
 def write_json(value, path):
     path = safe_output(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：convert —— 转换 JSON 保存过程中不直接支持的对象。
+    # 输入：
+    #     v：需要转换的对象或其中一个元素。
+    # 输出：
+    #     转换结果：处理后的对象，返回给 write_json() 进行保存。
+    # 说明：递归处理字典和序列，将 NumPy 数组及数值转换为普通 Python 类型，
+    #       将路径转换为字符串，将非有限浮点数转换为 None。
+    #-----------------------------------------------------------------------------------------------------------------------
     def convert(v):
         if isinstance(v, dict): return {str(k): convert(x) for k,x in v.items()}
         if isinstance(v, (tuple,list)): return [convert(x) for x in v]
@@ -49,213 +69,48 @@ def write_json(value, path):
     path.write_text(json.dumps(convert(value), ensure_ascii=False, indent=2, allow_nan=False))
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：fingerprint —— 记录文件来源信息和内容指纹。
+# 输入：
+#     path：需要读取的文件路径。
+# 输出：字典，各字段如下。
+#     path：文件的绝对路径字符串。
+#     size：文件大小，单位为字节。
+#     mtime_ns：文件修改时间，单位为纳秒。
+#     sha256：文件内容的 SHA256 指纹。
+# 说明：分块读取整个文件并计算指纹，供其他流程检查数据来源和文件是否发生变化。
+#-----------------------------------------------------------------------------------------------------------------------
 def fingerprint(path):
     path = Path(path)
     h = hashlib.sha256()
 
-    with path.open('rb') as f:
+    with path.open('rb') as f:  # 以二进制只读模式读取文件。
         for block in iter(
-            lambda: f.read(8*1024*1024), 
-            b''): 
+            lambda: f.read(8*1024*1024),
+            b''):
             h.update(block)
 
     return {
-        'path':str(path.resolve()), 
+        'path':str(path.resolve()),
         'size':path.stat().st_size,
-        'mtime_ns':path.stat().st_mtime_ns, 
+        'mtime_ns':path.stat().st_mtime_ns,
         'sha256':h.hexdigest()
     }
 
 
-def scan_and_sample(path=DEFAULT_DATA, sample_size=1_000_000, seed=42, chunk_size=250_000):
-    """返回 (sample DataFrame, audit dict)。sample_size=0 保留全量；不写文件。
-
-    重复行仅诊断不删除；没有 user ID，不能把匿名特征相同推断为重复用户。
-    重复诊断基于原始 float64 全字段的 64-bit hash，存在极小碰撞可能。
-    """
-    path = Path(path)
-    if sample_size < 0 or chunk_size < 1: 
-        raise ValueError('sample_size>=0, chunk_size>=1')
-    if list(pd.read_csv(path, nrows=0).columns) != COLUMNS:
-        raise ValueError(f'CSV schema 必须恰为 {COLUMNS}')
-
-    rng = np.random.default_rng(seed)
-    reservoir = np.empty((0,len(COLUMNS)), dtype=np.float64)
-    row_ids = np.empty(0,dtype=np.int64) # 随机抽样的样本在原全量数据的index
-    priorities = np.empty(0) #优先级
-
-    hashes, all_chunks = [], []
-
-    counts = np.zeros(2,dtype=np.int64) #计数 C T组样本数
-    positives = np.zeros((2,3),dtype=np.int64) #计数 C T组正样本数（CVR visit exposure）
-    sums = np.zeros((2,12)); 
-    squares = np.zeros((2,12)) #计数 C T组特征和、平方和
-    minimum = np.full(12,np.inf); 
-    maximum = np.full(12,-np.inf)
-
-    n = 0;  #row_id：全量数据的行号
-    bad_visit = 0; #bad_visit：CVR=1但visit=0的样本数；
-    control_exposure = 0 # control_exposure：control组中exposure=1的样本数
-
-
-# 将 CSV 按批次读取成 DataFrame，检查每一行的数据是否合法，并为每一行生成哈希指纹。
-    with pd.read_csv(
-        path,
-        chunksize=chunk_size,
-        dtype={
-            **{f: 'float64' for f in FEATURES},
-            **{l: 'float64' for l in LABELS},
-        },
-    ) as reader:
-
-        for chunk in reader:
-            values = chunk.to_numpy() #values:chunk的numpy数组表示
-            if not np.isfinite(values).all():
-                raise ValueError(
-                    f'row offset {n}: 存在 missing/non-finite，请先明确处理方案。'
-                )
-
-            if not np.isin(values[:, 12:], [0, 1]).all():
-                raise ValueError('标签必须为0/1')
-            hashes.append(pd.util.hash_pandas_object(chunk, index=False).to_numpy())
-
-            t = chunk.treatment.to_numpy(dtype=np.int8)
-            x = values[:, :12]
-
-            for a in [0, 1]:
-                sub = x[t == a]
-                counts[a] += len(sub) # T/C 组样本量
-                sums[a] += sub.sum(axis=0)  #sums[a, j]  第 a 组、第 j 个特征的总和
-                squares[a] += np.square(sub).sum(axis=0) # squares[a, j]  第 a 组、第 j 个特征的平方和
-                positives[a] += values[t == a, 13:].sum(axis=0).astype(np.int64)
-
-            minimum = np.minimum(minimum, x.min(axis=0)) 
-
-            maximum = np.maximum(maximum, x.max(axis=0))
-
-            bad_visit += int(((chunk.conversion == 1) & (chunk.visit == 0)).sum())
-
-            control_exposure += int(
-                ((chunk.treatment == 0) & (chunk.exposure == 1)).sum()
-            )
-
-            # 对每个chunk迭代编号，确保每个样本都有唯一的 row_id。 左闭右开 编号从0开始
-            ids = np.arange(n, n + len(chunk), dtype=np.int64) 
-
-            # 如果 sample_size=0，则保留所有数据；否则使用 reservoir sampling 抽样。
-            if sample_size == 0:
-                chunk = chunk.astype(
-                    {
-                        **{f: 'float32' for f in FEATURES},
-                        **{l: 'int8' for l in LABELS},
-                    }
-                )
-                chunk.insert(0, 'row_id', ids)
-                all_chunks.append(chunk)
-            # 随机优先级抽样 -给每一行分配一个独立的 U(0,1) priority，保留最小 k 个，等价于无放回简单随机抽样。
-            else:
-                keys = rng.random(len(chunk))
-                reservoir = np.concatenate([reservoir, values])
-                priorities = np.concatenate([priorities, keys])
-                row_ids = np.concatenate([row_ids, ids]) #追踪样本来源
-                #如果候选样本超过 k，保留最小的 k 个
-                if len(reservoir) > sample_size:
-                    keep = np.argpartition(priorities, sample_size - 1)[:sample_size]
-                    reservoir = reservoir[keep]
-                    priorities = priorities[keep]
-                    row_ids = row_ids[keep]
-            n += len(chunk)
-            if n % 1_000_000 == 0:
-                print(f'  scanned {n:,} rows', flush=True)
-
-    if n == 0 or (counts == 0).any():
-        raise ValueError('数据为空或缺少treatment/control')
-
-    unique_hashes = np.unique(np.concatenate(hashes)).size
-    
-    if sample_size == 0:
-        sample = pd.concat(all_chunks, ignore_index=True)
-    else:
-        order = np.argsort(row_ids)
-        sample = pd.DataFrame(reservoir[order], columns=COLUMNS)
-        sample = sample.astype(
-            {
-                **{f: 'float32' for f in FEATURES},
-                **{l: 'int8' for l in LABELS},
-            }
-        )
-        sample.insert(0, 'row_id', row_ids[order])
-
-    feature_stats = []
-    for j, f in enumerate(FEATURES):
-        row = {
-            'feature': f,
-            'min': minimum[j],
-            'max': maximum[j],
-        }
-        for a in [0, 1]:
-            row[f'mean_{a}'] = sums[a, j] / counts[a]
-            row[f'std_{a}'] = (
-                np.sqrt(
-                    max(
-                        0,
-                        (squares[a, j] - sums[a, j] ** 2 / counts[a]) / (counts[a] - 1),
-                    )
-                )
-                if counts[a] > 1
-                else np.nan
-            )
-        denominator = np.sqrt((row['std_0'] ** 2 + row['std_1'] ** 2) / 2)
-        difference = row['mean_1'] - row['mean_0']
-        row['smd'] = (
-            difference / denominator
-            if denominator > 0
-            else (0.0 if denominator == 0 and difference == 0 else np.nan)
-        )
-        row['smd_status'] = (
-            'computed'
-            if np.isfinite(row['smd'])
-            else 'undefined_zero_or_missing_variance'
-        )
-        feature_stats.append(row)
-
-    audit = {
-        'n_rows': n,
-        'n_columns': 16,
-        'n_treatment': counts[1],
-        'n_control': counts[0],
-        'treatment_ratio': counts[1] / n,
-        'missing_or_nonfinite': 0,
-        'invalid_binary_labels': 0,
-        'control_exposed': control_exposure,
-        'conversion_without_visit': bad_visit,
-        'duplicate_row_fingerprints': n - int(unique_hashes),
-        'duplicate_method': '64-bit hash of all original float64 fields; diagnostic only; no user ID; not deduplicated',
-        'feature_stats': feature_stats,
-        'sample_n': len(sample),
-        'sample_seed': seed,
-        'sampling': (
-            'all rows'
-            if sample_size == 0
-            else 'uniform without replacement, random-priority reservoir'
-        ),
-        'groups': {
-            str(a): {
-                'n': counts[a],
-                **{
-                    label: {
-                        'positive': positives[a, k],
-                        'rate': positives[a, k] / counts[a],
-                    }
-                    for k, label in enumerate(LABELS[1:])
-                },
-            }
-            for a in [0, 1]
-        },
-    }
-    return sample, audit
-
-
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：save_sample —— 将样本保存为压缩缓存。
+# 输入：
+#     sample：包含原始行号、特征和标签的样本数据表。
+#     path：目标缓存路径，通常使用 .npz 后缀。
+# 输出：
+#     返回值：None。
+# 保存文件：压缩 NPZ 文件，各数组如下。
+#     row_id：样本对应的原始 CSV 行号。
+#     X：float32 类型的特征矩阵。
+#     labels：int8 类型的标签矩阵。
+# 说明：检查保存路径并创建父目录，将样本压缩保存，供后续运行直接读取。
+#-----------------------------------------------------------------------------------------------------------------------
 def save_sample(sample, path):
     path = safe_output(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,6 +122,14 @@ def save_sample(sample, path):
     )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：load_sample —— 读取已有样本缓存。
+# 输入：
+#     path：之前保存的 NPZ 缓存路径。
+# 输出：
+#     frame：恢复后的样本数据表，包含原始行号、特征和标签。
+# 说明：从缓存中读取各个数组，恢复列名并组合成数据表；缓存来源由上层流程负责核对。
+#-----------------------------------------------------------------------------------------------------------------------
 def load_sample(path):
     with np.load(path, allow_pickle=False) as z:
         frame = pd.DataFrame(z['X'], columns=FEATURES)
@@ -276,8 +139,20 @@ def load_sample(path):
     return frame
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：split_sample —— 将样本划分为训练集、验证集和测试集。
+# 输入：
+#     df：包含 treatment 和结果标签的样本数据表。
+#     outcome：用于分层的结果标签，可选 conversion 或 visit，默认 conversion。
+#     seed：随机种子，默认 42。
+# 输出：字典，各字段如下。
+#     train：约占总样本 60% 的训练数据表。
+#     validation：约占总样本 20% 的验证数据表。
+#     test：约占总样本 20% 的测试数据表。
+# 说明：按分组与结果标签的组合分层划分，使三部分尽量保持原样本中的组合比例。
+#       三部分使用互不重叠的数据行；模型选择使用验证集，测试集用于最终评价。
+#-----------------------------------------------------------------------------------------------------------------------
 def split_sample(df, outcome='conversion', seed=42):
-    """60/20/20 分层 T×Y；所有模型选择仅可用 validation。"""
     if outcome not in ['conversion', 'visit']:
         raise ValueError('unknown outcome')
     idx = np.arange(len(df))

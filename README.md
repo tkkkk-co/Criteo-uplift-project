@@ -37,6 +37,7 @@
 - [业务报告](docs/BUSINESS_CASE.md)：问题、证据、策略选择与上线门槛。
 - [指标理论与完整手算](因果推断理论/7.Metrics.md)。
 - [Notebook 01—06](notebooks/)：已有代码、表格和图；没有本地实验时自动读取公开聚合快照。
+- [学习主线与重复记录敏感性分析后续入口](docs/SENSITIVITY_FOLLOWUP.md)：先理解主项目，再研究已归档的重复核验与组隔离对照；完整审计产物仅保存在本机。
 - [公开结果目录](reports/published/)：小体积 CSV/JSON/PNG、SQL 和来源哈希。
 - HTML 报告可下载后在浏览器打开；GitHub 通常展示 HTML 源文件，而非直接执行报告页面。
 

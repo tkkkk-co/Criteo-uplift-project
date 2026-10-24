@@ -1,5 +1,8 @@
 """Numerical and leakage guard checks for the diagnostic pipeline."""
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import json
 import unittest
 from unittest.mock import patch
 
@@ -7,11 +10,15 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
+from criteo_uplift.data import COLUMNS, FEATURES, LABELS, fingerprint
+
 from criteo_uplift.diagnostics import (
     c2st,
     covariate_balance,
     learnability,
     srm_summary,
+    scan_raw_data,
+    update_experiment_diagnostics,
 )
 
 
@@ -36,15 +43,22 @@ class DiagnosticsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "pre-treatment"):
             covariate_balance(frame, ["exposure"])
 
-    def test_srm_requires_external_design_ratio(self):
-        skipped = srm_summary(850, 150)
-        self.assertEqual(skipped["status"], "skipped")
-        self.assertIsNone(skipped["pvalue"])
-        self.assertIn("cannot be its own", skipped["reason"])
+    def test_srm_defaults_to_published_reference_and_accepts_other_ratios(self):
+        reference = srm_summary(850, 150)
+        self.assertEqual(reference["status"], "computed")
+        self.assertEqual(reference["expected_ratio"], 0.85)
+        self.assertAlmostEqual(reference["chi2"], 0.0)
+        self.assertAlmostEqual(reference["pvalue"], 1.0)
         balanced = srm_summary(50, 50, expected_ratio=0.5)
         self.assertEqual(balanced["chi2"], 0.0)
         self.assertEqual(balanced["pvalue"], 1.0)
         self.assertLess(srm_summary(850, 150, expected_ratio=0.5)["pvalue"], 1e-50)
+
+    def test_srm_rejects_missing_or_invalid_reference_ratios(self):
+        for ratio in (None, 0.0, 1.0, np.nan, np.inf):
+            with self.subTest(ratio=ratio):
+                with self.assertRaises(ValueError):
+                    srm_summary(850, 150, expected_ratio=ratio)
 
     def test_c2st_complete_refits_and_permutation_pvalues(self):
         rng = np.random.default_rng(2026)
@@ -102,6 +116,83 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue(dummy["roc_auc"].isna().all())
         self.assertTrue(dummy["average_precision"].isna().all())
         self.assertTrue((fitted["status"] == "skipped_single_class_train").all())
+
+
+class PublicDiagnosticsTests(unittest.TestCase):
+    def frame(self):
+        rng = np.random.default_rng(6)
+        frame = pd.DataFrame(rng.normal(size=(80, 12)), columns=FEATURES)
+        # Unequal arm sizes; exactly constant and near-float32-colliding features.
+        frame["f0"] = 7.0
+        frame["f1"] = 1 + np.arange(80) * 1e-10
+        for name in LABELS:
+            frame[name] = rng.integers(0, 2, 80)
+        frame["treatment"] = np.r_[np.zeros(20), np.ones(60)]
+        return frame[COLUMNS]
+
+    def test_full_stats_balanced_sampling_precision_and_chunk_reproducibility(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "raw.csv"
+            self.frame().to_csv(path, index=False)
+            original = path.read_bytes()
+            raw = pd.read_csv(path, dtype=np.float64)
+            expected = covariate_balance(raw, FEATURES)
+            scanned = scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=13, progress=lambda _: None)
+            first, sample, meta = scanned["balance"], scanned["c2st_sample"], scanned["metadata"]
+            scanned = scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=31, progress=lambda _: None)
+            second, repeated = scanned["balance"], scanned["c2st_sample"]
+            assert_frame_equal(first[expected.columns], expected)
+            assert_frame_equal(first, second)
+            assert_frame_equal(sample, repeated)
+            self.assertEqual(sample.treatment.value_counts().to_dict(), {0: 10, 1: 10})
+            self.assertEqual(meta["n"], 80)
+            self.assertEqual(meta["n_control"], 20)
+            self.assertEqual(meta["n_treatment"], 60)
+            self.assertEqual(meta["rows_dropped"], 0)
+            np.testing.assert_array_equal(sample[FEATURES], raw.iloc[sample.row_id][FEATURES])
+            self.assertEqual(sample.f1.dtype, np.dtype("float64"))
+            self.assertGreater(sample.f1.nunique(), sample.f1.astype("float32").nunique())
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_invalid_data_fails_without_silent_row_deletion(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "raw.csv"
+            frame = self.frame()
+            frame.loc[0, "f0"] = np.nan
+            frame.to_csv(path, index=False)
+            with self.assertRaisesRegex(ValueError, "Nonfinite"):
+                scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
+            frame = self.frame()
+            frame.loc[0, "treatment"] = 2
+            frame.to_csv(path, index=False)
+            with self.assertRaisesRegex(ValueError, "binary"):
+                scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
+
+    def test_update_replaces_only_existing_diagnostic_files(self):
+        with TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            raw = directory / 'raw.csv'
+            frame = self.frame()
+            frame.to_csv(raw, index=False)
+            diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json']
+            for name in diagnostic_names:
+                (directory / name).write_text('old diagnostic')
+            protected = directory / 'predictions.npz'
+            protected.write_bytes(b'fixed-model-predictions')
+            before_names = {p.name for p in directory.iterdir()}
+            details = update_experiment_diagnostics(
+                raw, directory, audit={'n_treatment': 60, 'n_control': 20},
+                source=fingerprint(raw), sample_size=20, permutations=3,
+                progress=lambda _: None,
+            )
+            self.assertEqual({p.name for p in directory.iterdir()}, before_names)
+            self.assertEqual(protected.read_bytes(), b'fixed-model-predictions')
+            self.assertEqual(details['full_n'], 80)
+            self.assertEqual(details['n_control'], 10)
+            self.assertEqual(details['n_treatment'], 10)
+            self.assertTrue(pd.read_csv(directory / 'balance.csv')['scope'].eq('full_published_dataset').all())
+            self.assertEqual(len(pd.read_csv(directory / 'c2st_null.csv')), 6)
+            self.assertEqual(json.loads((directory / 'srm.json').read_text())['expected_ratio'], .85)
 
 
 if __name__ == "__main__":

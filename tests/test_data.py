@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import data
+from criteo_uplift.diagnostics import scan_raw_data
 
 
 def _synthetic_frame(n=400):
@@ -36,15 +37,19 @@ class DataTests(unittest.TestCase):
 
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
         before = data.fingerprint(self.source)
-        first, audit = data.scan_and_sample(
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=57
         )
-        repeated, _ = data.scan_and_sample(
+        first = scanned["sample"]
+        audit = scanned["audit"]
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=101
         )
-        different, _ = data.scan_and_sample(
+        repeated = scanned["sample"]
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=32, chunk_size=57
         )
+        different = scanned["sample"]
         pd.testing.assert_frame_equal(first, repeated)
         self.assertFalse(first.row_id.equals(different.row_id))
         self.assertEqual(len(first), 43)
@@ -63,7 +68,9 @@ class DataTests(unittest.TestCase):
             [self.frame, self.frame.iloc[[7, 7, 210]]], ignore_index=True
         )
         duplicated.to_csv(self.source, index=False)
-        sample, audit = data.scan_and_sample(self.source, sample_size=0, chunk_size=61)
+        scanned = scan_raw_data(self.source, sample_size=0, chunk_size=61)
+        sample = scanned["sample"]
+        audit = scanned["audit"]
         self.assertEqual(len(sample), len(duplicated))
         self.assertEqual(audit["duplicate_row_fingerprints"], 3)
         self.assertEqual(sample.row_id.nunique(), len(duplicated))
@@ -82,7 +89,8 @@ class DataTests(unittest.TestCase):
                 )
 
     def test_sample_larger_than_input_retains_every_original_row(self):
-        sample, _ = data.scan_and_sample(self.source, sample_size=1000, chunk_size=37)
+        scanned = scan_raw_data(self.source, sample_size=1000, chunk_size=37)
+        sample = scanned["sample"]
         np.testing.assert_array_equal(sample.row_id, np.arange(len(self.frame)))
 
     def test_readonly_guard_rejects_direct_and_symlinked_data_destinations(self):
@@ -113,9 +121,10 @@ class DataTests(unittest.TestCase):
         self.assertFalse((protected / "sample.npz").exists())
 
     def test_sample_round_trip_uses_an_output_directory(self):
-        sample, _ = data.scan_and_sample(
+        scanned = scan_raw_data(
             self.source, sample_size=33, seed=2, chunk_size=41
         )
+        sample = scanned["sample"]
         destination = self.root / "artifacts" / "sample.npz"
         data.save_sample(sample, destination)
         loaded = data.load_sample(destination)
@@ -167,11 +176,11 @@ class DataTests(unittest.TestCase):
                 frame.to_csv(self.source, index=False)
                 # Bad rows beyond the requested sample still invalidate the scan.
                 with self.assertRaises(ValueError):
-                    data.scan_and_sample(self.source, sample_size=5, chunk_size=73)
+                    scan_raw_data(self.source, sample_size=5, chunk_size=73)
         with self.assertRaises(ValueError):
-            data.scan_and_sample(self.source, sample_size=-1)
+            scan_raw_data(self.source, sample_size=-1)
         with self.assertRaises(ValueError):
-            data.scan_and_sample(self.source, chunk_size=0)
+            scan_raw_data(self.source, chunk_size=0)
 
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         with self.assertRaises(ValueError):

@@ -100,7 +100,7 @@
     "outcome": "conversion",
     "seed": 42,
     "primary_budget": 0.2,
-    "permutations": 99,
+    "permutations": 499,
     "c2st_sample": 20000,
     "bootstrap": 200,
     "trees": 150,

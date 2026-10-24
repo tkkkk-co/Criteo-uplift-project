@@ -2,9 +2,13 @@
   "n_treatment": 11882655,
   "n_control": 2096937,
   "observed_ratio": 0.8500001287591226,
-  "expected_ratio": null,
-  "chi2": null,
-  "pvalue": null,
-  "status": "skipped",
-  "reason": "Design allocation is unknown; the observed ratio cannot be its own SRM null."
+  "expected_ratio": 0.85,
+  "chi2": 1.817775848947767e-06,
+  "pvalue": 0.9989242531217909,
+  "status": "computed",
+  "reason": "Pearson chi-square count check against the supplied reference ratio; this alone does not validate original experiment randomization.",
+  "scope": "full_published_dataset",
+  "source_sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef",
+  "reference_source": "https://arxiv.org/html/2111.10106#S3",
+  "interpretation": "公开数据分配计数与85%外部参考比例的一致性；不验证原始线上实验SRM或随机化。"
 }

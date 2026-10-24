@@ -1,7 +1,8 @@
-"""Create a self-contained Chinese report from a completed pipeline run.
-
-The module reads saved result tables only; it neither refits models nor changes
-model selection. Figures use Matplotlib's bundled font and English labels.
+"""
+reporting.py:根据已完成的pipeline 把已有分析结果制作成图表和报告，保存的是程序逻辑 
+生成的图片和报告保存在 artifacts/ 中
+该模块仅读取已保存的结果表；
+它既不重新拟合模型，也不更改模型选择。图表使用 Matplotlib 自带的字体和英文标签。
 """
 
 from __future__ import annotations
@@ -81,8 +82,8 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
         ax.scatter(positions, point, c=color, s=35, zorder=3)
 
 
-def build_report(out: Path) -> Path:
-    """Read the pipeline's frozen outputs and write report.html plus five PNGs."""
+def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
+    """生成报告；diagnostics_only 只更新诊断图和报告，保留其他图片。"""
     out = safe_output(out)
     manifest, audit = _json(out, "manifest.json"), _json(out, "audit.json")
     selection, srm = _json(out, "selection.json"), _json(out, "srm.json")
@@ -151,7 +152,8 @@ def build_report(out: Path) -> Path:
     ):
 
         def save(fig, name):
-            fig.savefig(paths[name], dpi=160, bbox_inches="tight")
+            if not diagnostics_only or name == "balance":
+                fig.savefig(paths[name], dpi=160, bbox_inches="tight")
             plt.close(fig)
 
         ate = frames["ate_full"]
@@ -184,24 +186,25 @@ def build_report(out: Path) -> Path:
             ax.margins(y=0.35)
         save(fig, "ate_full")
 
+#-----------------------------------------------------------
+# 绘制SMD（横向条形图）
         balance = frames["balance"].sort_values("abs_smd", ascending=True)
-        fig, ax = plt.subplots(figsize=(10.8, 4.7), constrained_layout=True)
-        ax.barh(balance["feature"], balance["abs_smd"], color="#2171ad", height=0.65)
-        ax.axvline(
-            0.1,
-            color="#e38636",
-            linestyle="--",
-            lw=1.5,
-            label="0.1 descriptive reference",
-        )
-        ax.set_xlabel("Absolute standardized mean difference (training split)")
-        ax.set_title("Observed covariate balance")
-        ax.set_xlim(
-            0, max(0.12, float(balance["abs_smd"].replace(np.inf, np.nan).max()) * 1.2)
-        )
-        ax.grid(axis="x")
-        ax.legend(frameon=False, loc="lower right")
+        full_balance = balance.get("scope", pd.Series(dtype=str)).eq("full_published_dataset").all() and "scope" in balance
+        balance_scope = "Full public data | raw float64" if full_balance else "Training split"
+        n_balance = int(balance.iloc[0]["n_treatment"] + balance.iloc[0]["n_control"])
+        fig, axes = plt.subplots(1, 2, figsize=(11, 5), constrained_layout=True)
+        axes[0].barh(balance["feature"], balance["abs_smd"], color="#2171ad", height=.65)
+        axes[0].axvline(.1, color="#e38636", linestyle="--", lw=1.5, label="0.1 descriptive reference")
+        axes[0].set_xlabel("Absolute standardized mean difference")
+        axes[0].legend(frameon=False, fontsize=8)
+        axes[1].barh(balance["feature"], balance["ks_statistic"], color="#24858b", height=.65)
+        axes[1].set_xlabel("Two-sided KS statistic")
+        for ax in axes:
+            ax.grid(axis="x")
+        fig.suptitle(f"{balance_scope} | n = {n_balance:,}\nMarginal T/C balance; no randomization pass/fail threshold")
         save(fig, "balance")
+#-----------------------------------------------------------
+
 
         curves = frames["curves"]
         fig, axes = plt.subplots(1, 2, figsize=(12.6, 4.4), constrained_layout=True)
@@ -378,6 +381,7 @@ def build_report(out: Path) -> Path:
     c2 = frames["c2st"]
     c2_display = pd.DataFrame(
         {
+            "分析范围": c2.get("scope", pd.Series("train_source_random_sample", index=c2.index)),
             "模型": c2["model"],
             "ROC AUC": c2["roc_auc"].map(lambda x: _num(x, 4)),
             "LogLoss": c2["log_loss"].map(lambda x: _num(x, 5)),
@@ -463,12 +467,23 @@ def build_report(out: Path) -> Path:
     if srm["status"] == "skipped":
         srm_text = "设计分流比例未知，SRM 检验已跳过。观测处理比例不能作为同一份数据的零假设比例。"
     else:
-        srm_text = f"以提供的设计处理比例 {srm['expected_ratio']:.2%} 计算 SRM：p = {_p(srm['pvalue'])}。"
+        srm_text = f"全量公开数据计数与外部参考比例 {srm['expected_ratio']:.2%} 的一致性检查：p = {_p(srm['pvalue'])}；不能据此验证原始线上实验SRM或证明随机化。"
     calibration_note = (
         f"展示冻结获选政策 {esc(calibration_model)} 的 CATE 校准。"
         if selected == calibration_model
         else f"获选政策 {esc(selected)} 不输出 CATE，因此不能做 CATE 校准；这里展示验证集内最优 uplift 模型 {esc(calibration_model)} 的辅助诊断，不能把它视作获选政策。"
     )
+    full_diagnostic = c2st_details.get("scope") == "full_source_arm_balanced_sample"
+    balance_caption = (
+        "原始全量float64特征SMD/KS；0.1仅是经验参考。KS p值未经多重校正，不能仅凭显著性判断实际意义。"
+        if full_balance else "训练集SMD/KS；0.1仅是经验参考，不能证明随机化。"
+    )
+    diagnostic_population = "全量公开数据" if full_balance else "训练集"
+    c2st_sampling_text = (
+        f"C2ST从全量原始数据分别等概率无放回抽取两组各 {int(c2st_details['n_control']):,} 行"
+        if full_diagnostic else f"C2ST使用开发数据的随机样本，共 {int(c2st_details['sample_n']):,} 行"
+    )
+    max_ks_row = frames["balance"].loc[frames["balance"]["ks_statistic"].idxmax()]
     b = int(c2["permutations"].iloc[0])
     boot = int(selected_row["bootstrap_replicates"])
     significant_c2st = c2.loc[c2["pvalue_holm"] < 0.05, "model"].tolist()
@@ -528,12 +543,12 @@ def build_report(out: Path) -> Path:
         + _image(
             paths["balance"],
             "处理前协变量平衡",
-            "SMD 在训练集计算；0.1 仅是描述性参考，不是随机化成立的检验阈值。KS p 值保存在 balance.csv，未经多重校正。",
+            balance_caption,
         )
-        + f'<p>C2ST 对训练集作与 T/Y 无关的等概率抽样（{int(c2st_details["sample_n"]):,} 行），固定 70/30 训练/留出样本位置；'
+        + f'<p>{c2st_sampling_text}，固定70/30内部训练/留出划分；'
         f'在两部分内分别打乱 treatment，完整重拟合两类固定模型，共 {b} 次。诊断结果如下：</p>'
         + _table(c2_display)
-        + f'<p>{c2st_conclusion}训练集最大 |SMD| 为 {frames["balance"]["abs_smd"].max():.4f}。</p>'
+        + f'<p>{c2st_conclusion}{diagnostic_population}最大 |SMD| 为 {frames["balance"]["abs_smd"].max():.6f}；最大KS为 {max_ks_row["ks_statistic"]:.6f}（{esc(max_ks_row["feature"])}）。置换p值分辨率为 {1 / (b + 1):.3f}。</p>'
         + '<p>高于置换基线的 AUC 提示可观测分配差异，需要检查实验设计、抽样和特征时序；不显著不能证明随机化。'
         '该置换方案假设可交换分配；如存在未知实验分层或多个广告实验混合，需使用匹配实际设计的置换方案。</p>'
         '<h3>结果可预测性：固定模型对照 Dummy</h3>'

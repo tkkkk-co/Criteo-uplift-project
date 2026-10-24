@@ -13,8 +13,8 @@
     {
       "source": "artifacts/conversion_1000000_seed42/manifest.json",
       "published": "conversion_1000000_seed42/manifest.json",
-      "source_sha256": "0f6436d01e89347957140486f83398fc7f24d1a4b9983031c4a49d146d42c915",
-      "published_sha256": "dfbfd23afc679fc7a6b79e4e54de33e6e695d56da0942984da1705e32bcc239b"
+      "source_sha256": "38af962b4cd5c1b70e6e7e074f4a97a74637647cefd83ff7dbb3c283bbef9561",
+      "published_sha256": "cab5a7f51e4229e97c9852bcb56aea9140fd157efc796814855db16d3fe19657"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/selection.json",
@@ -43,32 +43,32 @@
     {
       "source": "artifacts/conversion_1000000_seed42/balance.csv",
       "published": "conversion_1000000_seed42/balance.csv",
-      "source_sha256": "94b3263e6a06e527ebf03b919d3ba9d063ac737440857d85eaf281d8270dd908",
-      "published_sha256": "94b3263e6a06e527ebf03b919d3ba9d063ac737440857d85eaf281d8270dd908"
+      "source_sha256": "4c1c6ec3f2fe65716201fc0f50e3dcd023f084a09456690e9424ae2d0cbaed5e",
+      "published_sha256": "4c1c6ec3f2fe65716201fc0f50e3dcd023f084a09456690e9424ae2d0cbaed5e"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/c2st.csv",
       "published": "conversion_1000000_seed42/c2st.csv",
-      "source_sha256": "1501a0af59882f182ddb28831e1c5ace1fbeab1db408edee8e4ba4f0d12c30c6",
-      "published_sha256": "1501a0af59882f182ddb28831e1c5ace1fbeab1db408edee8e4ba4f0d12c30c6"
+      "source_sha256": "6ff2f0f3cbe2d6c90bbd4d3ccc0706857b8a1fe9878250744d5cebbbb07e2669",
+      "published_sha256": "6ff2f0f3cbe2d6c90bbd4d3ccc0706857b8a1fe9878250744d5cebbbb07e2669"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/c2st_null.csv",
       "published": "conversion_1000000_seed42/c2st_null.csv",
-      "source_sha256": "97c8f6d7084474d3ce519e5530a1f53a0072e2caa7756a358990989417572db1",
-      "published_sha256": "97c8f6d7084474d3ce519e5530a1f53a0072e2caa7756a358990989417572db1"
+      "source_sha256": "ba2966e20aceb1d7b60f039fcaa6c6dc5472889236b56b33361d0904de0a5e4b",
+      "published_sha256": "ba2966e20aceb1d7b60f039fcaa6c6dc5472889236b56b33361d0904de0a5e4b"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/c2st_details.json",
       "published": "conversion_1000000_seed42/c2st_details.json",
-      "source_sha256": "61261d9d5dbd125258195145e0b64b3a400999281844eefcbff977b972a18e41",
-      "published_sha256": "61261d9d5dbd125258195145e0b64b3a400999281844eefcbff977b972a18e41"
+      "source_sha256": "5d5e2b25387e3e21157f34873bee347045060be9cfb3dd8782b5cc09f6ecd64b",
+      "published_sha256": "bd0bdcb7abd70dae7cd4bbf118685140a65266720f926a336949c76dcd8dcdd0"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/srm.json",
       "published": "conversion_1000000_seed42/srm.json",
-      "source_sha256": "92f4bb61acfa3ae4219b1f6354c72ab537be9a9179683a2822c91deb3c5c53c1",
-      "published_sha256": "92f4bb61acfa3ae4219b1f6354c72ab537be9a9179683a2822c91deb3c5c53c1"
+      "source_sha256": "080301a983f618075114d1659ebb236e919ea3f14a070176481878dd87c87135",
+      "published_sha256": "080301a983f618075114d1659ebb236e919ea3f14a070176481878dd87c87135"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/learnability.csv",
@@ -115,8 +115,8 @@
     {
       "source": "artifacts/conversion_1000000_seed42/report.html",
       "published": "conversion_1000000_seed42/report.html",
-      "source_sha256": "c131169a721c6079fdbb00a485e902b8cb1c75ae15d86a17c9968f5b673c4ea9",
-      "published_sha256": "c131169a721c6079fdbb00a485e902b8cb1c75ae15d86a17c9968f5b673c4ea9"
+      "source_sha256": "fffde81f2565946885bac83fe90e6f3b0176cf923cb694d27ed72a72f14a0e60",
+      "published_sha256": "fffde81f2565946885bac83fe90e6f3b0176cf923cb694d27ed72a72f14a0e60"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/calibration_s_logistic.csv",
@@ -271,8 +271,8 @@
     {
       "source": "artifacts/conversion_1000000_seed42/figures/balance.png",
       "published": "conversion_1000000_seed42/figures/balance.png",
-      "source_sha256": "31365f18c406180b927b0fdb7d68a91a429efcff640d3e1b0ef2df179ca8742a",
-      "published_sha256": "31365f18c406180b927b0fdb7d68a91a429efcff640d3e1b0ef2df179ca8742a"
+      "source_sha256": "f9608e87771b8d52156708ea701f1ec4d73d4145342c3a7dbbc37953b32a818f",
+      "published_sha256": "f9608e87771b8d52156708ea701f1ec4d73d4145342c3a7dbbc37953b32a818f"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/figures/calibration.png",

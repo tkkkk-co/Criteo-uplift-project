@@ -43,8 +43,15 @@ class EndToEndTests(unittest.TestCase):
                 trees=5,
                 output=root / 'run',
             )
-            with patch('run_pipeline.ROOT', root):
+            with patch('run_pipeline.ROOT', root), patch(
+                'criteo_uplift.diagnostics.pd.read_csv', wraps=pd.read_csv,
+            ) as read_csv:
                 out = run(args)
+            raw_scans = [
+                call for call in read_csv.call_args_list
+                if call.args and Path(call.args[0]) == path and 'chunksize' in call.kwargs
+            ]
+            self.assertEqual(len(raw_scans), 1)
             manifest = json.loads((out / 'manifest.json').read_text())
             self.assertEqual(manifest['status'], 'complete')
             self.assertTrue(manifest['selection']['frozen_before_test'])
@@ -63,6 +70,13 @@ class EndToEndTests(unittest.TestCase):
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
             self.assertEqual(len(list((out / 'figures').glob('*.png'))), 5)
+            balance = pd.read_csv(out / 'balance.csv')
+            self.assertTrue(balance['scope'].eq('full_published_dataset').all())
+            self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())
+            diagnostic = json.loads((out / 'c2st_details.json').read_text())
+            self.assertEqual(diagnostic['scope'], 'full_source_arm_balanced_sample')
+            self.assertEqual(diagnostic['n_treatment'], 500)
+            self.assertEqual(diagnostic['n_control'], 500)
             self.assertEqual(fingerprint(path), before)
 
 

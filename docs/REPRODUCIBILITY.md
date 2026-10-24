@@ -60,7 +60,7 @@ e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef
 python run_pipeline.py --output artifacts/conversion_repeat
 ```
 
-第一次将流式扫描完整输入，后续仅在源SHA与配置匹配时复用缓存。`--sample-size 0`支持全量模式，但本次未运行，不推荐把它当作第一次安装检查。
+首次运行由 `diagnostics.py:scan_raw_data()` 在同一次 CSV 分块扫描中完成审计、建模抽样、C2ST 两组抽样和全量 SMD/KS、SRM；`update_experiment_diagnostics()` 复用扫描结果运行 C2ST 并保存诊断文件。后续仅在源 SHA 与配置匹配时复用建模样本和审计缓存，仍扫描原始数据准备全量诊断，但不重复建模抽样。SHA256 核验仍需读取原始文件字节，不能把一次 CSV 扫描理解为只有一次磁盘读取。扫描函数中的 `audit_enabled` 和 `diagnostics_enabled` 独立控制全量审计及 SRM/SMD/KS；`sample_size` 和 `per_arm` 只控制建模及 C2ST 抽样。缓存复用时显式关闭完整审计，而不是由抽样参数隐式决定。`--sample-size 0`支持全量模式，但本次未运行，不推荐把它当作第一次安装检查。
 
 ## 复算后续研究
 
@@ -88,3 +88,14 @@ python scripts/build_release.py
 `export_public_results.py` 是作者用完整本地实验导出聚合快照的工具，不是克隆者必须执行的安装步骤。它白名单导出，不收录row-ID文件、预测数组和模型。
 
 原始data完整性脚本依赖作者本地初始快照和备份；公开克隆没有这些输入，应使用check_publication验证公开结果，不以缺少私人备份判定代码错误。
+
+
+## 仅原位更新实验可信度诊断
+
+```bash
+python -B run_pipeline.py --diagnostics-only
+```
+
+直接更新已有主实验目录的 `srm.json`、`balance.csv`、`c2st.csv`、`c2st_null.csv`、`c2st_details.json`，以及原来的平衡图和HTML报告。SMD/KS直接用原始全量float64特征；C2ST从原始全量来源组内等概率无放回抽样，默认两组各10,000行、499次完整重拟合置换并作Holm校正。SRM继续用全量计数与论文给出的85%公开参考比例。诊断不证明随机化，显著性不等于业务意义。
+
+该模式不重新切分或拟合正式Uplift模型，不改变ATE、预测或策略评价。Notebook 2统一通过现有 `RUN` 读取这些结果。后续诊断优化直接更新这些原文件，不新增诊断版本目录或独立入口。

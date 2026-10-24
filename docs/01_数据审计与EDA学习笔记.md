@@ -322,7 +322,7 @@ X_test_ready = preprocessor.transform(X_test)
 
 | 层次 | 项目位置 | 负责什么 |
 | --- | --- | --- |
-| 计算规则 | `criteo_uplift/data.py` 的 `scan_and_sample()` | 读取原始 CSV、分块检查、累积统计、抽样、返回结果 |
+| 计算规则 | `criteo_uplift/diagnostics.py` 的 `scan_raw_data()` | 读取原始 CSV、分块检查、累积统计、抽样、返回结果 |
 | 运行与保存 | `run_pipeline.py` | 调用函数或复用校验过的缓存；保存 audit 和其他结果 |
 | 读取与展示 | `notebooks/01_data_understanding.ipynb` | 找到结果目录，读 JSON / CSV，再显示表和图 |
 
@@ -537,7 +537,7 @@ display(
 
 ## 8. 真正的 min、max、mean 是怎样算出来的？
 
-实际函数入口是 `criteo_uplift/data.py` 的 `scan_and_sample()`。不必一下子掌握它全部的抽样和数组语法，先理解“分块累积”的统计思路。
+实际函数入口是 `criteo_uplift/diagnostics.py` 的 `scan_raw_data()`。不必一下子掌握它全部的抽样和数组语法，先理解“分块累积”的统计思路。
 
 ### 8.1 分块读取为什么能得到全量统计？
 
@@ -663,30 +663,31 @@ audit = {
 
 ### 8.5 从函数返回结果，到 pipeline 写文件
 
-**一般语法：函数返回两个值时，可以用两个变量接收。**
+`scan_raw_data()` 返回一个字典，用不同的键区分样本、审计和诊断结果。
 
 ```python
-def 函数名():
-    return 结果1, 结果2
+from criteo_uplift.diagnostics import scan_raw_data
+from criteo_uplift.data import write_json
 
-变量1, 变量2 = 函数名()
-```
+# run_pipeline.py：没有建模缓存时，在一次扫描中准备全部结果。
+scanned = scan_raw_data(
+    args.data,
+    sample_size=args.sample_size,
+    seed=args.seed,
+    per_arm=args.c2st_sample // 2,
+    audit_enabled=True,
+    diagnostics_enabled=True,
+)
+sample = scanned["sample"]       # 逐行建模样本
+audit = scanned["audit"]        # 全量审计字典
 
-这叫“解包”。`return sample, audit` 实际返回包含两个元素的元组；左右位置一一对应。
-
-**项目调用关系：**
-
-```python
-# run_pipeline.py：需要新扫描时
-sample, audit = scan_and_sample(args.data, args.sample_size, args.seed)
-
-# run_pipeline.py：保存本次运行的审计结果
+# 保存本次运行的审计结果。
 write_json(audit, out / "audit.json")
 ```
 
-`args.data` 等属性来自命令行参数对象。第一行得到逐行样本和聚合字典，第二行调用项目自己的 JSON 写入函数。`write_json()` 内部将 NumPy 数值等转换成可序列化对象，再用 `json.dumps()` 写文本。
+`args.data` 等属性来自命令行参数对象。`scanned` 还包含 `balance`、`c2st_sample`、`srm`、`metadata`、`source`，交给后续诊断步骤复用。`write_json()` 将 NumPy 数值等转换成可序列化对象，再用 `json.dumps()` 写文本。
 
-若满足缓存复用条件，pipeline 会读取之前的样本和 audit，不必每次重新扫描。函数负责定义计算规则，JSON 负责保存某次运行的结果，notebook 负责展示。
+若满足缓存复用条件，pipeline 读取已有建模样本和 audit，同时用 `sample_size=None`、`audit_enabled=False`、`diagnostics_enabled=True` 并指定 `per_arm` 调用同一个扫描入口，只准备全量诊断与 C2ST 样本。`sample_size`、`per_arm` 只控制各自的抽样任务；全量审计和全量诊断由两个布尔开关独立控制。函数定义计算规则，JSON 保存某次运行的结果，notebook 负责展示。
 
 ## 9. 回到 01-notebook：它覆盖了哪些步骤？
 
@@ -717,11 +718,11 @@ write_json(audit, out / "audit.json")
 ## 10. 对照阅读的源文件
 
 - [01-notebook](../notebooks/01_data_understanding.ipynb)：本次学习页面。
-- [data.py](../criteo_uplift/data.py)：`scan_and_sample()`、`write_json()` 和 `split_sample()`。
+- [data.py](../criteo_uplift/data.py)：路径保护、文件指纹、`write_json()`、缓存读写和 `split_sample()`。
 - [run_pipeline.py](../run_pipeline.py)：调用、缓存复用、保存 audit 与 ATE。
 - [results.py](../criteo_uplift/results.py)：定位本地结果或公开快照。
 - [models.py](../criteo_uplift/models.py)：logistic 的填补、标准化和分类器管线。
-- [diagnostics.py](../criteo_uplift/diagnostics.py)：SMD、KS、SRM、C2ST。
+- [diagnostics.py](../criteo_uplift/diagnostics.py)：顶部的 `scan_raw_data()` 负责统一扫描、审计与抽样；同文件定义 SMD、KS、SRM 和 C2ST。
 - [公开 audit 快照](../reports/published/conversion_1000000_seed42/audit.json)：本笔记引用的全量审计数值。
 - [公开样本摘要](../reports/published/conversion_1000000_seed42/sample_feature_summary.csv)：本笔记引用的百万样本分布统计。
 - [公开划分摘要](../reports/published/conversion_1000000_seed42/splits.csv)：各集合事件数。

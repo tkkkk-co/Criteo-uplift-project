@@ -1,0 +1,173 @@
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
+from itertools import product
+import json
+import unittest
+
+import numpy as np
+import pandas as pd
+
+from criteo_uplift import data, diagnostics
+from criteo_uplift.diagnostics import covariate_balance, update_experiment_diagnostics
+from run_pipeline import prepare_sample
+
+
+class UnifiedScanTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.path = self.root / 'raw.csv'
+        rng = np.random.default_rng(9)
+        frame = pd.DataFrame(rng.normal(size=(160, 12)), columns=data.FEATURES)
+        for label in data.LABELS:
+            frame[label] = rng.integers(0, 2, len(frame))
+        frame['treatment'] = np.r_[np.zeros(40), np.ones(120)]
+        frame['f0'] = 1 + np.arange(len(frame)) * 1e-10
+        frame['f1'] = 7.0
+        frame.iloc[-1] = frame.iloc[-2]  # 重复行仍参与审计、统计和抽样。
+        frame.to_csv(self.path, index=False)
+        self.raw = pd.read_csv(self.path, dtype=np.float64)
+
+    def scan(self, **kwargs):
+        options = dict(sample_size=43, per_arm=10, seed=31, chunk_size=17, progress=lambda _: None)
+        options.update(kwargs)
+        return diagnostics.scan_raw_data(self.path, **options)
+
+    def test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics(self):
+        before = self.path.read_bytes()
+        with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
+            scanned = self.scan()
+        self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+
+        # 直接为所有原始行生成优先级，验证统一扫描仍选中了原来的样本。
+        keys = np.random.default_rng(31).random(len(self.raw))
+        expected_ids = np.sort(np.argsort(keys)[:43])
+        np.testing.assert_array_equal(scanned['sample'].row_id, expected_ids)
+        diagnostic_ids = []
+        for arm, child in enumerate(np.random.SeedSequence(31).spawn(2)):
+            ids = np.flatnonzero(self.raw.treatment.to_numpy() == arm)
+            keys = np.random.default_rng(child).random(len(ids))
+            diagnostic_ids.extend(ids[np.argsort(keys)[:10]])
+        np.testing.assert_array_equal(scanned['c2st_sample'].row_id, sorted(diagnostic_ids))
+        sample = scanned['c2st_sample']
+        np.testing.assert_array_equal(sample[data.FEATURES], self.raw.iloc[sample.row_id][data.FEATURES])
+        self.assertEqual(sample.f0.dtype, np.dtype('float64'))
+        self.assertEqual(scanned['sample'].f0.dtype, np.dtype('float32'))
+
+        expected = covariate_balance(self.raw, data.FEATURES)
+        pd.testing.assert_frame_equal(scanned['balance'][expected.columns], expected)
+        audit = scanned['audit']
+        self.assertEqual(audit['duplicate_row_fingerprints'], 1)
+        self.assertEqual(audit['n_rows'], len(self.raw))
+        for record in audit['feature_stats']:
+            for arm in (0, 1):
+                values = self.raw.loc[self.raw.treatment == arm, record['feature']]
+                self.assertEqual(record[f'mean_{arm}'], values.mean())
+                self.assertEqual(record[f'std_{arm}'], values.std(ddof=1))
+            self.assertEqual(record['smd'], expected.set_index('feature').loc[record['feature'], 'smd'])
+        self.assertEqual(scanned['srm']['observed_ratio'], 0.75)
+        self.assertEqual(sample.treatment.mean(), 0.5)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_diagnostic_sample_independent_of_model_size_and_chunk_size(self):
+        baseline = self.scan()
+        for size in (None, 0, 200):
+            with self.subTest(sample_size=size):
+                scanned = self.scan(sample_size=size, chunk_size=53)
+                pd.testing.assert_frame_equal(scanned['c2st_sample'], baseline['c2st_sample'])
+                pd.testing.assert_frame_equal(scanned['balance'], baseline['balance'])
+                if size is None:
+                    self.assertIsNone(scanned['sample'])
+                    self.assertEqual(scanned['audit']['n_rows'], len(self.raw))
+                    self.assertIsNone(scanned['audit']['sample_n'])
+                else:
+                    self.assertEqual(len(scanned['sample']), len(self.raw))
+
+    def test_audit_diagnostics_and_two_samples_are_independent(self):
+        expected_balance = covariate_balance(self.raw, data.FEATURES)
+        baseline = self.scan()
+        for audit, checks, model_size, per_arm in product((False, True), (False, True), (None, 43), (None, 10)):
+            options = dict(
+                audit_enabled=audit, diagnostics_enabled=checks,
+                sample_size=model_size, per_arm=per_arm,
+            )
+            with self.subTest(**options):
+                if not any((audit, checks, model_size is not None, per_arm is not None)):
+                    with self.assertRaisesRegex(ValueError, 'at least one'):
+                        self.scan(**options)
+                    continue
+                scanned = self.scan(**options)
+                if audit:
+                    self.assertEqual(scanned['audit']['n_rows'], len(self.raw))
+                    self.assertEqual(scanned['audit']['duplicate_row_fingerprints'], 1)
+                    self.assertEqual(scanned['audit']['n_control'], 40)
+                    self.assertEqual(len(scanned['audit']['feature_stats']), 12)
+                    self.assertEqual(scanned['audit']['sample_n'], model_size)
+                else:
+                    self.assertIsNone(scanned['audit'])
+                if checks:
+                    pd.testing.assert_frame_equal(scanned['balance'][expected_balance.columns], expected_balance)
+                    self.assertEqual(scanned['srm']['n_treatment'], 120)
+                    self.assertEqual(scanned['srm']['observed_ratio'], .75)
+                else:
+                    self.assertIsNone(scanned['balance'])
+                    self.assertIsNone(scanned['srm'])
+                if model_size is None:
+                    self.assertIsNone(scanned['sample'])
+                else:
+                    pd.testing.assert_frame_equal(scanned['sample'], baseline['sample'])
+                if per_arm is None:
+                    self.assertIsNone(scanned['c2st_sample'])
+                    self.assertIsNone(scanned['metadata']['sample_n'])
+                else:
+                    pd.testing.assert_frame_equal(scanned['c2st_sample'], baseline['c2st_sample'])
+
+    def test_source_changes_and_insufficient_arms_fail(self):
+        source = data.fingerprint(self.path)
+        with patch.object(diagnostics, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
+            with self.assertRaisesRegex(RuntimeError, 'changed'):
+                self.scan()
+        with self.assertRaisesRegex(ValueError, 'Need 41 rows per arm'):
+            self.scan(per_arm=41)
+
+    def test_update_reuses_scan_and_rejects_mismatched_settings(self):
+        scanned = self.scan()
+        out = self.root / 'diagnostics'
+        out.mkdir()
+        with patch('criteo_uplift.diagnostics.scan_raw_data', side_effect=AssertionError('second scan')):
+            result = update_experiment_diagnostics(
+                self.path, out, audit=scanned['audit'], source=scanned['source'],
+                sample_size=20, permutations=1, seed=31, scanned=scanned, progress=lambda _: None,
+            )
+            self.assertEqual(result['full_n'], len(self.raw))
+            for seed, size in ((32, 20), (31, 40)):
+                with self.assertRaisesRegex(ValueError, '规模或种子'):
+                    update_experiment_diagnostics(
+                        self.path, out, audit=scanned['audit'], source=scanned['source'],
+                        sample_size=size, permutations=1, seed=seed, scanned=scanned,
+                    )
+        self.assertEqual(json.loads((out / 'srm.json').read_text())['observed_ratio'], .75)
+
+    def test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once(self):
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
+                sample, audit, source, prepared = prepare_sample(args)
+            self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+            with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read, patch.object(
+                diagnostics.pd.util, 'hash_pandas_object', side_effect=AssertionError('repeated audit'),
+            ):
+                cached, cached_audit, cached_source, cached_diagnostics = prepare_sample(args)
+            self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+        pd.testing.assert_frame_equal(sample, cached)
+        pd.testing.assert_frame_equal(prepared['c2st_sample'], cached_diagnostics['c2st_sample'])
+        self.assertEqual(audit['n_rows'], cached_audit['n_rows'])
+        self.assertEqual(source, cached_source)
+        self.assertNotIn('sample', prepared)  # 不让后续诊断持有百万行建模表。
+
+
+if __name__ == '__main__':
+    unittest.main()

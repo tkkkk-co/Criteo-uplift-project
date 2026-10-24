@@ -75,7 +75,7 @@ save(
 
 用分块读取扫描 CSV 的全部 13,979,592 行；检查有限数值、二元标签、对照组曝光和 `conversion ⇒ visit`。给每行独立随机优先值，保留最小的 1,000,000 个，从全文件等概率无放回抽样。不会取文件头部充当随机样本，不会人为重配类别比例；有限随机样本比例允许自然波动。
 
-审计使用原始 float64；模型样本使用 float32 降低内存。全字段重复使用 64-bit 指纹统计（有极小碰撞可能）；没有用户 ID，不能据此自动删除或认定同一用户。'''
+统一扫描入口为 `diagnostics.py` 顶部的 `scan_raw_data()`，返回字典中的 `sample` 是建模样本、`audit` 是全量审计，另有平衡检查和 C2ST 样本等结果。`audit_enabled` 独立控制全量审计，`diagnostics_enabled` 独立控制全量 SRM/SMD/KS；`sample_size`、`per_arm` 只控制建模和 C2ST 抽样。审计使用原始 float64；模型样本使用 float32 降低内存。全字段重复使用 64-bit 指纹统计（有极小碰撞可能）；没有用户 ID，不能据此自动删除或认定同一用户。'''
         ),
         code('''from criteo_uplift.data import load_sample, FEATURES, LABELS
 cache_path = ROOT/'artifacts/cache/sample_1000000_seed42.npz'
@@ -129,51 +129,21 @@ python run_pipeline.py --output artifacts/conversion_repeat
 save(
     '02_sanity_and_ate.ipynb',
     [
-        md(
-            '''# 02 · 实验可信度诊断与 ATE
-
-本节回答：公开样本是否存在明显数据异常、X 能否预测 T、X 是否有结果预测信息、T/C 的平均结果差异是多少？可观测诊断不能证明所有因果识别假设成立。'''
-        ),
+        md('# 02 · 实验可信度诊断与 ATE\n\n本节回答：\n- 公开样本是否存在明显数据异常；\n- X 能否预测 T；\n- X 是否有结果预测信息；\n- T/C 的ATE是多少？\n注：可观测诊断不能证明所有因果识别假设成立。'),
         code(SETUP),
-        md(r'''## ATE：差均值与不确定性
-
-$$\hat\tau=\bar Y_1-\bar Y_0,\quad SE=\sqrt{s_1^2/n_1+s_0^2/n_0}.$$
-
-95% CI 用非合并方差；双侧零效应检验使用零假设下的合并比例。绝对差以概率表示，乘 100 是百分点 pp，乘 100,000 是每十万人增量。相对提升为绝对差除以对照率。
-
-全量 ATE 是描述性分析，不能直接解释成真实线上广告收益。'''),
-        code(
-            "ate = pd.read_csv(RUN/'ate_full.csv')\ndisplay(ate)\ndisplay(Image(filename=str(RUN/'figures/ate_full.png')))"
-        ),
-        md('''## SRM、协变量平衡与 C2ST
-
-SRM 必须有外部给定的预设分流概率；不能拿观察到的 85% 当零假设再说通过。当前无设计参数，明确跳过。
-
-SMD 衡量单变量均值差；KS 描述单变量分布差；C2ST 用 Logistic + 小型树模型检查联合分布的可区分性。仅取训练集中的 20,000 个随机样本，固定训练/留出划分，每次在各划分内置换 T 并完整重拟合。99 次置换，p 值最小粒度 0.01；两模型同时看，给出 Holm 校正。
-
-不显著表示“未发现足够证据”，不能表述为证明随机化。'''),
-        code(
-            "display(json.loads((RUN/'srm.json').read_text()))\ndisplay(pd.read_csv(RUN/'balance.csv'))\ndisplay(pd.read_csv(RUN/'c2st.csv'))\ndisplay(Image(filename=str(RUN/'figures/balance.png')))"
-        ),
-        code(
-            "null = pd.read_csv(RUN/'c2st_null.csv')\nobserved = pd.read_csv(RUN/'c2st.csv').set_index('model')\nimport matplotlib.pyplot as plt\nfig, axes=plt.subplots(1,2,figsize=(11,3.4))\nfor (name, group), ax in zip(null.groupby('model'), axes):\n    ax.hist(group.roc_auc,bins=16,color='#2476a8',alpha=.75)\n    ax.axvline(observed.loc[name,'roc_auc'],color='#e78b35',label='Observed AUC')\n    ax.set_title(name);ax.set_xlabel('Held-out assignment ROC AUC');ax.legend()\nplt.tight_layout();plt.show()"
-        ),
-        md('''## 可学习性
-
-Dummy 使用训练集平均结果率；Logistic / HistGradientBoosting 只在训练集拟合，在 validation 比较 LogLoss、average precision、Brier、ROC-AUC。分别查看整个样本和两个 treatment 臂，并分别检查 visit / conversion。
-
-Outcome 可预测不等于 CATE 可预测；这些分类指标不能替代 AUUC、Qini 或策略增量。'''),
+        md('## ATE：差均值与不确定性\n\n$$\\hat\\tau=\\bar Y_1-\\bar Y_0,\\quad SE=\\sqrt{s_1^2/n_1+s_0^2/n_0}.$$\n\n- 95% CI 用非合并方差；\n- 双侧零效应检验使用零假设下的合并比例。\n- 绝对差以概率表示，乘 100 是百分点 pp，乘 100,000 是每十万人增量。相对提升为绝对差除以对照率。\n\n全量 ATE 是描述性分析，不能直接解释成真实线上广告收益。'),
+        code('# 读取并展示已保存的全量 ATE 结果；本单元只调整展示，不重新计算统计量。\n\nate_df = pd.read_csv(RUN / \'ate_full.csv\')\nate = ate_df  # 保留现有表格使用的变量名\n\nate_display = ate.set_index(\'outcome\').T\ndisplay(\n    ate_display.style\n    .format(\'{:.6f}\')\n    .format(\n        \'{:.0f}\',\n        subset=pd.IndexSlice[[\'n\', \'n_control\', \'n_treatment\'], :]\n    )\n    .format(\n        \'{:.3e}\',\n        subset=pd.IndexSlice[[\'p_value\'], :]\n    )\n)\n\n# 从当前表格现场绘图；原始列保持比例单位，绘图副本转换为百分点（pp）。\nimport matplotlib.pyplot as plt\nfrom matplotlib.ticker import MaxNLocator\n\nate_plot = (\n    ate_df.set_index(\'outcome\')\n    .loc[[\'conversion\', \'visit\'], [\'ate\', \'ci_low\', \'ci_high\']]\n    .mul(100) #转换成pp值\n)\n\nwith plt.rc_context( # 使用with:设置临时的图片样式参数\n    {\n        \'font.family\': \'DejaVu Sans\',\n        \'font.size\': 11,\n        \'axes.spines.top\': False,\n        \'axes.spines.right\': False,\n        \'axes.spines.left\': False,\n        \'axes.edgecolor\': \'#C8D0D8\',\n        \'axes.labelcolor\': \'#344454\',\n        \'text.color\': \'#23313F\',\n        \'figure.facecolor\': \'white\',\n        \'axes.facecolor\': \'white\',\n    }\n):\n    fig, axes = plt.subplots(\n        2,\n        1,\n        figsize=(11, 5.8),\n        sharex=False,\n        constrained_layout=True,\n    )\n    fig.suptitle(\n        \'Absolute treatment effects in the full public sample\\n\'\n        \'95% confidence intervals | Separate x-axis scales | Dashed line: zero effect\',\n        fontsize=13,\n    )\n\n    for ax, (outcome, row), color in zip(\n        axes,\n        ate_plot.iterrows(),\n        [\'#2166AC\', \'#087F8C\'],\n    ):\n        ax.axvline(\n            0,\n            color=\'#536170\',\n            linestyle=\'--\',\n            linewidth=1.3,\n            zorder=2,\n        )\n        ax.errorbar(\n            x=[row[\'ate\']],\n            y=[0],\n            xerr=[\n                [row[\'ate\'] - row[\'ci_low\']],\n                [row[\'ci_high\'] - row[\'ate\']],\n            ],\n            fmt=\'o\',\n            color=color,\n            markersize=7,\n            elinewidth=2.5,\n            capsize=7,\n            capthick=2,\n            zorder=3,\n        )\n\n        # 每个子图独立缩放，但始终包含零点、点估计和完整 CI；保持线性坐标。\n        left = min(0.0, row[\'ci_low\'], row[\'ate\'])\n        right = max(0.0, row[\'ci_high\'], row[\'ate\'])\n        span = right - left\n        padding = 0.08 * span if span > 0 else 0.01\n        ax.set_xlim(\n            left - padding,\n            right + padding,\n        )\n\n        ax.set_ylim(-0.45, 0.85)\n        ax.set_yticks(\n            [0],\n            [outcome.capitalize()],\n        )\n        ax.tick_params(axis=\'y\', length=0, pad=12)\n        ax.xaxis.set_major_locator(MaxNLocator(nbins=6))\n        \n        ax.set_xlabel(\'Absolute treatment effect (percentage points, pp)\')\n        ax.set_axisbelow(True)\n        ax.grid(axis=\'x\', color=\'#E6EBEF\', linewidth=0.8)\n\n        # 标注使用绘图区相对坐标，放在点和 CI 上方，避免遮挡。\n        ax.text(\n            0.98,\n            0.94,\n            f"ATE = {row[\'ate\']:+.4f} pp\\n"\n            f"95% CI: [{row[\'ci_low\']:.4f}, {row[\'ci_high\']:.4f}] pp",\n            transform=ax.transAxes,\n            ha=\'right\',\n            va=\'top\',\n            fontsize=12,\n            fontweight=\'bold\',\n            color=color,\n            linespacing=1.5,\n        )\n\n    plt.show()\n'),
+        md('## 1. SRM：全量公开数据与 85% 参考比例的一致性\n\n全部诊断统一从原来的 `RUN` 目录读取。SRM原本就使用全量计数，继续使用Pearson卡方检验。\n\n85% 的独立依据是[数据集作者论文 Table 1 和 Section 3](https://arxiv.org/html/2111.10106#S3)。它是公开数据的参考Treatment占比；检验只检查发布计数与参考比例的一致性，不能据此宣布原始线上实验通过SRM或证明随机化。'),
+        code("srm = json.loads(\n    (RUN / 'srm.json').read_text()\n)\ndisplay(\n    pd.DataFrame([srm])[\n        ['scope', 'n_treatment', 'n_control', 'observed_ratio',\n         'expected_ratio', 'chi2', 'pvalue', 'status']\n    ].style.format(\n        {'observed_ratio': '{:.10f}', 'expected_ratio': '{:.2f}',\n         'chi2': '{:.6e}', 'pvalue': '{:.6f}'}\n    )\n)\nprint(srm['interpretation'])\nprint('85%独立参考来源：', srm['reference_source'])"),
+        md('## 2. SMD / KS：全量公开数据的单变量平衡\n\n直接读取原始 CSV 为 float64，分块验证全部 16 列，逐特征比较 Treatment 与 Control；没有使用 float32 建模缓存或删除记录。SMD 仍为两组均值差除以 `sqrt((s1² + s0²) / 2)`，方差使用 `ddof=1`；KS 仍为双侧两样本统计量。\n\n原来的 `balance.csv` 和 `figures/balance.png` 已原位更新为全量结果，表和图均标记分析范围。`|SMD| < 0.1` 只是常用经验参考，不是通用硬性通过标准。KS p 值未经多重校正，使用渐近近似；大量样本、重复取值和未知实体依赖都影响其解释，应重点观察差异大小。数值为 0 的 p 值可能是浮点下溢，不是数学上恰好为零。单变量平衡不代表联合分布一致。'),
+        code('balance_public = pd.read_csv(\n    RUN / \'balance.csv\'\n)\nassert balance_public[\'scope\'].eq(\'full_published_dataset\').all()\nassert balance_public[\'n_treatment\'].eq(srm[\'n_treatment\']).all()\nassert balance_public[\'n_control\'].eq(srm[\'n_control\']).all()\ndisplay(\n    balance_public.drop(columns=\'source_sha256\').style.format(\n        {\'mean_treatment\': \'{:.6f}\', \'mean_control\': \'{:.6f}\',\n         \'smd\': \'{:+.6f}\', \'abs_smd\': \'{:.6f}\',\n         \'ks_statistic\': \'{:.6f}\', \'ks_pvalue\': \'{:.3e}\'}\n    )\n)\nmax_smd = balance_public.loc[balance_public[\'abs_smd\'].idxmax()]\nmax_ks = balance_public.loc[balance_public[\'ks_statistic\'].idxmax()]\nprint(\n    f"全量最大 |SMD|：{max_smd[\'feature\']} = {max_smd[\'abs_smd\']:.6f}；"\n    f"最大 KS：{max_ks[\'feature\']} = {max_ks[\'ks_statistic\']:.6f}"\n)\ndisplay(\n    Image(\n        filename=str(\n            RUN / \'figures/balance.png\'\n        )\n    )\n)\n'),
+        md('## 3. C2ST：全量来源、两组等量抽样的联合可区分性诊断\n\n从全量原始数据分别对 T=0、T=1 做等概率无放回抽样，每组 10,000 行，共 20,000 行。这代表各组条件特征分布，**不保留总体 85:15 的处理比例**，也不是用全量样本训练分类器。\n\n复用现有 Logistic Regression 与小型 HistGradientBoosting，内部按 T 分层做 70/30 训练/留出划分；此划分与正式模型的 Train/Validation/Test 无关。标准化仅在诊断训练部分拟合。评价为留出 ROC AUC，以 0.5 为无区分能力基准；不根据结果翻转 AUC 方向。\n\n每次在两个内部集合各自置换 T，并完整重新拟合两个分类器。p=(1+置换 AUC≥观测 AUC 的次数)/(B+1)，对两模型做 Holm 校正。实际 B、p 值分辨率、组别数和来源如下。不显著只表示当前样本与分类器未发现足够证据，不能证明联合分布相同或随机化成立；未知分块、多实验和实体依赖仍限制置换可交换性。'),
+        code('c2st_public = pd.read_csv(\n    RUN / \'c2st.csv\'\n)\nc2st_details = json.loads(\n    (RUN / \'c2st_details.json\').read_text()\n)\nassert c2st_public[\'scope\'].eq(\'full_source_arm_balanced_sample\').all()\ndisplay(\n    c2st_public[\n        [\'scope\', \'model\', \'sample_n\', \'n_control\', \'n_treatment\',\n         \'roc_auc\', \'pvalue\', \'pvalue_holm\', \'permutations\', \'pvalue_resolution\']\n    ].style.format(\n        {\'roc_auc\': \'{:.6f}\', \'pvalue\': \'{:.3f}\',\n         \'pvalue_holm\': \'{:.3f}\', \'pvalue_resolution\': \'{:.3f}\'}\n    )\n)\ndisplay(\n    pd.DataFrame(\n        [{key: c2st_details[key] for key in\n          [\'scope\', \'train_n_control\', \'train_n_treatment\',\n           \'holdout_n_control\', \'holdout_n_treatment\', \'seed\', \'metric\', \'multiplicity\']}]\n    )\n)\nprint(\'抽样方式：\', c2st_details[\'sampling\'])\nprint(\'实际置换次数：\', c2st_details[\'permutations\'])\nprint(\'p 值分辨率：\', c2st_details[\'pvalue_resolution\'])\nprint(\'数据来源：\', c2st_details[\'source\'][\'sha256\'])\n# 直接从原来的 c2st_null.csv 现场绘制置换零分布。\nnull = pd.read_csv(\n    RUN / \'c2st_null.csv\'\n)\nimport matplotlib.pyplot as plt\nfig, axes = plt.subplots(\n    1, 2, figsize=(11, 4), constrained_layout=True,\n)\nfor ax, row in zip(axes, c2st_public.itertuples()):\n    ax.hist(\n        null.loc[null[\'model\'] == row.model, \'roc_auc\'],\n        bins=24, color=\'#2171ad\', alpha=.8,\n    )\n    ax.axvline(\n        row.roc_auc, color=\'#ba6b24\', label=f\'Observed {row.roc_auc:.4f}\',\n    )\n    ax.set_title(f\'{row.model} | Holm p = {row.pvalue_holm:.3f}\')\n    ax.set_xlabel(\'Diagnostic holdout ROC AUC\')\n    ax.set_ylabel(\'Permutation count\')\n    ax.legend(frameon=False)\nfig.suptitle(\n    f"Full-source balanced C2ST | {c2st_details[\'n_control\']:,} control + "\n    f"{c2st_details[\'n_treatment\']:,} treatment\\n"\n    f"{c2st_details[\'permutations\']} complete-refit permutations; internal 70/30 split"\n)\nplt.show()'),
+        md('## 4. 综合结论与边界\n\n以下摘要由本次产物动态生成。统计显著性不等于业务重要性；诊断没有发现异常也不代表完成随机化证明。公开数据经过发布处理，匿名字段不能验证用户级隔离或特征的真实生成时间；原始实验的分块、跨实验结构和实体依赖无法由这些字段恢复。\n\n本次属于已查看数据后的描述性诊断，不是新的独立测试集验证；结果不会反馈到正式模型选择、特征删除或切分调整。'),
+        code('srm_statement = (\n    \'未检测到公开计数偏离85%参考比例的证据\'\n    if srm[\'pvalue\'] >= 0.05\n    else \'公开计数与85%参考比例存在统计差异，需要调查发布机制\'\n)\nprint(f"全量 SRM 参考检查：{srm_statement}（p={srm[\'pvalue\']:.6f}）。")\nprint(\n    f"全量单变量差异：最大 |SMD|={max_smd[\'abs_smd\']:.6f} ({max_smd[\'feature\']})，"\n    f"最大 KS={max_ks[\'ks_statistic\']:.6f} ({max_ks[\'feature\']})；"\n    \'请结合量级解释，不以显著性或0.1作为随机化通过标准。\'\n)\nfor row in c2st_public.itertuples():\n    finding = (\n        \'当前设计下检测到联合可区分性的证据，需调查\'\n        if row.pvalue_holm < 0.05\n        else \'当前样本规模与分类器未检测到足够联合可区分性证据\'\n    )\n    print(f"全量来源 C2ST / {row.model}：{finding}（Holm p={row.pvalue_holm:.3f}）。")\nprint(\'不能据此证明随机化、联合分布完全一致、用户级隔离或真实投放收益。\')\n'),
+        md('## 可学习性\n\nDummy 使用训练集平均结果率；Logistic / HistGradientBoosting 只在训练集拟合，在 validation 比较 LogLoss、average precision、Brier、ROC-AUC。分别查看整个样本和两个 treatment 臂，并分别检查 visit / conversion。\n\nOutcome 可预测不等于 CATE 可预测；这些分类指标不能替代 AUUC、Qini 或策略增量。'),
         code("learning = pd.read_csv(RUN/'learnability.csv')\ndisplay(learning)"),
-        md('''## 可独立复用的函数
-
-```python
-from criteo_uplift.diagnostics import c2st, covariate_balance, learnability, srm_summary
-from criteo_uplift.evaluation import ate_summary
-# c2st(train, FEATURES, sample_size=20_000, permutations=99, seed=42)
-# ate_summary(frame['conversion'], frame['treatment'])
-```
-
-全量聚合量来源于流式扫描，不需要把 3 GB CSV 整体读进内存。'''),
+        md('## 原位更新诊断的运行入口\n\n在仓库根目录的项目Python环境中执行：\n\n```bash\npython -B run_pipeline.py --diagnostics-only\n```\n\n该命令直接更新原来 `RUN` 中的 `srm.json`、`balance.csv`、`c2st.csv`、`c2st_null.csv`、`c2st_details.json`，以及 `figures/balance.png` 和 `report.html`。不重新抽样建模、不重新切分或训练正式模型，不改ATE及策略评价。\n\n默认C2ST从原始全量来源每组抽10,000行，seed=42，499次完整重拟合置换。需要调整诊断计算规模时使用现有 `--c2st-sample`、`--permutations` 参数；`--output` 可定位已有的实验目录。\n\n代码主线：`diagnostics.py` 顶部的 `scan_raw_data()` 是唯一的全量扫描入口，统一完成读取、审计、建模抽样、C2ST 抽样及全量 SMD/KS、SRM。函数返回字典，包含 `sample`、`audit`、`balance`、`c2st_sample`、`srm`、`metadata`、`source`。完整运行复用这些结果，由同文件的 `update_experiment_diagnostics()` 运行 C2ST 并保存文件；四项任务独立控制：`audit_enabled` 控制全量审计，`diagnostics_enabled` 控制全量 SRM/SMD/KS，`sample_size` 控制建模抽样，`per_arm` 控制 C2ST 抽样。仅更新诊断时，显式设置 `sample_size=None`、`audit_enabled=False`、`diagnostics_enabled=True`，并指定 `per_arm`。`data.py` 提供路径保护、文件指纹、格式转换、缓存读写和数据划分等辅助函数。`reporting.py` 负责更新图表。Notebook统一通过 `RUN` 读取结果。'),
     ],
 )
 
