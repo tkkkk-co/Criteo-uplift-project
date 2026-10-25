@@ -1,4 +1,6 @@
 # 核验建模缓存并调用唯一的全量扫描入口，为建模和诊断准备数据。
+# Notebook 01 的数据准备调用链：run_pipeline.run → prepare_sample → diagnostics.scan_raw_data。
+# 返回 sample / audit / source / scanned；结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
 import json

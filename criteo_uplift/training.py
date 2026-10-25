@@ -1,4 +1,6 @@
 # 在训练集拟合模型，在验证集选择策略；不使用测试结果进行选择。
+# Notebook 03 的核心实现：run_learnability_diagnostics → fit_and_select_models。
+# 输出 learnability.csv、validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
 import time

@@ -1,4 +1,5 @@
 # 使用内存 SQLite 核对冻结策略的连接完整性、分组统计和策略收益。
+# Notebook 06 展示核对结果；完整查询保存在 SQL 审计产物的 queries.sql。
 
 from __future__ import annotations
 

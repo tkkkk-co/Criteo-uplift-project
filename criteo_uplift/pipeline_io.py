@@ -1,4 +1,6 @@
 # 统一管理路径保护、JSON、文件指纹、样本缓存和实验产物读写。
+# 这里负责“怎么保存/读取”，不负责决定何时训练或评价；主流程见 run_pipeline.py。
+# Notebook 与结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
 import importlib.metadata
@@ -329,4 +331,4 @@ def result_directory(name, root=ROOT):
     for directory in candidates:
         if directory.is_dir():
             return directory
-    raise FileNotFoundError(f'No saved results for {name}; see docs/REPRODUCIBILITY.md')
+    raise FileNotFoundError(f'No saved results for {name}; see docs/PROJECT_PIPELINE.md and docs/RESULTS_GUIDE.md')

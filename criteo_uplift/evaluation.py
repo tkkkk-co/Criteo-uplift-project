@@ -1,4 +1,6 @@
 # 评价随机实验的平均效果、增量排序和触达策略；模型分数必须来自未使用评价结果进行拟合的模型。
+# Notebook 02–05 使用本模块；这里尽量只计算指标，不负责训练、CLI、产物目录或 HTML。
+# 指标产物与 Notebook 对照见 docs/RESULTS_GUIDE.md。
 # 分配概率固定使用外部值或训练集估计值；置信区间不包含重新训练和选模的不确定性。
 
 from __future__ import annotations

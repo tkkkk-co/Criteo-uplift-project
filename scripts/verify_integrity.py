@@ -1,4 +1,4 @@
-# 对照历史记录核验原始数据未改变，并记录学习笔记的授权修改与备份状态。
+# 对照历史记录核验原始数据未改变，并记录项目 Markdown 文档的授权编辑/归档与备份状态。
 
 from pathlib import Path
 import hashlib
@@ -24,12 +24,12 @@ def sha(path):
 
 
 #-----------------------------------------------------------------------------------------------------------------------
-# 函数：verify —— 核验原始数据及学习笔记备份。
+# 函数：verify —— 核验原始数据及历史 Markdown 文档备份。
 # 输入：
 #     无。
 # 输出：
 #     report：原始数据一致性和笔记备份检查结果。
-# 说明：核验原始数据及学习笔记备份。
+# 说明：核验原始数据；对已归档/删除的历史 Markdown，检查本机原始备份是否仍可验证。
 #-----------------------------------------------------------------------------------------------------------------------
 def verify():
     before = json.loads((ROOT / 'artifacts/input_integrity_before.json').read_text())
@@ -37,23 +37,29 @@ def verify():
     note_changes = []
     for record in before:
         path = ROOT / record['path']
-        digest = sha(path)
-        stat = path.stat()
         if record['path'].startswith('data/'):
+            exists = path.is_file()
+            digest = sha(path) if exists else None
+            stat = path.stat() if exists else None
             data_checks.append(
                 {
                     'path': record['path'],
-                    'sha256_unchanged': digest == record['sha256'],
-                    'size_unchanged': stat.st_size == record['size'],
-                    'mtime_unchanged': stat.st_mtime_ns == record['mtime_ns'],
+                    'file_present': exists,
+                    'sha256_unchanged': exists and digest == record['sha256'],
+                    'size_unchanged': exists and stat.st_size == record['size'],
+                    'mtime_unchanged': exists and stat.st_mtime_ns == record['mtime_ns'],
                 }
             )
         elif path.suffix == '.md':
             backup = ROOT / 'artifacts/note_backups_20261011' / record['path']
+            exists = path.is_file()
+            digest = sha(path) if exists else None
             note_changes.append(
                 {
                     'path': record['path'],
-                    'content_changed': digest != record['sha256'],
+                    'file_present': exists,
+                    'intentionally_removed_or_archived': not exists,
+                    'content_changed': (not exists) or digest != record['sha256'],
                     'original_backup_verified': backup.is_file()
                     and sha(backup) == record['sha256'],
                 }

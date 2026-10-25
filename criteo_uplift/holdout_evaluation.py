@@ -1,4 +1,6 @@
 # 使用测试集评价已冻结的候选模型，并保存指标、曲线和预测。
+# Notebook 04 的核心入口：evaluate_test_set；不重新训练或重新选择策略。
+# 结果文件包括 test_policies.csv、test_ranking.csv、curves.csv、ranking_intervals.csv、predictions.npz。
 
 from pathlib import Path
 
