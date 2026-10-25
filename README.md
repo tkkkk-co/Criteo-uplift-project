@@ -28,16 +28,17 @@
 - SQLite 主外键、1:1 join、条件聚合和窗口排名，在 20 万冻结测试行上核对 Python HT，最大浮点差约 9.52e−13。
 - 同预算线上策略 A/B 设计、样本量规划与显式成本/转化价值场景。
 
-完整解释见 [业务实现与结论](docs/BUSINESS_CASE.md)，数据来源与限制见 [NOTICE](NOTICE.md)。公开数据的隐私抽样限制对原业务总体的外推。[Criteo 官方说明](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)
+项目执行路径见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)，Notebook 与产物映射、当前结果解释见 [结果导航](docs/RESULTS_GUIDE.md)，数据来源与限制见 [NOTICE](NOTICE.md)。公开数据的隐私抽样限制对原业务总体的外推。[Criteo 官方说明](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)
 
 ## 三种使用方式
 
 ### 1. 直接阅读，无需下载原始数据
 
-- [业务报告](docs/BUSINESS_CASE.md)：问题、证据、策略选择与上线门槛。
+- [Pipeline 导航](docs/PROJECT_PIPELINE.md)：主流程、模块边界、输入输出、入口与复现命令。
+- [结果导航](docs/RESULTS_GUIDE.md)：Notebook 01–06 与计算函数、写入函数、产物文件的对应关系，以及当前结果的解释边界。
 - [指标理论与完整手算](因果推断理论/7.Metrics.md)。
 - [Notebook 01—06](notebooks/)：已有代码、表格和图；没有本地实验时自动读取公开聚合快照。
-- [学习主线与重复记录敏感性分析后续入口](docs/SENSITIVITY_FOLLOWUP.md)：先理解主项目，再研究已归档的重复核验与组隔离对照；完整审计产物仅保存在本机。
+- [Notebook 01–06](notebooks/)：按项目业务流程阅读；每页开头提供代码调用和结果文件导航。扩展敏感性结果、SQL 核对与业务假设情景见 Notebook 06。
 - [公开结果目录](reports/published/)：小体积 CSV/JSON/PNG、SQL 和来源哈希。
 - HTML 报告可下载后在浏览器打开；GitHub 通常展示 HTML 源文件，而非直接执行报告页面。
 
@@ -58,7 +59,7 @@ python scripts/execute_notebooks.py
 
 `run_demo.py` 使用明确标注的**合成随机实验**验证四个真实 learner 接口和策略评价；它的数值不替代上述 Criteo 结果。输出目录需要不存在。Notebook 默认执行公开结果；`--local-results` 可优先读取作者本地实验。
 
-已有 Conda 环境的用户可先激活兼容环境再执行安装命令。macOS 如果缺少 OpenMP，按 [环境与复现说明](docs/REPRODUCIBILITY.md) 配置。项目 `.runtime/` 中的本机二进制不上传。
+已有 Conda 环境的用户可先激活兼容环境再执行安装命令。macOS 如果缺少 OpenMP，按 [Pipeline 导航](docs/PROJECT_PIPELINE.md) 中的环境与运行说明配置。项目 `.runtime/` 中的本机二进制不上传。
 
 `pyproject.toml` 定义可安装代码包和依赖范围；`requirements-tested.txt` 记录本次本机验证的直接依赖版本，**不是完整的跨平台 lockfile**。CI 已配置测试/演示/Notebook 检查，远端执行状态需上传后查看，不能把配置存在当作已通过。
 
@@ -73,7 +74,7 @@ python scripts/run_metrics_extension.py --output artifacts/metrics_repeat
 python scripts/run_sql_audit.py --output artifacts/sql_repeat
 ```
 
-后面三个入口默认分析首轮本地实验；若分析新 run，查看 `--help` 的 `--base-run` / `--source` / `--cache`。公开快照不包含逐行预测、行号列表或 fitted models，所以重训、稳定性研究与打分交付需要自己的本地实验产物。完整参数与依赖见 [复现说明](docs/REPRODUCIBILITY.md)。
+后面三个入口默认分析首轮本地实验；若分析新 run，查看 `--help` 的 `--base-run` / `--source` / `--cache`。公开快照不包含逐行预测、行号列表或 fitted models，所以重训、稳定性研究与打分交付需要自己的本地实验产物。完整入口、输出目录与复现命令见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)。
 
 ## 项目结构
 
@@ -94,12 +95,12 @@ criteo_uplift/
 run_pipeline.py              完整实验编排、诊断刷新与报告收尾
 run_stability.py             排除旧 test 的开发敏感性研究
 score_policy.py              加载本地冻结模型生成预算名单
-scripts/                     演示、Notebook、快照、发布检查
+scripts/                     演示、执行 Notebook、快照与发布检查
 notebooks/                   数据→诊断→模型→策略→手算→稳健性
 reports/published/           可公开的小体积聚合证据
 reports/published/*/queries.sql SQL 审计查询
 tests/                      单元与合成端到端测试（不是 ML test set）
-docs/                        业务实现、复现、GitHub 新手教程
+docs/                        主流程导航、Notebook 与结果文件映射；维护验收记录在 maintenance/
 因果推断理论/                 数学笔记与未来观察研究计划
 .github/workflows/ci.yml      上传后自动检查
 ```
@@ -122,6 +123,6 @@ e 在主实验中固定为 train 的处理比例估计。response propensity 指
 
 ## 发布、来源与许可证
 
-第一次使用 GitHub，按 [逐步发布教程](docs/GITHUB_BEGINNER_GUIDE.md) 操作。`python scripts/check_publication.py` 核对公开快照；`python scripts/build_release.py` 生成小体积 ZIP，明确排除原始数据和个人本机环境。
+开始阅读代码时，先看 [Pipeline 导航](docs/PROJECT_PIPELINE.md)，再用 [结果导航](docs/RESULTS_GUIDE.md) 从 Notebook 追踪到计算函数和产物文件。`python scripts/check_publication.py` 核对公开快照；`python scripts/build_release.py` 生成小体积 ZIP，明确排除原始数据和个人本机环境。
 
 原创代码采用 MIT。Criteo 数据及本仓库的数据派生输出按其 CC BY-NC-SA 4.0 条款保留归属与限制，见 [NOTICE](NOTICE.md)；MIT 不改变原数据的非商业条款。参考 Criteo AdKDD 2018 与 Künzel 等 meta-learner 研究。

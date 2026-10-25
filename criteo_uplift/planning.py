@@ -1,4 +1,5 @@
 # 在明确的假设下估算策略 A/B 实验样本量和成本收益，不代表真实线上收益。
+# Notebook 06 使用本模块；所有价值/成本输入均为显式假设，不能当作真实财务数据。
 
 from math import ceil, floor, isfinite, sqrt
 from statistics import NormalDist

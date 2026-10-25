@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # 运行完整 Criteo uplift 分析：数据准备、诊断、训练、验证集选择、测试集评价和报告。
+# 阅读地图：docs/PROJECT_PIPELINE.md；Notebook 与结果文件映射：docs/RESULTS_GUIDE.md。
+# 阅读本文件时先看 run() 中的编号阶段，再沿当前阶段进入对应模块，不必先通读整个包。
 # 原始 data 目录只读；运行示例：python run_pipeline.py --sample-size 1000000 --outcome conversion。
 
 # 在导入 NumPy、pandas 或模型前配置数值计算线程。

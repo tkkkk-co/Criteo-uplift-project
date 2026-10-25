@@ -1,4 +1,5 @@
 # 读取已保存的实验结果，生成图表和 HTML 报告。
+# 这里只渲染已保存的产物，不重训模型或重新选择策略；结果来源见 docs/RESULTS_GUIDE.md。
 
 from __future__ import annotations
 
