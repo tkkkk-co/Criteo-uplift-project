@@ -1,8 +1,4 @@
-"""Fit candidate uplift models and select a policy using validation data.
-
-The module deliberately does not inspect test outcomes. Model selection is
-frozen before test-set evaluation begins.
-"""
+# 在训练集拟合模型，在验证集选择策略；不使用测试结果进行选择。
 
 from pathlib import Path
 import time
@@ -11,36 +7,25 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from .data import FEATURES, write_json
+from .data import FEATURES
+from .pipeline_io import write_json
 from .diagnostics import learnability
 from .evaluation import evaluate_policies, ranking_metrics
 from .models import make_model
 
 
-# ----------------------------------------------------------------------------
-# Function: run_learnability_diagnostics — assess outcome predictability.
-# Inputs:
-#     train, validation: split DataFrames with FEATURES and the outcome labels.
-#     out: directory where learnability.csv will be written.
-#     seed: deterministic model seed.
-# Outputs:
-#     None; writes learnability.csv.
-# Notes:
-#     This evaluates prediction of observed outcomes, not treatment-effect
-#     heterogeneity or CATE quality.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run_learnability_diagnostics —— 检查特征对访问和转化的预测信息。
+# 输入：
+#     train：训练集数据表。
+#     validation：验证集数据表，用于评价和策略选择。
+#     out：当前实验的结果保存目录。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     返回值：None；保存 learnability.csv。
+# 说明：分别检查特征对访问和转化的预测能力，在验证集评价并保存两组结果。
+#-----------------------------------------------------------------------------------------------------------------------
 def run_learnability_diagnostics(train, validation, out, *, seed):
-    """Run the existing outcome-learnability check for visit and conversion.
-
-    Args:
-        train: training split.
-        validation: validation split.
-        out: output directory for the CSV artifact.
-        seed: random seed forwarded to the diagnostic models.
-
-    Returns:
-        None. Writes learnability.csv.
-    """
     records = [
         learnability(train, validation, FEATURES, outcome, seed=seed)
         for outcome in ("visit", "conversion")
@@ -48,22 +33,24 @@ def run_learnability_diagnostics(train, validation, out, *, seed):
     pd.concat(records).to_csv(Path(out) / "learnability.csv", index=False)
 
 
-# ----------------------------------------------------------------------------
-# Function: fit_and_select_models — fit candidates and freeze policy selection.
-# Inputs:
-#     train, validation: mutually exclusive modeling data splits.
-#     outcome: primary binary outcome used for fitting and ranking.
-#     seed, trees: model randomness and XGBoost tree count.
-#     primary_budget: contact fraction used for the primary validation decision.
-#     assignment_probability: fixed treatment-assignment probability estimate.
-#     out: directory for model, validation, and selection artifacts.
-#     progress: callback accepting a progress-message string.
-# Outputs:
-#     dict with fitted models, model metadata, and the frozen selection record.
-# Notes:
-#     Models are fitted on train only; validation selects the policy; test is
-#     not passed to this function and therefore cannot affect selection.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：fit_and_select_models —— 拟合四个候选模型并冻结验证集策略选择。
+# 输入：
+#     train：训练集数据表。
+#     validation：验证集数据表，用于评价和策略选择。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+#     trees：XGBoost 候选模型使用的树数量。
+#     primary_budget：主策略允许触达的人群比例。
+#     assignment_probability：固定使用的处理分配概率估计值。
+#     out：当前实验的结果保存目录。
+#     progress：接收进度文字的函数。
+# 输出：字典，各字段如下。
+#     models：已拟合模型字典。
+#     model_metadata：模型参数和训练耗时。
+#     selection：验证集上冻结的策略选择记录。
+# 说明：使用验证集主预算收益选择策略，保存模型和冻结记录，再由独立步骤开展测试评价。
+#-----------------------------------------------------------------------------------------------------------------------
 def fit_and_select_models(
     train,
     validation,
@@ -76,21 +63,6 @@ def fit_and_select_models(
     out,
     progress=print,
 ):
-    """Fit the four uplift candidates and freeze the validation-selected policy.
-
-    Args:
-        train, validation: disjoint training and validation DataFrames.
-        outcome: binary outcome column used by the run.
-        seed: deterministic seed for model fitting and ranking metrics.
-        trees: number of estimators for XGBoost candidates.
-        primary_budget: contact fraction used for the primary decision.
-        assignment_probability: training-split estimate of P(T=1).
-        out: output directory for model and validation artifacts.
-        progress: callback used to report model-training progress.
-
-    Returns:
-        Dictionary with keys models, model_metadata, and selection.
-    """
     out = Path(out)
     models = {}
     validation_scores = {}
@@ -124,7 +96,7 @@ def fit_and_select_models(
         )
         joblib.dump(model, out / f"{name}.joblib")
 
-    # Response propensity is P(Y=1 | X,T=1), not P(T=1 | X).
+    # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
     validation_scores["propensity"] = models["t_xgboost"].predict_outcomes(
         validation[FEATURES]
     )[1]
@@ -142,7 +114,7 @@ def fit_and_select_models(
         out / "validation_ranking.csv", index=False
     )
 
-    # Freeze both the best available policy and the best uplift-only candidate.
+    # 分别冻结全部可用策略中的最佳策略，以及仅增量模型中的最佳候选。
     selected_policy = (
         validation_policies.sort_values(
             "incremental_per_100k", ascending=False, kind="stable"

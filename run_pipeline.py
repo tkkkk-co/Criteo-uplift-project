@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
-"""Run the end-to-end Criteo uplift analysis pipeline.
+# 运行完整 Criteo uplift 分析：数据准备、诊断、训练、验证集选择、测试集评价和报告。
+# 原始 data 目录只读；运行示例：python run_pipeline.py --sample-size 1000000 --outcome conversion。
 
-Example: python run_pipeline.py --sample-size 1000000 --outcome conversion
-The pipeline writes artifacts only; the original data/ directory is read-only.
-"""
-
-# Configure numerical-library threads before importing NumPy, pandas, or models.
+# 在导入 NumPy、pandas 或模型前配置数值计算线程。
 from criteo_uplift.runtime import configure_runtime
 
 configure_runtime()
 
 import argparse
+import json
 import time
+import numpy as np
 from pathlib import Path
 
-from criteo_uplift.data import (
-    ROOT,
-    DEFAULT_DATA,
-    safe_output,
-    split_sample,
-)
+from criteo_uplift.data import ROOT, DEFAULT_DATA, split_sample
 from criteo_uplift.diagnostics import update_experiment_diagnostics
 from criteo_uplift.evaluation import aggregate_ate_from_audit as aggregate_ate
 from criteo_uplift.preparation import prepare_sample as _prepare_sample
@@ -28,9 +22,10 @@ from criteo_uplift.training import (
     run_learnability_diagnostics,
 )
 from criteo_uplift.holdout_evaluation import evaluate_test_set
+from criteo_uplift.reporting import build_report
 from criteo_uplift.pipeline_io import (
-    finalize_run,
-    update_diagnostics_only,
+    safe_output,
+    write_json,
     write_audit_artifacts,
     write_feature_overlap,
     write_run_manifest,
@@ -38,58 +33,113 @@ from criteo_uplift.pipeline_io import (
 )
 
 
-# ----------------------------------------------------------------------------
-# Function: log — print a timestamped progress message.
-# Inputs:
-#     message: text describing the current pipeline step.
-# Outputs:
-#     None; writes one flushed line to standard output.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：log —— 显示带时间的进度信息。
+# 输入：
+#     message：需要显示的进度文字。
+# 输出：
+#     返回值：None；向终端输出一条进度信息。
+# 说明：显示带时间的进度信息。
+#-----------------------------------------------------------------------------------------------------------------------
 def log(message):
-    """Print a timestamped progress message immediately."""
     import time as _time
 
     print(_time.strftime("%H:%M:%S"), message, flush=True)
 
 
-# ----------------------------------------------------------------------------
-# Function: prepare_sample — compatibility entry point for sample preparation.
-# Inputs:
-#     args: CLI-style configuration for source, sample, seed, and diagnostics.
-# Outputs:
-#     Same four-item tuple returned by criteo_uplift.preparation.prepare_sample.
-# Notes:
-#     Keeps existing imports/tests working while routing implementation to the
-#     preparation module. ROOT and log are passed explicitly for easy testing.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：prepare_sample —— 核验缓存并准备建模样本和全量诊断。
+# 输入：
+#     args：本次运行的配置对象，包含数据路径、规模、种子和输出设置。
+# 输出：
+#     sample：建模样本表。
+#     audit：全量审计字典。
+#     source：原始文件指纹。
+#     scanned：同一次扫描得到的可复用诊断结果。
+# 说明：保留原有导入入口，将实现转交 preparation.prepare_sample；显式传入项目根目录和进度函数。
+#-----------------------------------------------------------------------------------------------------------------------
 def prepare_sample(args):
-    """Prepare or reuse the modeling sample and same-scan diagnostic data."""
     return _prepare_sample(args, root=ROOT, progress=log)
 
 
-# ----------------------------------------------------------------------------
-# Function: run — orchestrate the complete analysis in notebook reading order.
-# Inputs:
-#     args: parsed CLI configuration (or a compatible namespace in tests).
-# Outputs:
-#     Path to the completed run directory.
-# Notes:
-#     The implementation of each stage lives in its responsibility-specific
-#     module; this function keeps the end-to-end call sequence visible.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：finalize_run —— 生成报告并记录本次实验已完成。
+# 输入：
+#     out：当前实验的结果保存目录。
+#     policies：测试集各策略的评价结果表。
+#     primary_budget：主策略允许触达的人群比例。
+#     progress：接收进度文字的函数。
+# 输出：
+#     out：已生成报告的实验目录。
+# 说明：根据已保存的产物生成报告，更新完成状态，并显示主预算下的策略结果。
+#-----------------------------------------------------------------------------------------------------------------------
+def finalize_run(out, policies, primary_budget, progress=print):
+    out = Path(out)
+
+    build_report(out)
+    manifest_path = out / "manifest.json"
+    completion = json.loads(manifest_path.read_text(encoding="utf-8"))
+    completion["status"] = "complete"
+    write_json(completion, manifest_path)
+    progress(f"完成：{out}/report.html")
+    print(
+        policies[
+            np.isclose(policies.budget, primary_budget)
+        ].to_string(index=False)
+    )
+    return out
+
+
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：update_diagnostics_only —— 更新已有实验的诊断文件和报告。
+# 输入：
+#     args：本次运行的配置对象，包含数据路径、规模、种子和输出设置。
+#     root：项目根目录，用于定位缓存或结果。
+#     progress：接收进度文字的函数。
+# 输出：
+#     out：完成诊断更新的已有实验目录。
+# 说明：复用实验审计与来源信息，仅重做诊断，不划分或训练正式增量模型。
+#-----------------------------------------------------------------------------------------------------------------------
+def update_diagnostics_only(args, *, root=ROOT, progress=print):
+    out = safe_output(
+        args.output
+        or Path(root) / f"artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}"
+    )
+    audit = json.loads((out / "audit.json").read_text(encoding="utf-8"))
+    manifest_path = out / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if args.seed != manifest["seed"]:
+        raise ValueError("诊断 seed 必须与当前实验一致")
+    update_experiment_diagnostics(
+        args.data,
+        out,
+        audit=audit,
+        source=manifest["source"],
+        sample_size=args.c2st_sample,
+        permutations=args.permutations,
+        seed=args.seed,
+        progress=progress,
+    )
+    manifest["arguments"]["permutations"] = args.permutations
+    manifest["arguments"]["c2st_sample"] = args.c2st_sample
+    write_json(manifest, manifest_path)
+    build_report(out, diagnostics_only=True)
+    progress(f"已原位更新诊断：{out}")
+    return out
+
+
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run —— 串联完整实验流程。
+# 输入：
+#     args：本次运行的配置对象，包含数据路径、规模、种子和输出设置。
+# 输出：
+#     out：报告成功生成后的实验结果目录。
+# 说明：依次准备数据、检查分组、拟合模型、冻结验证集选择、评价测试集并生成报告。
+#-----------------------------------------------------------------------------------------------------------------------
 def run(args):
-    """Execute data preparation, diagnostics, model selection, and test evaluation.
-
-    Args:
-        args: namespace with data, sample_size, outcome, seed, primary_budget,
-            permutations, c2st_sample, bootstrap, trees, and optional output.
-
-    Returns:
-        Path to the completed experiment output directory.
-    """
     started_at = time.perf_counter()
 
-    # 01. Create a fresh output directory for this run.
+    # 01. 为本次实验创建新的结果目录。
     out = safe_output(
         args.output
         or ROOT / f"artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}"
@@ -100,12 +150,12 @@ def run(args):
         )
     out.mkdir(parents=True, exist_ok=True)
 
-    # 02. Prepare the sample, full-source audit, fingerprint, and same-scan diagnostics.
+    # 02. 准备建模样本、全量审计、来源指纹和同次扫描的诊断结果。
     sample, audit, source, scanned = prepare_sample(args)
     parts = split_sample(sample, args.outcome, args.seed)
     del sample
 
-    # 03. Persist split IDs/summary and check identical feature vectors across splits.
+    # 03. 保存划分行号与汇总，并检查不同集合间相同特征向量的重叠。
     write_split_artifacts(parts, out)
     train, validation, test = (
         parts["train"],
@@ -115,10 +165,10 @@ def run(args):
     assignment_probability = float(train.treatment.mean())
     write_feature_overlap(parts, out)
 
-    # 04. Save the full-source audit and aggregate ATE results.
+    # 04. 保存全量审计及汇总 ATE 结果。
     write_audit_artifacts(audit, out)
 
-    # 05. Run SRM, full-source SMD/KS, and C2ST; reuse scan outputs to avoid a second scan.
+    # 05. 执行 SRM、全量 SMD/KS 和 C2ST；复用扫描结果避免重复遍历。
     update_experiment_diagnostics(
         args.data,
         out,
@@ -132,12 +182,12 @@ def run(args):
     )
     del scanned
 
-    # 06. Check whether pre-treatment features predict the observed outcomes.
+    # 06. 检查处理前特征能否预测观察到的结果。
     run_learnability_diagnostics(
         train, validation, out, seed=args.seed
     )
 
-    # 07. Fit candidates on train and freeze the policy using validation only.
+    # 07. 在训练集拟合候选模型，仅用验证集冻结策略选择。
     fitted = fit_and_select_models(
         train,
         validation,
@@ -150,7 +200,7 @@ def run(args):
         progress=log,
     )
 
-    # 08. Evaluate the frozen models once on test and persist test artifacts.
+    # 08. 在测试集评价冻结模型并保存测试结果。
     policies = evaluate_test_set(
         test,
         fitted["models"],
@@ -163,7 +213,7 @@ def run(args):
         progress=log,
     )
 
-    # 09. Save reproducibility metadata, render the report, and mark the run complete.
+    # 09. 保存可复现信息、生成报告，并标记实验完成。
     write_run_manifest(
         out,
         args=args,
@@ -177,27 +227,17 @@ def run(args):
     return finalize_run(out, policies, args.primary_budget, progress=log)
 
 
-# ----------------------------------------------------------------------------
-# Function: parse_args — define and validate the command-line configuration.
-# Inputs:
-#     argv: optional list of CLI tokens; None reads sys.argv.
-# Outputs:
-#     argparse.Namespace containing source, sampling, diagnostics, modeling,
-#     evaluation, and output settings.
-# Notes:
-#     Parsing only validates configuration; it does not read data or run models.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：parse_args —— 解析并检查命令行配置。
+# 输入：
+#     argv：命令行参数列表；None 表示读取当前进程的参数。
+# 输出：
+#     args：解析后的命令行配置对象。
+# 说明：解析并检查命令行配置。
+#-----------------------------------------------------------------------------------------------------------------------
 def parse_args(argv=None):
-    """Parse CLI options.
-
-    Args:
-        argv: optional argument list; None reads the process command line.
-
-    Returns:
-        argparse.Namespace with data, modeling, diagnostics, and output options.
-    """
     p = argparse.ArgumentParser(
-        description=__doc__
+        description='运行完整 Criteo uplift 分析：数据准备、诊断、训练、验证集选择、测试集评价和报告。\n原始 data 目录只读；运行示例：python run_pipeline.py --sample-size 1000000 --outcome conversion。'
     )
 
     # 数据与分析对象：原始 CSV 路径、抽样行数、主结果变量。
@@ -286,15 +326,15 @@ def parse_args(argv=None):
     return args
 
 
-# ----------------------------------------------------------------------------
-# Function: main — dispatch the full pipeline or diagnostics-only refresh.
-# Inputs:
-#     argv: optional command-line argument list.
-# Outputs:
-#     None; runs the requested workflow and writes artifacts.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：main —— 根据命令行配置启动任务。
+# 输入：
+#     argv：命令行参数列表；None 表示读取当前进程的参数。
+# 输出：
+#     返回值：None；执行请求的流程并保存或显示结果。
+# 说明：根据命令行配置启动任务。
+#-----------------------------------------------------------------------------------------------------------------------
 def main(argv=None):
-    """Parse CLI options and run the selected workflow."""
     args = parse_args(argv)
     if args.diagnostics_only:
         update_diagnostics_only(args, root=ROOT, progress=log)

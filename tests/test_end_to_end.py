@@ -1,4 +1,4 @@
-"""用独立合成数据验证真实 CLI 对应流程，不依赖或更改原始 Criteo。"""
+# 项目测试：验证完整实验流程。
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,11 +8,28 @@ import json
 import unittest
 import numpy as np
 import pandas as pd
-from criteo_uplift.data import FEATURES, fingerprint
+from criteo_uplift.data import FEATURES
+from criteo_uplift.pipeline_io import fingerprint
 from run_pipeline import run
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 类：EndToEndTests —— 验证完整实验流程。
+# 输入：
+#     配置：由初始化方法接收；无自定义初始化方法时使用父类约定。
+# 输出：
+#     实例：保存测试环境和断言的对象。
+# 说明：验证完整实验流程。
+#-----------------------------------------------------------------------------------------------------------------------
 class EndToEndTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_complete_pipeline_outputs_and_frozen_selection —— 运行合成数据完整流程并检查输出及验证集冻结选择。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：运行合成数据完整流程并检查输出及验证集冻结选择。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_complete_pipeline_outputs_and_frozen_selection(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)

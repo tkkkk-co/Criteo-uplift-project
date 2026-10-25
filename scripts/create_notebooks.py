@@ -1,4 +1,4 @@
-"""生成按学习顺序组织的 notebook；指标手算与扩展验证另见 create_extension_notebooks.py。"""
+# 生成主分析 Notebook 的代码与说明单元；实际结果由执行 Notebook 时读取。
 
 from pathlib import Path
 import nbformat as nbf
@@ -14,7 +14,7 @@ configure_runtime()
 import numpy as np
 import pandas as pd
 from IPython.display import display, Image, HTML
-from criteo_uplift.results import result_directory
+from criteo_uplift.pipeline_io import result_directory
 RUN = result_directory('conversion_1000000_seed42', ROOT)
 print('读取结果目录:', RUN.relative_to(ROOT))
 manifest = json.loads((RUN / 'manifest.json').read_text())
@@ -23,14 +23,39 @@ print('seed:', manifest['seed'], '| 主预算:', manifest['selection']['primary_
 '''
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：md —— 创建一个 Markdown 说明单元格。
+# 输入：
+#     text：需要写入单元格的文本。
+# 输出：
+#     单元格：包含输入说明文本的 Notebook 单元格对象。
+# 说明：创建一个 Markdown 说明单元格。
+#-----------------------------------------------------------------------------------------------------------------------
 def md(text):
     return nbf.v4.new_markdown_cell(text)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：code —— 创建一个 Python 代码单元格。
+# 输入：
+#     text：需要写入单元格的文本。
+# 输出：
+#     单元格：包含输入代码的 Notebook 单元格对象。
+# 说明：创建一个 Python 代码单元格。
+#-----------------------------------------------------------------------------------------------------------------------
 def code(text):
     return nbf.v4.new_code_cell(text)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：save —— 组合并保存 Notebook。
+# 输入：
+#     name：需要构造、读取或保存的对象名称。
+#     cells：按顺序排列的 Notebook 单元格列表。
+# 输出：
+#     返回值：None；将单元格写入指定 Notebook 文件。
+# 说明：组合并保存 Notebook。
+#-----------------------------------------------------------------------------------------------------------------------
 def save(name, cells):
     nb = nbf.v4.new_notebook(cells=cells)
     nb.metadata = {
@@ -77,7 +102,8 @@ save(
 
 统一扫描入口为 `diagnostics.py` 顶部的 `scan_raw_data()`，返回字典中的 `sample` 是建模样本、`audit` 是全量审计，另有平衡检查和 C2ST 样本等结果。`audit_enabled` 独立控制全量审计，`diagnostics_enabled` 独立控制全量 SRM/SMD/KS；`sample_size`、`per_arm` 只控制建模和 C2ST 抽样。审计使用原始 float64；模型样本使用 float32 降低内存。全字段重复使用 64-bit 指纹统计（有极小碰撞可能）；没有用户 ID，不能据此自动删除或认定同一用户。'''
         ),
-        code('''from criteo_uplift.data import load_sample, FEATURES, LABELS
+        code('''from criteo_uplift.data import FEATURES, LABELS
+from criteo_uplift.pipeline_io import load_sample
 cache_path = ROOT/'artifacts/cache/sample_1000000_seed42.npz'
 if cache_path.exists() and os.environ.get('CRITEO_RESULTS_MODE') != 'published':
     sample = load_sample(cache_path)

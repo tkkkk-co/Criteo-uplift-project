@@ -667,7 +667,7 @@ audit = {
 
 ```python
 from criteo_uplift.diagnostics import scan_raw_data
-from criteo_uplift.data import write_json
+from criteo_uplift.pipeline_io import write_json
 
 # run_pipeline.py：没有建模缓存时，在一次扫描中准备全部结果。
 scanned = scan_raw_data(
@@ -718,9 +718,9 @@ write_json(audit, out / "audit.json")
 ## 10. 对照阅读的源文件
 
 - [01-notebook](../notebooks/01_data_understanding.ipynb)：本次学习页面。
-- [data.py](../criteo_uplift/data.py)：路径保护、文件指纹、`write_json()`、缓存读写和 `split_sample()`。
+- [data.py](../criteo_uplift/data.py)：数据列、项目路径常量和 `split_sample()`。
 - [run_pipeline.py](../run_pipeline.py)：调用、缓存复用、保存 audit 与 ATE。
-- [results.py](../criteo_uplift/results.py)：定位本地结果或公开快照。
+- [pipeline_io.py](../criteo_uplift/pipeline_io.py)：路径保护、文件指纹、JSON、缓存与实验产物读写，以及本地结果或公开快照定位。
 - [models.py](../criteo_uplift/models.py)：logistic 的填补、标准化和分类器管线。
 - [diagnostics.py](../criteo_uplift/diagnostics.py)：顶部的 `scan_raw_data()` 负责统一扫描、审计与抽样；同文件定义 SMD、KS、SRM 和 C2ST。
 - [公开 audit 快照](../reports/published/conversion_1000000_seed42/audit.json)：本笔记引用的全量审计数值。

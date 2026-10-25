@@ -1,11 +1,11 @@
-"""在现有 Python 环境执行 notebook，保存真实输出并检查错误。"""
+# 使用当前 Python 环境逐个执行 Notebook，保存真实输出并在错误时停止。
 
 from pathlib import Path
 import os
 import sys
 import argparse
 
-parser = argparse.ArgumentParser(description=__doc__)
+parser = argparse.ArgumentParser(description='使用当前 Python 环境逐个执行 Notebook，保存真实输出并在错误时停止。')
 parser.add_argument(
     '--local-results',
     action='store_true',
@@ -33,8 +33,8 @@ for path in sorted((ROOT / 'notebooks').glob('*.ipynb')):
         resources={'metadata': {'path': str(ROOT)}},
     )
     client.km = client.create_kernel_manager()
-    # Use the interpreter that launched this command, rather than an unrelated
-    # global python3 kernel. This only changes the in-memory launch command.
+    # 使用启动当前命令的 Python 解释器执行 Notebook。
+    # 只改变内存中的内核启动命令，不修改全局内核配置。
     client.km.kernel_spec.argv = [
         sys.executable,
         '-m',

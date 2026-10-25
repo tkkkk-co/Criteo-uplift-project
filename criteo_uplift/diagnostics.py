@@ -37,7 +37,8 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
-from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA, fingerprint, safe_output, write_json
+from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA
+from .pipeline_io import fingerprint, safe_output, write_json
 
 _PRETREATMENT_FEATURES = frozenset(f"f{i}" for i in range(12))
 
@@ -115,8 +116,8 @@ def scan_raw_data(
     hashes, all_chunks = [], []                     # hashes 保存全量各行的内容指纹，用于统计重复行；all_chunks 仅在 sample_size=0 时保存全部建模数据块。
 
     # 以下四项仅在开启审计、关闭完整诊断时累计；开启完整诊断时复用后面的逐列检查结果。
-    sums = np.zeros((2, len(FEATURES)))             # 累计全量两组各特征的数值总和，用于计算组内均值。
-    squares = np.zeros_like(sums)                   # 累计全量两组各特征的数值平方和，与 sums 配合计算组内方差和标准差。
+    means = np.zeros((2, len(FEATURES)))             # 保存全量两组各特征的累计均值。
+    centered_squares = np.zeros_like(means)          # 保存各组相对均值的偏差平方和，避免近常量特征计算方差时相减失去精度。
     minimum = np.full(len(FEATURES), np.inf)        # 记录全量各特征的最小值，不分组；初始为正无穷，后续由实际值更新。
     maximum = np.full(len(FEATURES), -np.inf)       # 记录全量各特征的最大值，不分组；初始为负无穷，后续由实际值更新。
     total = 0                                       # 累计已读取的原始数据总行数，同时确定下一块数据的原始行号起点。
@@ -145,19 +146,30 @@ def scan_raw_data(
             treatment = chunk.treatment.to_numpy(dtype=np.int8)
             x = values[:, :len(FEATURES)]
             for arm in (0, 1):
+                #更新全量分组计数：
                 counts[arm] += int((treatment == arm).sum())
 
             # 5.2 全量审计：累计重复行指纹、结果正例数和标签逻辑异常人数。
-            # 未启用完整平衡检查时，另外累计特征统计；启用时直接复用后面的逐列检查结果。
             if audit_enabled:
                 hashes.append(pd.util.hash_pandas_object(chunk, index=False).to_numpy())
                 for arm in (0, 1):
                     mask = treatment == arm #布尔数组，标记当前块中哪些行属于这一组
                     positives[arm] += values[mask, len(FEATURES) + 1:].sum(axis=0).astype(np.int64)
+                    # 未启用完整平衡检查时，需要逐块累计特征统计；启用时程序会把全量特征写入临时文件 之后利用covariate_balance 计算均值 SMD KS
                     if not diagnostics_enabled:
                         sub = x[mask]
-                        sums[arm] += sub.sum(axis=0)
-                        squares[arm] += np.square(sub).sum(axis=0)
+                        if len(sub):
+                            # 合并旧数据，分别在T/C组下计算均值 方差 用于后续计算SMD
+                            old_n = counts[arm] - len(sub)
+                            chunk_mean = sub.mean(axis=0)
+                            difference = chunk_mean - means[arm] #新旧两批数据的均值差，means[arm] 仍然是合并当前数据块之前的均值
+                            #更新分组方差：分批合并方差统计量经典公式/算法，能够避免保存全部历史数据
+                            centered_squares[arm] += (
+                                np.square(sub - chunk_mean).sum(axis=0)
+                                + np.square(difference) * old_n * (len(sub) / counts[arm])
+                            )
+                            #更新分组均值：
+                            means[arm] += difference * (len(sub) / counts[arm])
                 if not diagnostics_enabled:
                     minimum = np.minimum(minimum, x.min(axis=0))
                     maximum = np.maximum(maximum, x.max(axis=0))
@@ -249,13 +261,15 @@ def scan_raw_data(
             sample.insert(0, 'row_id', row_ids[order])
     if audit_enabled:
         if not diagnostics_enabled:
-            feature_stats = _audit_feature_stats(counts, sums, squares, minimum, maximum)
+            feature_stats = _audit_feature_stats(counts, means, centered_squares, minimum, maximum)
+        #输出完整审计字典
         audit = {
             'n_rows': total, 'n_columns': len(COLUMNS),
             'n_treatment': int(counts[1]), 'n_control': int(counts[0]),
             'treatment_ratio': counts[1] / total,
             'missing_or_nonfinite': 0, 'invalid_binary_labels': 0,
             'control_exposed': control_exposure, 'conversion_without_visit': bad_visit,
+            #原始 CSV 的所有全量样本进行重复行检查
             'duplicate_row_fingerprints': total - int(np.unique(np.concatenate(hashes)).size),
             'duplicate_method': '64-bit hash of all original float64 fields; diagnostic only; no user ID; not deduplicated',
             'feature_stats': feature_stats,
@@ -324,26 +338,27 @@ def scan_raw_data(
 # 函数：_audit_feature_stats —— 从累计量整理仅审计模式的特征统计。
 # 输入：
 #     counts：两组的全量人数。
-#     sums：两组各特征的累计总和。
-#     squares：两组各特征的累计平方和。
+#     means：两组各特征的累计均值。
+#     centered_squares：两组各特征相对组内均值的【偏差平方和】。
 #     minimum：各特征的全量最小值。
 #     maximum：各特征的全量最大值。
 # 输出：
 #     records：每个特征一条的审计统计记录列表。
 # 说明：只做审计时无需为 KS 保存临时文件，直接用扫描时累计的统计量整理结果。
 #-----------------------------------------------------------------------------------------------------------------------
-def _audit_feature_stats(counts, sums, squares, minimum, maximum):
+def _audit_feature_stats(counts, means, centered_squares, minimum, maximum):
     records = []
     for j, feature in enumerate(FEATURES):
         row = {'feature': feature, 'min': minimum[j], 'max': maximum[j]}
         for arm in (0, 1):
-            row[f'mean_{arm}'] = sums[arm, j] / counts[arm]
+            row[f'mean_{arm}'] = means[arm, j]
             row[f'std_{arm}'] = (
-                np.sqrt(max(0, (squares[arm, j] - sums[arm, j] ** 2 / counts[arm]) / (counts[arm] - 1)))
+                np.sqrt(max(0, centered_squares[arm, j] / (counts[arm] - 1))) #计算分组-样本方差
                 if counts[arm] > 1 else np.nan
             )
-        denominator = np.sqrt((row['std_0'] ** 2 + row['std_1'] ** 2) / 2)
+        denominator = np.sqrt((row['std_0'] ** 2 + row['std_1'] ** 2) / 2) #合并样本方差
         difference = row['mean_1'] - row['mean_0']
+        #SMD
         row['smd'] = difference / denominator if denominator > 0 else (
             0.0 if denominator == 0 and difference == 0 else np.nan
         )
@@ -490,12 +505,12 @@ def covariate_balance(df: pd.DataFrame, features: Sequence[str]) -> pd.DataFrame
         treated, control = x[treatment == 1, j], x[treatment == 0, j]
         mean1, mean0 = float(treated.mean()), float(control.mean())
         scale = np.sqrt((treated.var(ddof=1) + control.var(ddof=1)) / 2)
-        # SMD
+        # 计算标准化均值差（SMD）。
         if scale > 0:
             smd = (mean1 - mean0) / scale
         else:
             smd = 0.0 if mean1 == mean0 else np.copysign(np.inf, mean1 - mean0)
-        # KS
+        # 计算两样本 KS 统计量及 p 值。
         ks = ks_2samp(treated, control, alternative="two-sided", method="asymp")
 
         records.append(

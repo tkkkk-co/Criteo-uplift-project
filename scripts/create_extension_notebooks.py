@@ -1,4 +1,4 @@
-"""Build teaching and evidence notebooks; execute with execute_notebooks.py."""
+# 生成扩展分析 Notebook 的代码与说明单元，不在生成过程中训练模型。
 
 from pathlib import Path
 import nbformat as nbf
@@ -15,20 +15,45 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from IPython.display import display
-from criteo_uplift.results import result_directory
+from criteo_uplift.pipeline_io import result_directory
 FIG = ROOT/'artifacts/extension_figures'
 FIG.mkdir(exist_ok=True)
 '''
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：md —— 创建一个 Markdown 说明单元格。
+# 输入：
+#     s：单元格文本。
+# 输出：
+#     单元格：包含输入说明文本的 Notebook 单元格对象。
+# 说明：创建一个 Markdown 说明单元格。
+#-----------------------------------------------------------------------------------------------------------------------
 def md(s):
     return nbf.v4.new_markdown_cell(s)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：code —— 创建一个 Python 代码单元格。
+# 输入：
+#     s：单元格文本。
+# 输出：
+#     单元格：包含输入代码的 Notebook 单元格对象。
+# 说明：创建一个 Python 代码单元格。
+#-----------------------------------------------------------------------------------------------------------------------
 def code(s):
     return nbf.v4.new_code_cell(s)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：save —— 组合并保存 Notebook。
+# 输入：
+#     name：需要构造、读取或保存的对象名称。
+#     cells：按顺序排列的 Notebook 单元格列表。
+# 输出：
+#     返回值：None；将单元格写入指定 Notebook 文件。
+# 说明：组合并保存 Notebook。
+#-----------------------------------------------------------------------------------------------------------------------
 def save(name, cells):
     nb = nbf.v4.new_notebook(
         cells=cells,
@@ -79,6 +104,15 @@ display(curve[['n_selected','fraction','n_treatment','n_control','responses_trea
             '''q = [F(0),F(1,4),F(3,8),F(1,2),F(5,8),F(3,4),F(7,8),F(1)]
 g = [F(0),F(1,4),F(3,8),F(1,2),F(5,12),F(1,4),F(35,96),F(1,2)]
 qini = [F(0),F(1,8),F(1,4),F(1,4),F(1,4),F(1,8),F(5,24),F(1,4)]
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：trapezoids —— 计算相邻曲线点之间的各段梯形面积。
+# 输入：
+#     x：按顺序排列的横坐标。
+#     y：与横坐标对应的曲线值。
+# 输出：
+#     面积列表：每两个相邻点对应的一段梯形面积。
+# 说明：保留各段面积，便于逐项核对手算示例。
+#-----------------------------------------------------------------------------------------------------------------------
 def trapezoids(x,y):
     return [(x[i]-x[i-1])*(y[i]+y[i-1])/2 for i in range(1,len(x))]
 g_areas, q_areas = trapezoids(q,g), trapezoids(q,qini)
@@ -189,7 +223,7 @@ intervals=pd.read_csv(MET/'ranking_intervals.csv')
 display(intervals)
 chosen=intervals[intervals.metric=='qini_score_traditional'].copy()
 fig,ax=plt.subplots(figsize=(10,4),layout='constrained')
-# Use lines for percentile endpoints; intervals need not contain the point estimate.
+# 用线段直接绘制百分位区间端点；区间不一定包含点估计。
 for i,row in enumerate(chosen.itertuples()):
     ax.plot([row.vs_propensity_ci_low,row.vs_propensity_ci_high],[i,i],color='#2476a8',lw=3)
     ax.plot(row.vs_propensity,i,'o',color='#173849')

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Run the fixed development-only sensitivity study without reusing old test rows.
-
-Example: python run_stability.py
-Use a fresh --output directory for each run; existing artifacts are protected.
-"""
+# 运行开发集上的训练规模与数据划分敏感性分析，排除已使用的原测试集。
 
 from criteo_uplift.runtime import configure_runtime
 
@@ -16,8 +12,16 @@ from criteo_uplift.data import ROOT
 from criteo_uplift.stability import DEFAULT_FRACTIONS, DEFAULT_SEEDS, run_stability
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：parse_args —— 解析并检查命令行配置。
+# 输入：
+#     argv：命令行参数列表；None 表示读取当前进程的参数。
+# 输出：
+#     args：解析后的命令行配置对象。
+# 说明：解析并检查命令行配置。
+#-----------------------------------------------------------------------------------------------------------------------
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='运行开发集上的训练规模与数据划分敏感性分析，排除已使用的原测试集。')
     parser.add_argument(
         "--cache", type=Path, default=ROOT / "artifacts/cache/sample_1000000_seed42.npz"
     )

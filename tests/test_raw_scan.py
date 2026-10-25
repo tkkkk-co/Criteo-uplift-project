@@ -9,12 +9,28 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import data, diagnostics
+from criteo_uplift import data, diagnostics, pipeline_io
 from criteo_uplift.diagnostics import covariate_balance, update_experiment_diagnostics
 from run_pipeline import prepare_sample
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 类：UnifiedScanTests —— 验证统一扫描的统计与抽样。
+# 输入：
+#     配置：由初始化方法接收；无自定义初始化方法时使用父类约定。
+# 输出：
+#     实例：保存测试环境和断言的对象。
+# 说明：验证统一扫描的统计与抽样。
+#-----------------------------------------------------------------------------------------------------------------------
 class UnifiedScanTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：setUp —— 准备当前测试使用的数据和临时环境。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；测试数据保存在当前测试对象中。
+    # 说明：准备当前测试使用的数据和临时环境。
+    #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -31,11 +47,28 @@ class UnifiedScanTests(unittest.TestCase):
         frame.to_csv(self.path, index=False)
         self.raw = pd.read_csv(self.path, dtype=np.float64)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：scan —— 按测试配置调用统一扫描。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    #     **kwargs：传递给被调用函数的额外命名参数。
+    # 输出：
+    #     scanned：本次扫描的样本、审计和诊断结果。
+    # 说明：按测试配置调用统一扫描。
+    #-----------------------------------------------------------------------------------------------------------------------
     def scan(self, **kwargs):
         options = dict(sample_size=43, per_arm=10, seed=31, chunk_size=17, progress=lambda _: None)
         options.update(kwargs)
         return diagnostics.scan_raw_data(self.path, **options)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics —— 确认一次 CSV 遍历保留两套抽样结果和全量统计。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认一次 CSV 遍历保留两套抽样结果和全量统计。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics(self):
         before = self.path.read_bytes()
         with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
@@ -72,6 +105,31 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(sample.treatment.mean(), 0.5)
         self.assertEqual(self.path.read_bytes(), before)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_audit_only_variance_matches_full_diagnostics_for_near_constant_features —— 核对近常量特征在不同扫描模式下的方差和 SMD。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对近常量特征在不同扫描模式下的方差和 SMD。
+    #-----------------------------------------------------------------------------------------------------------------------
+    def test_audit_only_variance_matches_full_diagnostics_for_near_constant_features(self):
+        expected = self.scan()['audit']['feature_stats']
+        for chunk_size in (13, 31, len(self.raw)):
+            actual = self.scan(diagnostics_enabled=False, chunk_size=chunk_size)['audit']['feature_stats']
+            for observed, reference in zip(actual, expected):
+                with self.subTest(chunk_size=chunk_size, feature=reference['feature']):
+                    for field in ('mean_0', 'mean_1', 'std_0', 'std_1', 'smd'):
+                        np.testing.assert_allclose(observed[field], reference[field], rtol=2e-6, atol=1e-15)
+
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_diagnostic_sample_independent_of_model_size_and_chunk_size —— 确认诊断抽样不受建模样本规模和分块大小影响。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认诊断抽样不受建模样本规模和分块大小影响。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_diagnostic_sample_independent_of_model_size_and_chunk_size(self):
         baseline = self.scan()
         for size in (None, 0, 200):
@@ -86,6 +144,14 @@ class UnifiedScanTests(unittest.TestCase):
                 else:
                     self.assertEqual(len(scanned['sample']), len(self.raw))
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_audit_diagnostics_and_two_samples_are_independent —— 确认审计、全量诊断和两套抽样可以独立启用。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认审计、全量诊断和两套抽样可以独立启用。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_audit_diagnostics_and_two_samples_are_independent(self):
         expected_balance = covariate_balance(self.raw, data.FEATURES)
         baseline = self.scan()
@@ -125,14 +191,30 @@ class UnifiedScanTests(unittest.TestCase):
                 else:
                     pd.testing.assert_frame_equal(scanned['c2st_sample'], baseline['c2st_sample'])
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_source_changes_and_insufficient_arms_fail —— 确认扫描拒绝变化的输入来源和不足的组内人数。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认扫描拒绝变化的输入来源和不足的组内人数。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_source_changes_and_insufficient_arms_fail(self):
-        source = data.fingerprint(self.path)
+        source = pipeline_io.fingerprint(self.path)
         with patch.object(diagnostics, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
             with self.assertRaisesRegex(RuntimeError, 'changed'):
                 self.scan()
         with self.assertRaisesRegex(ValueError, 'Need 41 rows per arm'):
             self.scan(per_arm=41)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_update_reuses_scan_and_rejects_mismatched_settings —— 确认诊断更新复用扫描并拒绝不一致的配置。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认诊断更新复用扫描并拒绝不一致的配置。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_update_reuses_scan_and_rejects_mismatched_settings(self):
         scanned = self.scan()
         out = self.root / 'diagnostics'
@@ -151,6 +233,14 @@ class UnifiedScanTests(unittest.TestCase):
                     )
         self.assertEqual(json.loads((out / 'srm.json').read_text())['observed_ratio'], .75)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once —— 确认首次准备和缓存复用都只分块解析一次 CSV。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认首次准备和缓存复用都只分块解析一次 CSV。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):

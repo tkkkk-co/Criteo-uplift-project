@@ -1,4 +1,4 @@
-"""Run all four learners on a small synthetic trial; no Criteo data required."""
+# 运行合成数据演示，验证模型训练与策略评价流程。
 
 from pathlib import Path
 import sys
@@ -12,7 +12,7 @@ import argparse
 from criteo_uplift.demo import run_demo
 
 if __name__ == '__main__':
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description='运行合成数据演示，验证模型训练与策略评价流程。')
     p.add_argument('--output', type=Path, default=ROOT / 'artifacts/demo')
     p.add_argument('--n', type=int, default=6000)
     p.add_argument('--seed', type=int, default=42)

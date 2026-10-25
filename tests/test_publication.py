@@ -1,4 +1,4 @@
-"""Snapshot routing and real small-model demo; never depend on raw Criteo."""
+# 项目测试：验证公开快照和演示。
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,14 +6,30 @@ from unittest.mock import patch
 import json
 import unittest
 import numpy as np
-from criteo_uplift.results import result_directory
+from criteo_uplift.pipeline_io import result_directory
 from criteo_uplift.runtime import configure_runtime
 
 configure_runtime()
 from criteo_uplift.demo import run_demo
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 类：PublicationTests —— 验证公开快照和演示。
+# 输入：
+#     配置：由初始化方法接收；无自定义初始化方法时使用父类约定。
+# 输出：
+#     实例：保存测试环境和断言的对象。
+# 说明：验证公开快照和演示。
+#-----------------------------------------------------------------------------------------------------------------------
 class PublicationTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_local_priority_and_explicit_snapshot_mode —— 核对本地结果优先级及显式公开快照模式。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对本地结果优先级及显式公开快照模式。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_local_priority_and_explicit_snapshot_mode(self):
         with TemporaryDirectory() as d:
             root = Path(d)
@@ -26,6 +42,14 @@ class PublicationTests(unittest.TestCase):
             with patch.dict('os.environ', {'CRITEO_RESULTS_MODE': 'published'}):
                 self.assertEqual(result_directory('run', root), public)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_invalid_paths_and_modes —— 确认结果定位拒绝非法路径与模式。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认结果定位拒绝非法路径与模式。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_paths_and_modes(self):
         for name in ['', '..', '../data', '/tmp/test', 'a/b']:
             with self.assertRaises(ValueError):
@@ -37,6 +61,14 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 result_directory('absent', d)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_synthetic_demo_real_learners_freeze_selection_and_no_overwrite —— 确认合成演示使用真实学习器、冻结选择并拒绝覆盖。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认合成演示使用真实学习器、冻结选择并拒绝覆盖。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_synthetic_demo_real_learners_freeze_selection_and_no_overwrite(self):
         with TemporaryDirectory() as d:
             out = Path(d) / 'demo'

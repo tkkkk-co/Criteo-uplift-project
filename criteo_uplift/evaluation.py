@@ -1,10 +1,5 @@
-"""Out-of-sample randomized-experiment and uplift-policy evaluation.
-
-All scores must be produced by models fitted without the evaluated outcomes.
-``e`` is a *fixed* randomized assignment probability (or its training-split
-estimate), not a propensity refitted on the evaluation rows. HT values remain
-distinct from the ordinary treated-minus-control difference in means.
-"""
+# 评价随机实验的平均效果、增量排序和触达策略；模型分数必须来自未使用评价结果进行拟合的模型。
+# 分配概率固定使用外部值或训练集估计值；置信区间不包含重新训练和选模的不确定性。
 
 from __future__ import annotations
 
@@ -17,7 +12,28 @@ import pandas as pd
 DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.50, 1.0)
 _Z_975 = 1.959963984540054
 
+# 将指标口径显式保存到运行记录，避免依赖函数注释的存储形式。
+RANKING_METRIC_DESCRIPTION = (
+    'v2：横轴为总体覆盖比例，所有面积使用完整排序前缀与原点作梯形积分。'
+    'HT 曲线累计固定分配概率加权的结果；Qini 扣除连接原点和终点的随机基线面积。'
+    '代入估计使用前缀内两组结果率之差乘覆盖比例，需要两组均存在。'
+    '传统 Qini 使用处理组正例数减去按组别人数比例折算的对照组正例数，再除以总体人数；'
+    '仅要求前缀存在对照组，保留仅有对照组时的零值点，并扣除自身随机基线面积。'
+    '初始未定义区间仅在积分时线性连接，不作完美排序归一化，也不压缩积分点。'
+    '历史 v1 使用同时存在两组的前缀；这些历史结果保持原样。'
+)
 
+
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_binary_inputs —— 检查结果标签和处理标签。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+# 输出：
+#     y：校验后的结果标签数组。
+#     t：校验后的处理标签数组。
+# 说明：确认两个标签数组非空、等长且只包含 0 和 1，并要求两组均有记录。
+#-----------------------------------------------------------------------------------------------------------------------
 def _binary_inputs(y, t):
     y = np.asarray(y, dtype=float)
     t = np.asarray(t, dtype=float)
@@ -32,6 +48,15 @@ def _binary_inputs(y, t):
     return y, t.astype(np.int8)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_scores —— 检查预测分数的长度和取值。
+# 输入：
+#     scores：与样本顺序一致的预测分数。
+#     n：预期的预测分数个数。
+# 输出：
+#     values：有限且与样本数量一致的分数数组。
+# 说明：把分数转换为一维数值数组，并检查长度及所有取值是否有限。
+#-----------------------------------------------------------------------------------------------------------------------
 def _scores(scores, n):
     values = np.asarray(scores, dtype=float)
     if values.ndim != 1 or len(values) != n or not np.isfinite(values).all():
@@ -39,6 +64,16 @@ def _scores(scores, n):
     return values
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_ht_outcome —— 按固定分配概率转换逐行结果。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+# 输出：
+#     加权结果：每条记录对增量效果估计的贡献数组。
+# 说明：按固定处理分配概率对两组结果加权，为总体增量和策略收益计算提供逐行贡献。
+#-----------------------------------------------------------------------------------------------------------------------
 def _ht_outcome(y, t, e):
     if not np.isscalar(e) or not np.isfinite(e) or not 0 < e < 1:
         raise ValueError(
@@ -47,13 +82,31 @@ def _ht_outcome(y, t, e):
     return t * y / e - (1 - t) * y / (1 - e)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_rank —— 按分数排序并独立处理同分记录。
+# 输入：
+#     scores：与样本顺序一致的预测分数。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     order：从高分到低分的样本位置索引。
+# 说明：先按分数从高到低排序；分数相同时使用独立随机优先级，避免依赖 CSV 行序。
+#-----------------------------------------------------------------------------------------------------------------------
 def _rank(scores, seed):
-    # A separately seeded, outcome-independent tie break prevents CSV order
-    # (which can group treatment arms) from defining a tied-score policy.
+    # 用独立随机种子处理同分，排序不依赖结果标签。
+    # 避免 CSV 中可能按处理组排列的原始行序决定同分策略。
     tie_break = np.random.default_rng(seed).random(len(scores))
     return np.lexsort((tie_break, -scores))
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_mean_difference —— 计算两组平均结果的差异和不确定性。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+# 输出：
+#     统计结果：包含组别人数、结果率、平均处理效应、标准误、区间和 p 值的字典。
+# 说明：比较两组结果率；区间反映组内结果变动，不能据此验证因果识别假设。
+#-----------------------------------------------------------------------------------------------------------------------
 def _mean_difference(y, t):
     treated = y[t == 1]
     control = y[t == 0]
@@ -61,8 +114,8 @@ def _mean_difference(y, t):
     p1 = float(treated.mean()) if n1 else np.nan
     p0 = float(control.mean()) if n0 else np.nan
     ate = p1 - p0
-    # Sample-variance / n: independent-arm standard error of a difference
-    # in sample means. A singleton arm cannot estimate its variance.
+    # 用两组各自的样本方差计算均值差的标准误。
+    # 某组只有一条记录时，无法估计该组方差。
     se = (
         sqrt(float(treated.var(ddof=1) / n1 + control.var(ddof=1) / n0))
         if min(n1, n0) > 1
@@ -94,28 +147,16 @@ def _mean_difference(y, t):
     }
 
 
-# ----------------------------------------------------------------------------
-# Function: aggregate_ate_from_audit — reconstruct full-source ATE from counts.
-# Inputs:
-#     audit: aggregate audit dictionary produced by scan_raw_data().
-#     outcome: binary outcome column name, currently conversion or visit.
-# Outputs:
-#     Dictionary with group sizes/rates, ATE, standard error, confidence interval,
-#     two-sided null p-value, and relative uplift.
-# Notes:
-#     Uses only aggregate counts; does not reload row-level source data.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：aggregate_ate_from_audit —— 计算两组平均结果的差异和不确定性。
+# 输入：
+#     audit：全量审计的聚合统计字典。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+# 输出：
+#     统计结果：包含组别人数、结果率、平均处理效应、标准误、区间和 p 值的字典。
+# 说明：比较两组结果率；区间反映组内结果变动，不能据此验证因果识别假设。
+#-----------------------------------------------------------------------------------------------------------------------
 def aggregate_ate_from_audit(audit, outcome):
-    """Calculate a full-source treated-minus-control outcome-rate difference.
-
-    Args:
-        audit: full-source aggregate audit dictionary.
-        outcome: binary outcome name, such as conversion or visit.
-
-    Returns:
-        Dictionary containing group counts, response rates, ATE, standard error,
-        95% confidence interval, two-sided p-value, and relative uplift.
-    """
     from scipy.stats import norm
 
     n0, n1 = (
@@ -126,12 +167,17 @@ def aggregate_ate_from_audit(audit, outcome):
         audit["groups"][str(arm)][outcome]["positive"]
         for arm in (0, 1)
     )
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, np.integer))
+        for value in (n0, n1, r0, r1)
+    ) or not (n0 > 0 and n1 > 0 and 0 <= r0 <= n0 and 0 <= r1 <= n1):
+        raise ValueError('Audit counts must be valid integers with both arms present')
     p0, p1 = r0 / n0, r1 / n1
     delta = p1 - p0
     se = np.sqrt(
         p1 * (1 - p1) / (n1 - 1)
         + p0 * (1 - p0) / (n0 - 1)
-    )
+    ) if min(n0, n1) > 1 else np.nan
     pooled = (r0 + r1) / (n0 + n1)
     nullse = np.sqrt(pooled * (1 - pooled) * (1 / n0 + 1 / n1))
     return {
@@ -150,31 +196,33 @@ def aggregate_ate_from_audit(audit, outcome):
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：ate_summary —— 计算两组平均结果的差异和不确定性。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+# 输出：
+#     统计结果：包含组别人数、结果率、平均处理效应、标准误、区间和 p 值的字典。
+# 说明：比较两组结果率；区间反映组内结果变动，不能据此验证因果识别假设。
+#-----------------------------------------------------------------------------------------------------------------------
 def ate_summary(y, t) -> dict:
-    """Binary difference-in-means ATE, unpooled SE/Wald CI and pooled z test.
-
-    Effects and relative uplift are fractions, not percentages. The two-sided
-    null test pools conversion rates under H0. Relative uplift is undefined
-    (NaN) when the control conversion rate is zero. A singleton arm yields
-    NaN for the sample-variance SE and CI. Normal approximations can be poor
-    for tiny event counts; no artificial clipping of the Wald CI is applied.
-    """
     y, t = _binary_inputs(y, t)
     return _mean_difference(y, t)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：uplift_curve —— 生成完整排序前缀上的增量曲线。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     scores：与样本顺序一致的预测分数。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     result：包含覆盖比例、组别人数、HT 增量、传统 Qini 和结果率差异的曲线表。
+# 说明：保留所有排序位置，区分不同口径的曲线；缺少必要组别时保留未定义值。
+#-----------------------------------------------------------------------------------------------------------------------
 def uplift_curve(y, t, scores, e: float, seed: int = 42) -> pd.DataFrame:
-    """Return every ranked prefix, including the origin, of a frozen score.
-
-    ``gain_ht[k] = sum(z[top k]) / n`` where
-    ``z = t*y/e - (1-t)*y/(1-e)``. Its endpoint is the full-sample HT ATE.
-    ``qini_traditional = (R1 - R0*N1/N0) / n`` is reported separately; it
-    has a different scale and is NaN whenever the prefix has no controls.
-    ``uplift`` is the diagnostic cumulative difference in arm means, and
-    ``lift`` divides that diagnostic by the full-sample difference in means
-    (NaN unless the full effect is positive and exceeds 1e-12). Both require both arms
-    in the selected prefix. Neither replaces HT gain. The HT origin is zero.
-    """
     y, t = _binary_inputs(y, t)
     n = len(y)
     scores = _scores(scores, n)
@@ -205,11 +253,11 @@ def uplift_curve(y, t, scores, e: float, seed: int = 42) -> pd.DataFrame:
             "gain_ht": gain,
             "random_gain_ht": count / n * gain[-1],
             "qini_traditional": traditional,
-            "uplift": uplift,  # legacy name: cumulative arm-rate difference
+            "uplift": uplift,  # 兼容旧字段名：累计两组结果率之差。
             "cumulative_lift": uplift,
             "uplift_rate": uplift,
             "gain_plugin": plugin_gain,
-            "lift": lift,  # legacy name: relative cumulative lift
+            "lift": lift,  # 兼容旧字段名：相对累计提升。
             "relative_lift": lift,
             "n_treatment": n1,
             "n_control": n0,
@@ -221,12 +269,30 @@ def uplift_curve(y, t, scores, e: float, seed: int = 42) -> pd.DataFrame:
     return result
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_area —— 计算曲线的梯形面积。
+# 输入：
+#     x：按顺序排列的横坐标数组。
+#     values：需要检查或处理的数值数组。
+# 输出：
+#     面积：相邻横坐标之间累积得到的浮点数。
+# 说明：计算曲线的梯形面积。
+#-----------------------------------------------------------------------------------------------------------------------
 def _area(x, values):
     return float(np.sum(0.5 * (values[1:] + values[:-1]) * np.diff(x)))
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_ranking_from_ordered —— 计算完整分辨率的增量排序指标。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+# 输出：
+#     指标：包含样本数、HT 平均效应、各类 AUUC 与 Qini 的字典。
+# 说明：区分 HT、代入估计和传统 Qini，不做完美排序归一化；传统 Qini 保留仅有对照组的零值前缀。
+#-----------------------------------------------------------------------------------------------------------------------
 def _ranking_from_ordered(y, t, e):
-    """All rows already ordered, including repeated bootstrap observations."""
     n = len(y)
     cumulative = np.r_[0.0, np.cumsum(_ht_outcome(y, t, e))] / n
     auuc = float(np.sum((cumulative[:-1] + cumulative[1:]) * 0.5) / n)
@@ -236,8 +302,8 @@ def _ranking_from_ordered(y, t, e):
     n0 = count - n1
     r1 = np.cumsum(t * y)
     r0 = np.cumsum((1 - t) * y)
-    # Q is algebraically zero when a prefix contains only controls. Keep
-    # these defined nodes; previous v1 integrated only both-arm prefixes.
+    # 前缀只有对照组时，传统 Qini 值为零，应保留这些已定义的点。
+    # 早期 v1 版本只对同时存在两组的前缀进行积分。
     control = n0 > 0
     q_fraction = np.r_[0.0, count[control] / n]
     traditional = np.r_[
@@ -260,25 +326,38 @@ def _ranking_from_ordered(y, t, e):
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：ranking_metrics —— 计算完整分辨率的增量排序指标。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     scores：与样本顺序一致的预测分数。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     指标：包含样本数、HT 平均效应、各类 AUUC 与 Qini 的字典。
+# 说明：区分 HT、代入估计和传统 Qini，不做完美排序归一化；传统 Qini 保留仅有对照组的零值前缀。
+#-----------------------------------------------------------------------------------------------------------------------
 def ranking_metrics(y, t, scores, e: float, seed: int = 42) -> dict:
-    """Full-resolution areas, horizontal axis population fraction, v2.
-
-    HT: G=sum(z[top k])/n, AUUC=integral G, qini_ht=AUUC-G(1)/2.
-    Plug-in: L=R1/N1-R0/N0, G=(k/n)*L, AUUC=integral G.
-    Traditional: Q=(R1-R0*N1/N0)/n, score=integral Q-Q(1)/2.
-    Each area uses trapezoids at all defined prefixes and origin (0,0),
-    bridging any initial undefined region linearly for integration only.
-    Plug-in requires both arms; Q requires controls (Q=0 if N1=0).
-    No perfect-ranking normalization. No downsampling of integration nodes.
-    The v2 Q convention retains control-only zero nodes; historical v1
-    artifacts used both-arm prefixes and are deliberately not overwritten.
-    """
     y, t = _binary_inputs(y, t)
     scores = _scores(scores, len(y))
     order = _rank(scores, seed)
     return _ranking_from_ordered(y[order], t[order], e)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：ranking_confidence_intervals —— 对冻结排序分数计算配对区间。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     score_dict：策略名称到逐行预测分数数组的映射。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+#     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     结果表：每个策略、每个指标的点估计、区间及相对响应概率基线的差异。
+# 说明：在两组内重抽样，各策略共用同一批记录；区间不包含模型训练和选择的不确定性。
+#-----------------------------------------------------------------------------------------------------------------------
 def ranking_confidence_intervals(
     y,
     t,
@@ -287,16 +366,6 @@ def ranking_confidence_intervals(
     bootstrap: int = 200,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Paired within-arm percentile intervals for frozen ranking scores.
-
-    Reuse the same sampled rows for every model. Keep original independent
-    tie priorities; duplicate sampled rows repeat at their original priority.
-    Recompute whole curves, endpoints and centered areas in each replicate.
-    Conditional on fitted models, e and observed arm sizes; does not include
-    training/selection uncertainty, repeated users or multiplicity correction.
-    Reference named 'propensity' is the response-score baseline. Zero draws
-    returns point estimates and NaN intervals. Use >= 2 draws otherwise.
-    """
     y, t = _binary_inputs(y, t)
     _ht_outcome(y, t, e)
     if not isinstance(bootstrap, (int, np.integer)) or bootstrap < 0 or bootstrap == 1:
@@ -314,6 +383,14 @@ def ranking_confidence_intervals(
     n = len(y)
     orders = [_rank(_scores(score_dict[k], n), seed) for k in names]
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：values —— 提取指定排序下的各项指标。
+    # 输入：
+    #     order：样本按分数排列的位置索引。
+    # 输出：
+    #     指标列表：按外层 metrics 顺序返回的指标数值。
+    # 说明：提取指定排序下的各项指标。
+    #-----------------------------------------------------------------------------------------------------------------------
     def values(order):
         result = _ranking_from_ordered(y[order], t[order], e)
         return [result[k] for k in metrics]
@@ -359,8 +436,17 @@ def ranking_confidence_intervals(
     )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_prefix_values —— 按重抽样次数计算预算内的累计结果。
+# 输入：
+#     z_sorted：已按策略顺序排列的逐行加权结果。
+#     counts_sorted：排序后每条记录在重抽样中的出现次数。
+#     k：每个预算对应的选中行数。
+# 输出：
+#     selected：每个预算对应的加权结果总和数组。
+# 说明：按每条记录在重抽样中的出现次数累计结果，并处理预算边界只取部分重复记录的情况。
+#-----------------------------------------------------------------------------------------------------------------------
 def _prefix_values(z_sorted, counts_sorted, k):
-    """Weighted top-k sums; bootstrap multiplicities reselect the boundary."""
     cumulative_n = np.cumsum(counts_sorted)
     cumulative_z = np.cumsum(counts_sorted * z_sorted)
     selected = np.zeros(len(k), dtype=float)
@@ -372,6 +458,20 @@ def _prefix_values(z_sorted, counts_sorted, k):
     return selected
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：evaluate_policies —— 比较各触达策略的增量收益与配对区间。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     score_dict：策略名称到逐行预测分数数组的映射。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+#     budgets：需要评价的一组触达比例。
+#     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     result：各策略、各预算的选中人数、增量结果和相对基线差异表。
+# 说明：使用固定分数重选预算内记录，并加入解析随机基线；指标分母是全部符合条件人群。
+#-----------------------------------------------------------------------------------------------------------------------
 def evaluate_policies(
     y,
     t,
@@ -381,25 +481,6 @@ def evaluate_policies(
     bootstrap: int = 200,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Compare top-k policies to random and a response-score baseline.
-
-    Name the response-score baseline ``propensity`` for paired differences to
-    it (this name refers to *response* propensity, never treatment assignment).
-    The reserved ``random`` policy is added automatically. Budget q permits
-    k=floor(q*n) contacts; its realized fraction k/n is used for all policies.
-    Random is an analytic expected policy value, (k/n)*ATE_HT, with no extra
-    Monte Carlo assignment noise. Values are incremental responses per 100k
-    eligible people, not per 100k contacted people; costs are not modeled.
-
-    Each bootstrap sample resamples individuals independently *within arm*,
-    holding arm sizes and e fixed. The same sample is used for every policy
-    and for random, so difference intervals are paired percentile intervals.
-    Learned scores and independent tie priorities are frozen. Every replicate
-    reselects its top-k rows; multinomial multiplicities plus sorted-prefix
-    sums implement that resampling without repeated sorting. Uncertainty is
-    conditional on trained models and excludes their training variability.
-    Bootstrap=0 returns estimates with NaN CIs; otherwise use at least 2 draws.
-    """
     y, t = _binary_inputs(y, t)
     n = len(y)
     z = _ht_outcome(y, t, e)
@@ -429,13 +510,13 @@ def evaluate_policies(
     for j, values in enumerate(sorted_z, start=1):
         cumulative = np.r_[0.0, np.cumsum(values)]
         point[j] = cumulative[k] / n
-    # All policies coincide at full coverage. Use the shared aggregate to
-    # prevent accumulation order from creating spurious floating-point gains.
+    # 全量触达时所有策略使用同一个汇总结果。
+    # 避免累加顺序产生微小浮点差异，被误读为策略收益。
     point[:, k == n] = point[0, k == n]
 
     boot = np.empty((bootstrap, len(names), len(budget)))
     if bootstrap:
-        # Independent of the RNG used for tie priorities.
+        # 重抽样随机流独立于同分排序的随机流。
         rng = np.random.default_rng(np.random.SeedSequence([seed, 314159]))
         arm1 = np.flatnonzero(t == 1)
         arm0 = np.flatnonzero(t == 0)
@@ -505,16 +586,18 @@ def evaluate_policies(
     return result
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：calibration_table —— 比较分数分箱中的预测效果与观察效果。
+# 输入：
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     cate：逐行预测的条件平均处理效应。
+#     n_bins：分组校准或分箱统计使用的组数。
+# 输出：
+#     结果表：每箱的人数、预测效应范围、观察效应及描述性区间。
+# 说明：分箱只根据预测分数，不用测试结果重新校准模型；缺少组别时观察效应未定义。
+#-----------------------------------------------------------------------------------------------------------------------
 def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
-    """Equal-count prediction bins, with independent-arm observed ATE/CI.
-
-    Bins increase from low to high predicted CATE and use only predictions to
-    define their membership. Ties are broken independently using seed 42;
-    identical predictions may span bins. A bin with a missing arm has an
-    undefined observed ATE. Bin CIs are descriptive pointwise Wald intervals,
-    not simultaneous bands. Do not use these evaluation outcomes to refit or
-    recalibrate the reported model.
-    """
     y, t = _binary_inputs(y, t)
     cate = _scores(cate, len(y))
     if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:

@@ -1,9 +1,5 @@
-"""Development-only training-size and split sensitivity study.
-
-The old test set has already been inspected and is never used here. Repeated
-development validations overlap; their standard deviations are descriptive,
-not population confidence intervals or a new independent test result.
-"""
+# 只使用开发数据研究训练规模和划分方式的敏感性，排除原测试集。
+# 重复开发验证之间存在重叠，结果离散程度属于描述性统计，不是新的独立测试证据。
 
 from __future__ import annotations
 
@@ -16,8 +12,9 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
-from .data import FEATURES, fingerprint, load_sample, safe_output, write_json
-from .evaluation import evaluate_policies, ranking_metrics
+from .data import FEATURES
+from .pipeline_io import fingerprint, load_sample, safe_output, write_json
+from .evaluation import RANKING_METRIC_DESCRIPTION, evaluate_policies, ranking_metrics
 from .models import make_model
 
 MODEL_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost")
@@ -26,11 +23,27 @@ DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：row_ids_sha256 —— 为原始行号集合计算可复现指纹。
+# 输入：
+#     ids：原始行号数组。
+# 输出：
+#     指纹字符串：排序后的行号字节对应的 SHA256。
+# 说明：为原始行号集合计算可复现指纹。
+#-----------------------------------------------------------------------------------------------------------------------
 def row_ids_sha256(ids):
-    """Hash a row-ID set as sorted little-endian signed 64-bit integers."""
     return sha256(np.sort(np.asarray(ids, dtype="<i8")).tobytes()).hexdigest()
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_checked_ids —— 检查行号是否为非负且互不重复的整数。
+# 输入：
+#     values：需要检查或处理的数值数组。
+#     label：用于说明数据或错误位置的标签。
+# 输出：
+#     ids：校验后的整数行号数组。
+# 说明：检查行号是否为非负且互不重复的整数。
+#-----------------------------------------------------------------------------------------------------------------------
 def _checked_ids(values, label):
     ids = np.asarray(values)
     if ids.ndim != 1 or not len(ids) or ids.dtype.kind not in "iu":
@@ -40,6 +53,16 @@ def _checked_ids(values, label):
     return ids.astype(np.int64)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_binary_vectors —— 检查处理标签和结果标签。
+# 输入：
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     y：每行的二分类结果标签。
+# 输出：
+#     t：校验后的处理标签数组。
+#     y：校验后的结果标签数组。
+# 说明：检查处理标签和结果标签。
+#-----------------------------------------------------------------------------------------------------------------------
 def _binary_vectors(t, y):
     t, y = np.asarray(t), np.asarray(y)
     if t.ndim != 1 or y.shape != t.shape or not len(t):
@@ -51,6 +74,14 @@ def _binary_vectors(t, y):
     return t.astype(np.int8), y.astype(np.int8)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_validate_fractions —— 检查训练比例是否有效且递增。
+# 输入：
+#     fractions：需要比较的嵌套训练样本比例。
+# 输出：
+#     fractions：校验后的浮点比例元组。
+# 说明：检查训练比例是否有效且递增。
+#-----------------------------------------------------------------------------------------------------------------------
 def _validate_fractions(fractions):
     fractions = tuple(float(f) for f in fractions)
     if (
@@ -65,6 +96,14 @@ def _validate_fractions(fractions):
     return fractions
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_validate_seeds —— 检查随机种子是否有效且不重复。
+# 输入：
+#     seeds：需要比较的一组随机种子。
+# 输出：
+#     seeds：校验后的整数种子元组。
+# 说明：检查随机种子是否有效且不重复。
+#-----------------------------------------------------------------------------------------------------------------------
 def _validate_seeds(seeds):
     seeds = tuple(seeds)
     if (
@@ -82,24 +121,33 @@ def _validate_seeds(seeds):
     return tuple(int(s) for s in seeds)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：feature_groups —— 用匿名特征指纹划分敏感性分析的组。
+# 输入：
+#     frame：本次处理的数据表。
+# 输出：
+#     组标识：每行十二个建模特征对应的哈希值。
+# 说明：相同特征用于同组划分，不代表同一用户，也不用于删除重复记录。
+#-----------------------------------------------------------------------------------------------------------------------
 def feature_groups(frame):
-    """64-bit hashes of twelve float32 model inputs, not inferred user IDs.
-
-    Hash collisions are theoretically possible. No records are deduplicated;
-    equal feature vectors are grouped only for the sensitivity split.
-    """
     return pd.util.hash_pandas_object(
         frame[FEATURES].astype(np.float32), index=False
     ).to_numpy(dtype=np.uint64)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：load_development_sample —— 核验缓存来源并排除原测试集。
+# 输入：
+#     cache：已有建模样本缓存路径。
+#     base_run：原始实验目录，提供来源记录及已使用的测试集行号。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+# 输出：
+#     development：排除原测试集后的开发数据。
+#     old_test_ids：原测试集行号。
+#     provenance：缓存、原实验和行号的来源记录。
+# 说明：核验缓存来源并排除原测试集。
+#-----------------------------------------------------------------------------------------------------------------------
 def load_development_sample(cache, base_run, outcome="conversion"):
-    """Read the existing cache and subtract the entire previously exposed test.
-
-    Verify cache/base provenance and ID membership. Reading metadata alone
-    cannot prove the cache's contents against the original raw CSV; the cache
-    byte fingerprint is therefore also frozen in the new protocol.
-    """
     cache, base_run = Path(cache).resolve(), Path(base_run).resolve()
     if outcome not in ("conversion", "visit"):
         raise ValueError("outcome must be conversion or visit")
@@ -125,7 +173,18 @@ def load_development_sample(cache, base_run, outcome="conversion"):
         raise ValueError("old test row IDs are not all present in the supplied cache")
     if manifest.get("sample_n") != len(sample):
         raise ValueError("cache row count disagrees with base manifest")
-    if metadata.get("sample_size") not in (0, len(sample)):
+    requested = metadata.get("sample_size")
+    source_rows = metadata.get("audit", {}).get("n_rows")
+    # 目标规模超过来源总行数时，扫描器合法地保留全量；用审计行数核验这种情况。
+    if (
+        isinstance(requested, bool)
+        or not isinstance(requested, int)
+        or requested < 0
+        or (
+            requested not in (0, len(sample))
+            and not (requested > len(sample) and source_rows == len(sample))
+        )
+    ):
         raise ValueError("cache row count disagrees with cache metadata")
     if not np.isfinite(sample[FEATURES].to_numpy()).all():
         raise ValueError("cached features must be finite for this study")
@@ -151,14 +210,18 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     return development, old_test_ids, provenance
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：nested_stratified_indices —— 按处理与结果标签分层抽取嵌套样本。
+# 输入：
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     y：每行的二分类结果标签。
+#     fractions：需要比较的嵌套训练样本比例。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     result：各训练比例对应的位置索引字典。
+# 说明：按处理与结果标签分层抽取嵌套样本。
+#-----------------------------------------------------------------------------------------------------------------------
 def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
-    """Nested, without-replacement proportional samples within T x Y strata.
-
-    One independent random order per stratum is reused at all fractions.
-    Each stratum contributes floor(fraction * stratum_size) records: no event
-    oversampling or artificial minimum event count is imposed. As a result,
-    selected size can be a few records below fraction * training size.
-    """
     t, y = _binary_vectors(t, y)
     fractions = _validate_fractions(fractions)
     _validate_seeds((seed,))
@@ -170,7 +233,7 @@ def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
         indices = np.concatenate(
             [order[: int(np.floor(fraction * len(order)))] for order in orders]
         )
-        # Sorting restores source order; membership is still random and nested.
+        # 排序只恢复来源行序；入选成员仍由随机嵌套抽样决定。
         indices = np.sort(indices)
         if len(indices) == 0 or len(np.unique(t[indices])) != 2:
             raise ValueError(
@@ -180,13 +243,17 @@ def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
     return result
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：development_splits —— 创建分层划分和特征分组划分。
+# 输入：
+#     frame：本次处理的数据表。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+# 输出：
+#     result：两种划分各自的训练与验证位置索引。
+# 说明：创建分层划分和特征分组划分。
+#-----------------------------------------------------------------------------------------------------------------------
 def development_splits(frame, seed=17, outcome="conversion"):
-    """Return row-stratified 75/25 and feature-group 75/25 partitions.
-
-    GroupShuffleSplit allocates 25% of distinct groups, so the validation
-    *row* fraction need not be 25%. It is not outcome-stratified and targets
-    a different holdout feature distribution from the row split.
-    """
     _validate_seeds((seed,))
     t, y = _binary_vectors(frame.treatment, frame[outcome])
     strata = t * 2 + y
@@ -221,6 +288,16 @@ def development_splits(frame, seed=17, outcome="conversion"):
     return result
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_counts —— 汇总指定数据集的两组人数和事件数。
+# 输入：
+#     frame：本次处理的数据表。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+#     prefix：输出统计字段的名称前缀。
+# 输出：
+#     统计字典：带指定前缀的人数及正例数。
+# 说明：汇总指定数据集的两组人数和事件数。
+#-----------------------------------------------------------------------------------------------------------------------
 def _counts(frame, outcome, prefix):
     t, y = frame.treatment.to_numpy(), frame[outcome].to_numpy()
     return {
@@ -232,6 +309,15 @@ def _counts(frame, outcome, prefix):
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_summarize —— 汇总重复开发实验的指标和选择频率。
+# 输入：
+#     longmetrics：各次开发集实验的详细指标表。
+# 输出：
+#     aggregate：各设置下的指标汇总表。
+#     frequencies：策略被选中的频率表。
+# 说明：汇总重复开发实验的指标和选择频率。
+#-----------------------------------------------------------------------------------------------------------------------
 def _summarize(longmetrics):
     dimensions = ["split_method", "training_fraction", "policy"]
     quantities = [
@@ -265,6 +351,21 @@ def _summarize(longmetrics):
     return aggregate, frequencies
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run_stability —— 执行开发集训练规模与划分敏感性分析。
+# 输入：
+#     cache：已有建模样本缓存路径。
+#     base_run：原始实验目录，提供来源记录及已使用的测试集行号。
+#     output：本次任务的新输出路径。
+#     seeds：需要比较的一组随机种子。
+#     fractions：需要比较的嵌套训练样本比例。
+#     trees：XGBoost 候选模型使用的树数量。
+#     primary_budget：主策略允许触达的人群比例。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+# 输出：
+#     output：新生成的研究结果目录。
+# 说明：先固定分析配置，再执行各组训练；原测试记录不参与，跨运行离散程度仅作描述。
+#-----------------------------------------------------------------------------------------------------------------------
 def run_stability(
     cache,
     base_run,
@@ -276,13 +377,6 @@ def run_stability(
     primary_budget=0.2,
     outcome="conversion",
 ):
-    """Execute the frozen descriptive protocol and write a new artifact folder.
-
-    Models are fitted only on development training rows and are not saved.
-    Response propensity reuses T-XGBoost's treated outcome model. The full
-    training partition supplies the fixed assignment probability for every
-    nested fraction, keeping within-split HT comparisons on the same scale.
-    """
     from .runtime import configure_runtime
 
     configure_runtime()
@@ -308,7 +402,7 @@ def run_stability(
     development, old_test_ids, provenance = load_development_sample(
         cache, base_run, outcome
     )
-    # Prepare and validate all splits before starting any model fit.
+    # 在拟合任何模型前，先准备并校验全部划分。
     splits = {seed: development_splits(development, seed, outcome) for seed in seeds}
     protocol = {
         "study": "development_training_size_and_split_sensitivity_v1",
@@ -336,7 +430,7 @@ def run_stability(
         "assignment_probability": "plug-in treatment fraction of the full training partition, shared across its nested fractions; validation outcomes do not estimate it",
         "primary_metric": "validation HT incremental conversions per 100000 eligible people at the realized floor(budget*n)/n fraction",
         "secondary_metrics": "full-resolution HT AUUC, centered HT Qini, and separately scaled traditional Qini score",
-        "ranking_metric_definition_from_loaded_function": ranking_metrics.__doc__,
+        "ranking_metric_definition_from_loaded_function": RANKING_METRIC_DESCRIPTION,
         "random_ranking": "analytic reference line: AUUC_HT=ATE_HT/2, centered Qini scores=0; not a sampled random ranking",
         "response_baseline": "propensity means P(Y=1|X,T=1), reused from t_xgboost; not P(T=1|X)",
         "selection": "one development winner per seed/split/fraction; stable ties follow candidate order; selection frequency is descriptive",
@@ -426,7 +520,7 @@ def run_stability(
                             validation[FEATURES]
                         )[1]
                     del model
-                # Reorder explicitly so tie handling does not depend on fit timing.
+                # 显式恢复候选顺序，避免同分选择受到拟合完成顺序影响。
                 score_dict = {
                     name: score_dict[name] for name in POLICY_NAMES if name != "random"
                 }
@@ -501,7 +595,7 @@ def run_stability(
                             "selected_on_validation": name == winner,
                         }
                     )
-                # Progress files stay inside the new directory; protocol is immutable.
+                # 进度文件只保存在本次新目录中；预先冻结的分析配置保持不变。
                 pd.DataFrame(records).to_csv(output / "longmetrics.csv", index=False)
                 pd.DataFrame(audits).to_csv(output / "split_audit.csv", index=False)
     longmetrics = pd.DataFrame(records)
@@ -510,7 +604,7 @@ def run_stability(
     frequencies.to_csv(output / "selection_frequency.csv", index=False)
     if fingerprint(output / "protocol.json")["sha256"] != protocol_sha:
         raise AssertionError("protocol changed after study started")
-    # Verify each read-only input still has the same bytes before completion.
+    # 结束前再次核验各只读输入文件的字节内容未改变。
     for label in ("cache", "cache_metadata", "base_manifest", "old_test_id_file"):
         if (
             fingerprint(provenance[label]["path"])["sha256"]

@@ -1,4 +1,4 @@
-"""Re-evaluate frozen predictions with explicit v2 definitions; never reselect."""
+# 使用冻结预测计算扩展排序指标、校准结果与配对区间，保持原模型选择不变。
 
 from pathlib import Path
 import sys
@@ -12,7 +12,7 @@ import argparse
 import json
 import numpy as np
 import pandas as pd
-from criteo_uplift.data import safe_output, write_json, fingerprint
+from criteo_uplift.pipeline_io import safe_output, write_json, fingerprint
 from criteo_uplift.evaluation import (
     uplift_curve,
     ranking_metrics,
@@ -20,6 +20,16 @@ from criteo_uplift.evaluation import (
 )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run —— 对冻结预测计算扩展指标并保存。
+# 输入：
+#     source：输入来源路径或指纹记录，具体类型由本函数的用途决定。
+#     output：本次任务的新输出路径。
+#     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
+# 输出：
+#     返回值：None；扩展指标和来源记录写入指定目录。
+# 说明：对冻结预测计算扩展指标并保存。
+#-----------------------------------------------------------------------------------------------------------------------
 def run(source, output, bootstrap=200):
     source = Path(source).resolve()
     output = safe_output(output)
@@ -63,7 +73,7 @@ def run(source, output, bootstrap=200):
     for name, score in scores.items():
         rows.append({'policy': name, **ranking_metrics(y, t, score, e, seed)})
         curve = uplift_curve(y, t, score, e, seed)
-        # Downsample visualization only. Area calculations above use every prefix.
+        # 只压缩可视化数据；前面的面积计算使用每个排序前缀。
         ix = np.unique(
             np.r_[
                 np.arange(min(20, len(curve))),
@@ -89,7 +99,7 @@ def run(source, output, bootstrap=200):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='使用冻结预测计算扩展排序指标、校准结果与配对区间，保持原模型选择不变。')
     parser.add_argument(
         '--source', type=Path, default=ROOT / 'artifacts/conversion_1000000_seed42'
     )

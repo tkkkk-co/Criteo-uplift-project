@@ -1,4 +1,4 @@
-"""Run read-only SQL reconciliation of a frozen Criteo test experiment."""
+# 读取冻结实验结果，执行 SQL 与 Python 的指标核对并输出审计报告。
 
 from pathlib import Path
 import argparse
@@ -15,8 +15,16 @@ configure_runtime()
 from criteo_uplift.sql_audit import run_sql_audit
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：main —— 根据命令行配置启动任务。
+# 输入：
+#     无。
+# 输出：
+#     返回值：None；执行请求的流程并保存或显示结果。
+# 说明：根据命令行配置启动任务。
+#-----------------------------------------------------------------------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='读取冻结实验结果，执行 SQL 与 Python 的指标核对并输出审计报告。')
     parser.add_argument(
         "--source", type=Path, default=ROOT / "artifacts/conversion_1000000_seed42"
     )

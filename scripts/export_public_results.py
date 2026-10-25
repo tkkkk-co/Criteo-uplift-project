@@ -1,4 +1,4 @@
-"""Export an allowlisted, aggregate-only snapshot; no raw data/model arrays."""
+# 从现有实验导出可发布的聚合结果，移除本机路径，不导出逐行数据或模型。
 
 from pathlib import Path
 import sys
@@ -14,7 +14,8 @@ import hashlib
 import json
 import shutil
 import pandas as pd
-from criteo_uplift.data import FEATURES, load_sample, safe_output
+from criteo_uplift.data import FEATURES
+from criteo_uplift.pipeline_io import load_sample, safe_output
 
 BASE = 'conversion_1000000_seed42'
 BASE_FILES = (
@@ -75,17 +76,33 @@ EXPORTS = {
 }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：sanitize_text —— 清理公开文本中的本机路径。
+# 输入：
+#     value：需要格式化或转换的值。
+# 输出：
+#     文本：去除本地环境标识后的字符串。
+# 说明：清理公开文本中的本机路径。
+#-----------------------------------------------------------------------------------------------------------------------
 def sanitize_text(value):
     return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(
         '/opt/miniconda3/envs/causalml/bin/python', 'python'
     )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：export —— 导出已有实验的聚合快照。
+# 输入：
+#     output：本次任务的新输出路径。
+# 输出：
+#     output：新生成的聚合快照目录。
+# 说明：导出已有实验的聚合快照。
+#-----------------------------------------------------------------------------------------------------------------------
 def export(output):
     output = safe_output(output)
     if output.exists():
         raise FileExistsError(f'Use a new snapshot directory: {output}')
-    # Check required sources before creating partial output.
+    # 先检查必要的来源文件，再创建输出，避免留下不完整产物。
     for directory, names in EXPORTS.items():
         for name in names:
             if not (ROOT / 'artifacts' / directory / name).is_file():
@@ -93,6 +110,15 @@ def export(output):
     output.mkdir(parents=True)
     records = []
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：copy —— 复制并记录一个允许发布的结果文件。
+    # 输入：
+    #     source：输入来源路径或指纹记录，具体类型由本函数的用途决定。
+    #     relative：文件在目标目录中的相对路径。
+    # 输出：
+    #     返回值：None；保存目标文件并登记来源与指纹。
+    # 说明：复制并记录一个允许发布的结果文件。
+    #-----------------------------------------------------------------------------------------------------------------------
     def copy(source, relative):
         target = output / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +145,7 @@ def export(output):
         copy(source, Path('extension_figures') / source.name)
     copy(ROOT / 'artifacts/extension_report.html', Path('extension_report.html'))
 
-    # Only grouped and marginal summaries are exported, never individual rows.
+    # 只导出分组和单变量汇总，不导出逐行记录。
     sample = load_sample(ROOT / 'artifacts/cache/sample_1000000_seed42.npz')
     rows = []
     for treatment, group in sample.groupby('treatment'):
@@ -138,7 +164,7 @@ def export(output):
         output / BASE / 'sample_feature_summary.csv', index_label='feature'
     )
     del sample
-    # Reuse the actual executed histogram output rather than invent a figure.
+    # 复用 Notebook 实际执行生成的直方图。
     nb = json.loads((ROOT / 'notebooks/01_data_understanding.ipynb').read_text())
     found = False
     for cell in nb['cells']:
@@ -195,6 +221,6 @@ def export(output):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='从现有实验导出可发布的聚合结果，移除本机路径，不导出逐行数据或模型。')
     parser.add_argument('--output', type=Path, default=ROOT / 'reports/published')
     export(parser.parse_args().output)

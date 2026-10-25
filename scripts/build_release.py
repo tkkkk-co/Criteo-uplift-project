@@ -1,4 +1,4 @@
-"""Build a small GitHub-ready source ZIP from an explicit publication list."""
+# 按明确的发布文件列表生成项目 ZIP 包，不包含原始数据与模型缓存。
 
 from pathlib import Path
 import sys
@@ -8,9 +8,17 @@ sys.path.insert(0, str(ROOT))
 import argparse
 import zipfile
 from check_publication import check, publication_files
-from criteo_uplift.data import safe_output
+from criteo_uplift.pipeline_io import safe_output
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：build —— 按发布清单打包项目。
+# 输入：
+#     output：本次任务的新输出路径。
+# 输出：
+#     output：生成的 ZIP 文件路径。
+# 说明：按发布清单打包项目。
+#-----------------------------------------------------------------------------------------------------------------------
 def build(output):
     output = safe_output(output)
     if output.exists():
@@ -26,7 +34,7 @@ def build(output):
 
 
 if __name__ == '__main__':
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description='按明确的发布文件列表生成项目 ZIP 包，不包含原始数据与模型缓存。')
     p.add_argument(
         '--output',
         type=Path,

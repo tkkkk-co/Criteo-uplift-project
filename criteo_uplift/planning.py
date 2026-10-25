@@ -1,4 +1,4 @@
-"""Explicit hypothetical economics and two-policy A/B planning, not online ROI."""
+# 在明确的假设下估算策略 A/B 实验样本量和成本收益，不代表真实线上收益。
 
 from math import ceil, floor, isfinite, sqrt
 from statistics import NormalDist
@@ -6,21 +6,22 @@ from statistics import NormalDist
 _NORMAL = NormalDist()
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：plan_policy_ab —— 估算假设策略对比所需的样本量。
+# 输入：
+#     p0：假设的基线策略总体转化率。
+#     absolute_mde：希望检测到的绝对转化率差异。
+#     allocation_ratio：策略 A 与策略 B 的分配人数比例。
+#     budget：本次允许触达的人群比例。
+#     alpha：双侧检验的显著性水平。
+#     power：目标统计功效。
+# 输出：
+#     规划结果：两组样本量、总人数、触达人数和近似功效等假设性结果。
+# 说明：基于独立二分类结果的近似规划；转化率指全部符合条件人群，预算不会额外改变所需效应差。
+#-----------------------------------------------------------------------------------------------------------------------
 def plan_policy_ab(
     p0, absolute_mde, allocation_ratio=1.0, budget=0.2, alpha=0.05, power=0.8
 ):
-    """Normal approximation for all-eligible-user policy CVR comparison.
-
-    p0 is policy B CVR, p1=p0+absolute_mde is policy A CVR, r=nA/nB.
-    Both strategies contact the same fraction, budget. That fraction is NOT
-    an extra divisor of MDE/sample size: p0 and p1 are eligible-user rates.
-    nB=[za*sqrt(pbar*(1-pbar)*(1+1/r)) + zb*sqrt(p0*(1-p0)+p1*(1-p1)/r)]^2/delta^2.
-    Independent Bernoulli users, fixed horizon, two-sided alpha, no continuity
-    correction. Neglects the remote rejection tail in sample-size formula;
-    approximate achieved power below includes both tails after rounding.
-    Source: statsmodels.stats.proportion.power_proportions_2indep (pooled null,
-    unpooled alternative). No cluster/design effect or attrition adjustment.
-    """
     values = (p0, absolute_mde, allocation_ratio, budget, alpha, power)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
         raise ValueError('Inputs must be finite numeric scalars')
@@ -68,6 +69,20 @@ def plan_policy_ab(
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：cost_value_scenario —— 将增量效果转换为假设成本收益。
+# 输入：
+#     incremental_per_100k：每十万名符合条件人群的增量结果数。
+#     budget：本次允许触达的人群比例。
+#     value_per_conversion：假设每次增量转化带来的贡献价值。
+#     contact_cost：假设每次触达的单位成本。
+#     eligible_n：符合触达条件的总体人数。
+#     ci_low：可选的增量效果区间下界。
+#     ci_high：可选的增量效果区间上界。
+# 输出：
+#     情景结果：增量转化、收益、触达成本、净值及条件区间。
+# 说明：价值、成本和效果可迁移性均由输入假设给出，不代表已实现的线上收入。
+#-----------------------------------------------------------------------------------------------------------------------
 def cost_value_scenario(
     incremental_per_100k,
     *,
@@ -78,13 +93,6 @@ def cost_value_scenario(
     ci_low=None,
     ci_high=None,
 ):
-    """Linear scenario versus treat-none. Every economic input is explicit.
-
-    value_per_conversion is assumed incremental contribution margin BEFORE
-    contact costs, not automatically revenue. CI is conditional on all these
-    assumptions; contact cost/value uncertainty and deployment drift excluded.
-    Equal-budget policy-vs-policy contact costs cancel under equal unit costs.
-    """
     values = (incremental_per_100k, budget, value_per_conversion, contact_cost)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
         raise ValueError('Inputs must be finite numeric scalars')

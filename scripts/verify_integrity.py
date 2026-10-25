@@ -1,9 +1,4 @@
-"""Verify data remains byte/mtime-identical; record authorized learning-note edits.
-
-The user explicitly authorized all Markdown edits on 2026-10-11. Keep the
-original immutable snapshot and historical verification; write a separate
-report. Markdown backups preserve all twenty original files before editing.
-"""
+# 对照历史记录核验原始数据未改变，并记录学习笔记的授权修改与备份状态。
 
 from pathlib import Path
 import hashlib
@@ -12,6 +7,14 @@ import json
 ROOT = Path(__file__).resolve().parents[1]
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：sha —— 计算文件内容的 SHA256。
+# 输入：
+#     path：需要读取或检查的文件路径。
+# 输出：
+#     指纹字符串：文件字节对应的 SHA256。
+# 说明：计算文件内容的 SHA256。
+#-----------------------------------------------------------------------------------------------------------------------
 def sha(path):
     h = hashlib.sha256()
     with path.open('rb') as f:
@@ -20,6 +23,14 @@ def sha(path):
     return h.hexdigest()
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：verify —— 核验原始数据及学习笔记备份。
+# 输入：
+#     无。
+# 输出：
+#     report：原始数据一致性和笔记备份检查结果。
+# 说明：核验原始数据及学习笔记备份。
+#-----------------------------------------------------------------------------------------------------------------------
 def verify():
     before = json.loads((ROOT / 'artifacts/input_integrity_before.json').read_text())
     data_checks = []

@@ -1,13 +1,6 @@
 #!/usr/bin/env python3
-"""使用可信 run 中冻结的策略，对公开样本离线打分；不执行真实广告投放。
-
-示例：python score_policy.py --run artifacts/conversion_1000000_seed42 \
-    --input users.csv --output artifacts/scored_users.csv --budget .2
-
-输入只使用 f0-f11；结果只包含从 0 开始的 source_row_id、score、selected。
-selected 严格覆盖 floor(budget * 行数) 行；同分时用独立固定随机种子打破平局。
-joblib 文件必须来自你信任的本地 run。data/ 与输入文件只读，拒绝覆盖已有输出。
-"""
+# 加载可信实验目录中的冻结策略，对输入特征分块打分并按指定预算选择记录。
+# 只输出原始行号、分数和选择标记；不训练模型、不读取结果标签，不执行真实广告投放。
 
 from __future__ import annotations
 
@@ -25,12 +18,21 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.data import FEATURES, safe_output
+from criteo_uplift.data import FEATURES
+from criteo_uplift.pipeline_io import safe_output
 
 UPLIFT_POLICIES = {"s_logistic", "t_logistic", "t_xgboost", "x_xgboost"}
 MAX_CHUNK_SIZE = 100_000
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_read_json —— 读取并验证冻结实验的 JSON 对象。
+# 输入：
+#     path：需要读取或检查的文件路径。
+# 输出：
+#     value：解析后的字典。
+# 说明：读取并验证冻结实验的 JSON 对象。
+#-----------------------------------------------------------------------------------------------------------------------
 def _read_json(path):
     if not path.is_file():
         raise FileNotFoundError(f"冻结 run 缺少文件：{path}")
@@ -43,6 +45,16 @@ def _read_json(path):
     return value
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_load_frozen_policy —— 核对并加载冻结策略。
+# 输入：
+#     run：可信的冻结实验目录。
+# 输出：
+#     policy：冻结的策略名称。
+#     seed：实验记录的随机种子。
+#     model：已加载模型；随机策略时为 None。
+# 说明：核对并加载冻结策略。
+#-----------------------------------------------------------------------------------------------------------------------
 def _load_frozen_policy(run):
     run = Path(run).resolve()
     if not run.is_dir():
@@ -92,6 +104,14 @@ def _load_frozen_policy(run):
     return policy, seed, model
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：_check_input_header —— 检查打分输入的特征列是否齐全且唯一。
+# 输入：
+#     path：需要读取或检查的文件路径。
+# 输出：
+#     返回值：None；列名不合法时抛出异常。
+# 说明：检查打分输入的特征列是否齐全且唯一。
+#-----------------------------------------------------------------------------------------------------------------------
 def _check_input_header(path):
     if not path.is_file():
         raise FileNotFoundError(f"输入 CSV 不存在：{path}")
@@ -105,14 +125,19 @@ def _check_input_header(path):
         raise ValueError(f"输入 CSV 存在重复特征列：{', '.join(duplicated)}")
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：score_policy —— 使用冻结策略分块打分并执行全局预算排序。
+# 输入：
+#     run：可信的冻结实验目录。
+#     input_path：只读输入文件路径。
+#     output_path：输出文件路径。
+#     budget：本次允许触达的人群比例。
+#     chunk_size：每个数据块的行数上限。
+# 输出：
+#     结果字典：策略、种子、输入行数、预算、选中人数及输出路径。
+# 说明：只使用处理前特征，不重新训练或选择策略；输出原始行号、分数和选择标记。
+#-----------------------------------------------------------------------------------------------------------------------
 def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_SIZE):
-    """Apply the frozen policy without fitting, reselecting, or reading labels.
-
-    Feature frames are bounded by ``chunk_size``. One score and one selection
-    flag per input row are held in memory for a global, exact-budget ranking.
-    The returned dictionary is metadata; the output CSV contains only the
-    source row ordinal, score, and 0/1 selection flag.
-    """
     if isinstance(budget, bool):
         raise ValueError("budget 必须在 [0, 1] 内。")
     try:
@@ -138,8 +163,8 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
     policy, seed, model = _load_frozen_policy(run)
     score_seed = np.random.SeedSequence(seed).spawn(1)[0]
     score_rng = np.random.default_rng(score_seed)
-    # Match evaluation._rank exactly for replay in the same source-row order.
-    # Random-policy scores use their own spawned stream above.
+    # 与 evaluation._rank 保持一致，支持相同原始行序下复现选择结果。
+    # 随机策略的分数使用上方单独派生的随机流。
     tie_rng = np.random.default_rng(seed)
     scores = []
     offset = 0
@@ -151,7 +176,7 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
         encoding="utf-8-sig",
     ) as reader:
         for chunk in reader:
-            # Explicit order and usecols keep outcomes/exposure/treatment out.
+            # 显式指定列顺序并只读取特征，排除结果、曝光和处理标签。
             X = chunk[FEATURES]
             if len(X) == 0:
                 continue
@@ -160,7 +185,7 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
             if policy == "random":
                 score = score_rng.random(len(X))
             elif policy == "propensity":
-                # Response propensity is P(Y=1 | X,T=1), not P(T=1 | X).
+                # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
                 score = model.predict_outcomes(X)[1]
             else:
                 score = model.predict(X)
@@ -172,14 +197,14 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
     if offset == 0:
         raise ValueError("输入 CSV 没有数据行。")
     scores = np.concatenate(scores)
-    # Decimal prevents a requested .58 * 100 from rounding down to 57 in binary.
+    # 使用 Decimal，避免 0.58 乘以 100 因二进制误差被向下取整成 57。
     selected_n = int((budget_value * offset).to_integral_value(rounding=ROUND_FLOOR))
     selected = np.zeros(offset, dtype=np.int8)
     if selected_n:
         order = np.lexsort((tie_rng.random(offset), -scores))
         selected[order[:selected_n]] = 1
         del order
-    # Exclusive creation also rejects a destination created after our precheck.
+    # 使用独占创建，防止预检查后新出现的同名文件被覆盖。
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("x", encoding="utf-8", newline="") as handle:
         for start in range(0, offset, chunk_size):
@@ -201,9 +226,17 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：main —— 解析命令行并执行离线策略打分。
+# 输入：
+#     argv：命令行参数列表；None 表示读取当前进程的参数。
+# 输出：
+#     result：本次打分结果的概要字典。
+# 说明：解析命令行并执行离线策略打分。
+#-----------------------------------------------------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+        description='加载可信实验目录中的冻结策略，对输入特征分块打分并按指定预算选择记录。\n只输出原始行号、分数和选择标记；不训练模型、不读取结果标签，不执行真实广告投放。', formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--run", type=Path, required=True, help="已有可信冻结 run 目录")
     parser.add_argument(

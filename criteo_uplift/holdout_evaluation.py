@@ -1,15 +1,12 @@
-"""Evaluate frozen uplift models on the held-out test split.
-
-This module consumes already-fitted models and does not train models or change
-the policy selected on the validation split.
-"""
+# 使用测试集评价已冻结的候选模型，并保存指标、曲线和预测。
 
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from .data import FEATURES, write_json
+from .data import FEATURES
+from .pipeline_io import write_json
 from .evaluation import (
     ate_summary,
     calibration_table,
@@ -20,22 +17,22 @@ from .evaluation import (
 )
 
 
-# ----------------------------------------------------------------------------
-# Function: evaluate_test_set — evaluate frozen candidates on the test split.
-# Inputs:
-#     test: held-out DataFrame with features, treatment, and the chosen outcome.
-#     models: fitted candidate models trained without test rows.
-#     outcome: primary binary outcome column.
-#     assignment_probability: fixed treatment-assignment probability estimate.
-#     seed, bootstrap: reproducibility seed and bootstrap replicate count.
-#     primary_budget: budget selected for the primary policy comparison.
-#     out: directory for test metrics, curves, calibration, and predictions.
-#     progress: callback accepting one progress-message string.
-# Outputs:
-#     DataFrame of test policy metrics; also writes the established test artifacts.
-# Notes:
-#     Test metrics are for reporting only; this function never changes selection.
-# ----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：evaluate_test_set —— 评价已冻结模型并保存测试集结果。
+# 输入：
+#     test：测试集数据表，用于冻结选择后的最终评价。
+#     models：模型名称到已拟合模型对象的映射。
+#     outcome：当前结果列名，通常为 conversion 或 visit。
+#     assignment_probability：固定使用的处理分配概率估计值。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+#     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
+#     primary_budget：主策略允许触达的人群比例。
+#     out：当前实验的结果保存目录。
+#     progress：接收进度文字的函数。
+# 输出：
+#     policies：测试集策略评价表。
+# 说明：计算排序、预算、校准和区间结果，保存逐行预测；不根据测试结果重新选择策略。
+#-----------------------------------------------------------------------------------------------------------------------
 def evaluate_test_set(
     test,
     models,
@@ -48,22 +45,6 @@ def evaluate_test_set(
     out,
     progress=print,
 ):
-    """Evaluate already-fitted models without reselecting the primary policy.
-
-    Args:
-        test: held-out test DataFrame.
-        models: mapping from candidate name to fitted model.
-        outcome: binary outcome column.
-        assignment_probability: fixed assignment-probability estimate.
-        seed: deterministic seed for ranking and bootstrap procedures.
-        bootstrap: number of paired bootstrap replicates.
-        primary_budget: primary contact fraction chosen on validation data.
-        out: directory for test artifacts.
-        progress: callback used for progress messages.
-
-    Returns:
-        DataFrame of policy metrics saved as test_policies.csv.
-    """
     out = Path(out)
     test_scores = {
         name: model.predict(test[FEATURES])
@@ -97,7 +78,7 @@ def evaluate_test_set(
             assignment_probability,
             seed,
         )
-        # Keep full-resolution metrics; thin only the saved plotting table.
+        # 指标使用完整曲线；仅压缩用于绘图的保存表。
         curve = curve.iloc[
             np.unique(np.linspace(0, len(curve) - 1, 501).astype(int))
         ].copy()

@@ -1,10 +1,4 @@
-"""Reproduce frozen test-policy evaluation with auditable SQLite queries.
-
-The three SQL tables are normalized *derived views of public experiment rows*,
-not production event logs. ``row_id`` is the zero-based source CSV row position,
-not a user identifier. A 1:1 join proves row alignment only, not user independence.
-The database stays in memory; no raw data or previous experiment is modified.
-"""
+# 使用内存 SQLite 核对冻结策略的连接完整性、分组统计和策略收益。
 
 from __future__ import annotations
 
@@ -16,7 +10,7 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
-from .data import fingerprint, safe_output, write_json
+from .pipeline_io import fingerprint, safe_output, write_json
 from .evaluation import evaluate_policies
 
 SCHEMA_SQL = """
@@ -81,8 +75,8 @@ SELECT *,
 FROM counts;
 """
 
-# An input-position final key agrees with NumPy's stable lexsort if the random
-# tie priorities ever collide. The priorities themselves never use y or t.
+# 随机优先级发生碰撞时，用输入位置作为最后的排序键，与 NumPy 保持一致。
+# 优先级本身不使用结果标签或处理标签。
 RANKED_SQL = """
 WITH ranked AS (
     SELECT a.row_id, a.treatment, o.response, p.score,
@@ -124,28 +118,50 @@ FROM ranked WHERE rank <= :k;
 """
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：sql_queries —— 汇总本次审计实际执行的 SQL。
+# 输入：
+#     无。
+# 输出：
+#     SQL 文本：可保存为文件的完整查询和参数说明。
+# 说明：汇总本次审计实际执行的 SQL。
+#-----------------------------------------------------------------------------------------------------------------------
 def sql_queries() -> str:
-    """Return the exact executed SQL with named bind-parameter documentation."""
     pieces = [
-        "-- SQLite evidence: normalized derived tables; no synthetic user IDs.\n"
-        "-- Bind parameters: policy (name), e (frozen assignment probability),\n"
-        "-- n (all eligible test rows), k=floor(budget*n+1e-12), n_bins.\n"
-        "-- Scores are loaded one policy at a time with executemany.\n"
-        "-- tie_priority = NumPy default_rng(seed).random(n), aligned to input order.\n"
-        "-- NTILE bin 1 contains the highest scores. NULL denotes a missing arm.\n",
+        "-- SQLite 核对：使用规范化的派生表，不构造用户身份标识。\n"
+        "-- 绑定参数：policy 为策略名称；e 为冻结的处理分配概率。\n"
+        "-- n 为全部测试行数；k 为预算内人数；n_bins 为分箱数量。\n"
+        "-- 每次使用 executemany 加载一个策略的分数。\n"
+        "-- tie_priority 使用固定种子生成独立均匀随机数，与输入行顺序对应。\n"
+        "-- NTILE 第 1 箱包含最高分记录；NULL 表示该箱缺少相应组别。\n",
     ]
     for name, query in (
-        ("schema", SCHEMA_SQL),
-        ("assignment/outcome 1:1 join", JOIN_AUDIT_SQL),
-        ("policy-score completeness", SCORE_JOIN_AUDIT_SQL),
-        ("conditional aggregation", CVR_SQL),
-        ("window-function bins", DECILES_SQL),
-        ("top-budget HT policy value", POLICY_VALUE_SQL),
+        ("表结构", SCHEMA_SQL),
+        ("处理分配与结果的一对一连接", JOIN_AUDIT_SQL),
+        ("策略分数完整性", SCORE_JOIN_AUDIT_SQL),
+        ("分组条件汇总", CVR_SQL),
+        ("窗口函数分箱", DECILES_SQL),
+        ("预算内 HT 策略收益", POLICY_VALUE_SQL),
     ):
         pieces.append(f"\n-- {name}\n{query.strip()}\n")
     return "".join(pieces)
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：audit_arrays —— 用 SQL 核对冻结预测的连接与策略统计。
+# 输入：
+#     row_id：与各数组对应的原始行号。
+#     y：每行的二分类结果标签。
+#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
+#     score_dict：策略名称到逐行预测分数数组的映射。
+#     e：固定的 Treatment 分配概率，通常来自训练集。
+#     budget：本次允许触达的人群比例。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+#     n_bins：分组校准或分箱统计使用的组数。
+# 输出：
+#     审计结果：包含连接完整性、转化率、分箱和策略收益的结果表字典。
+# 说明：用 SQL 核对冻结预测的连接与策略统计。
+#-----------------------------------------------------------------------------------------------------------------------
 def audit_arrays(
     row_id,
     y,
@@ -157,13 +173,6 @@ def audit_arrays(
     seed: int = 42,
     n_bins: int = 10,
 ) -> dict[str, pd.DataFrame]:
-    """Validate joins and reconcile SQL with Python for the same frozen policy.
-
-    Only estimates are recomputed: no training, policy reselection, or confidence
-    intervals. Independent tie priorities are shared across policies and exactly
-    match ``evaluate_policies``. Costs/revenue are not present; the denominator
-    is all eligible test rows, not contacted rows. Bins are descriptive only.
-    """
     ids = np.asarray(row_id)
     if (
         ids.ndim != 1
@@ -186,7 +195,7 @@ def audit_arrays(
         or n_bins < 1
     ):
         raise ValueError("n_bins must be a positive integer")
-    # The public evaluator supplies the shared finite/binary/e/budget validation.
+    # 复用公共评价函数对有限值、二分类标签、分配概率及预算的检查。
     reference = evaluate_policies(
         y, t, score_dict, e, budgets=[budget], bootstrap=0, seed=seed
     )
@@ -218,7 +227,7 @@ def audit_arrays(
         )
         cvr = pd.read_sql_query(CVR_SQL, conn, params={"e": float(e)})
         for name, scores in score_dict.items():
-            conn.execute("DELETE FROM policy_scores")  # in-memory derived rows only
+            conn.execute("DELETE FROM policy_scores")  # 只把派生记录放入内存数据库。
             conn.executemany(
                 "INSERT INTO policy_scores VALUES (?, ?, ?, ?)",
                 (
@@ -306,8 +315,16 @@ def audit_arrays(
     }
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run_sql_audit —— 读取冻结实验并生成 SQL 核对结果。
+# 输入：
+#     source：输入来源路径或指纹记录，具体类型由本函数的用途决定。
+#     output：本次任务的新输出路径。
+# 输出：
+#     报告字典：输入一致性、SQL 与 Python 差异及输出记录。
+# 说明：读取冻结实验并生成 SQL 核对结果。
+#-----------------------------------------------------------------------------------------------------------------------
 def run_sql_audit(source: str | Path, output: str | Path) -> dict:
-    """Read a frozen experiment and create a new, non-overwriting audit folder."""
     source = Path(source).resolve()
     output = safe_output(output)
     if output == source or source in output.parents:

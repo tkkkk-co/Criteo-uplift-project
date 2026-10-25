@@ -1,4 +1,4 @@
-"""Build a self-contained report from completed evidence, without re-fitting."""
+# 读取已保存的扩展评价结果，生成补充图表和网页报告。
 
 from pathlib import Path
 import base64
@@ -12,9 +12,17 @@ from criteo_uplift.runtime import configure_runtime
 configure_runtime()
 import pandas as pd
 from criteo_uplift.planning import plan_policy_ab, cost_value_scenario
-from criteo_uplift.data import safe_output, write_json
+from criteo_uplift.pipeline_io import safe_output, write_json
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：table —— 将结果表转换成 HTML 表格。
+# 输入：
+#     frame：本次处理的数据表。
+# 输出：
+#     HTML：可以嵌入报告的表格字符串。
+# 说明：将结果表转换成 HTML 表格。
+#-----------------------------------------------------------------------------------------------------------------------
 def table(frame):
     return (
         '<div class="table">'
@@ -23,6 +31,15 @@ def table(frame):
     )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：figure —— 构造扩展报告的图片片段。
+# 输入：
+#     name：需要构造、读取或保存的对象名称。
+#     alt：图片的替代说明文字。
+# 输出：
+#     HTML：图片及其替代说明组成的网页片段。
+# 说明：构造扩展报告的图片片段。
+#-----------------------------------------------------------------------------------------------------------------------
 def figure(name, alt):
     data = base64.b64encode(
         (ROOT / 'artifacts/extension_figures' / name).read_bytes()
@@ -30,6 +47,14 @@ def figure(name, alt):
     return f'<figure><img src="data:image/png;base64,{data}" alt="{alt}"><figcaption>{alt}</figcaption></figure>'
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：build —— 生成扩展评价的图表和网页。
+# 输入：
+#     无。
+# 输出：
+#     返回值：None；保存扩展图表和 HTML 报告。
+# 说明：生成扩展评价的图表和网页。
+#-----------------------------------------------------------------------------------------------------------------------
 def build():
     st = ROOT / 'artifacts/stability_v1'
     report = json.loads((st / 'report.json').read_text())

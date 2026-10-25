@@ -1,4 +1,4 @@
-"""Numerical and leakage guard checks for the diagnostic pipeline."""
+# 项目测试：验证全量诊断与 C2ST。
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from criteo_uplift.data import COLUMNS, FEATURES, LABELS, fingerprint
+from criteo_uplift.data import COLUMNS, FEATURES, LABELS
+from criteo_uplift.pipeline_io import fingerprint
 
 from criteo_uplift.diagnostics import (
     c2st,
@@ -22,7 +23,23 @@ from criteo_uplift.diagnostics import (
 )
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 类：DiagnosticsTests —— 验证全量诊断与 C2ST。
+# 输入：
+#     配置：由初始化方法接收；无自定义初始化方法时使用父类约定。
+# 输出：
+#     实例：保存测试环境和断言的对象。
+# 说明：验证全量诊断与 C2ST。
+#-----------------------------------------------------------------------------------------------------------------------
 class DiagnosticsTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_smd_matches_pooled_standard_deviation —— 核对 SMD 使用的合并标准差。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对 SMD 使用的合并标准差。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_smd_matches_pooled_standard_deviation(self):
         frame = pd.DataFrame(
             {
@@ -38,11 +55,27 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(result.loc["f1", "ks_statistic"], 0.0)
         assert_frame_equal(frame, original)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_post_treatment_features_are_rejected —— 确认诊断拒绝处理后的特征。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认诊断拒绝处理后的特征。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_post_treatment_features_are_rejected(self):
         frame = pd.DataFrame({"exposure": [0, 0, 1, 1], "treatment": [0, 0, 1, 1]})
         with self.assertRaisesRegex(ValueError, "pre-treatment"):
             covariate_balance(frame, ["exposure"])
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_srm_defaults_to_published_reference_and_accepts_other_ratios —— 核对 SRM 默认分配比例和自定义比例。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对 SRM 默认分配比例和自定义比例。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_srm_defaults_to_published_reference_and_accepts_other_ratios(self):
         reference = srm_summary(850, 150)
         self.assertEqual(reference["status"], "computed")
@@ -54,12 +87,28 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertEqual(balanced["pvalue"], 1.0)
         self.assertLess(srm_summary(850, 150, expected_ratio=0.5)["pvalue"], 1e-50)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_srm_rejects_missing_or_invalid_reference_ratios —— 确认 SRM 拒绝缺失或非法参考比例。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认 SRM 拒绝缺失或非法参考比例。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_srm_rejects_missing_or_invalid_reference_ratios(self):
         for ratio in (None, 0.0, 1.0, np.nan, np.inf):
             with self.subTest(ratio=ratio):
                 with self.assertRaises(ValueError):
                     srm_summary(850, 150, expected_ratio=ratio)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_c2st_complete_refits_and_permutation_pvalues —— 核对 C2ST 完整重拟合次数和置换 p 值。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对 C2ST 完整重拟合次数和置换 p 值。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_c2st_complete_refits_and_permutation_pvalues(self):
         rng = np.random.default_rng(2026)
         t = np.tile([0, 1], 150)
@@ -81,6 +130,14 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertGreater(row.roc_auc, 0.90)
         assert_frame_equal(frame, original)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_learnability_dummy_uses_training_rate —— 确认可学习性检查的常数基线仅使用训练集正例率。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认可学习性检查的常数基线仅使用训练集正例率。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_learnability_dummy_uses_training_rate(self):
         train = pd.DataFrame(
             {
@@ -102,6 +159,14 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertAlmostEqual(dummy["brier"], (0.2**2 + 0.8**2) / 2)
         self.assertEqual(dummy["average_precision"], 0.5)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_single_class_outcomes_are_explicit —— 确认单类别结果的指标限制被明确记录。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认单类别结果的指标限制被明确记录。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_single_class_outcomes_are_explicit(self):
         frame = pd.DataFrame(
             {
@@ -118,11 +183,27 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertTrue((fitted["status"] == "skipped_single_class_train").all())
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 类：PublicDiagnosticsTests —— 验证全量诊断与 C2ST。
+# 输入：
+#     配置：由初始化方法接收；无自定义初始化方法时使用父类约定。
+# 输出：
+#     实例：保存测试环境和断言的对象。
+# 说明：验证全量诊断与 C2ST。
+#-----------------------------------------------------------------------------------------------------------------------
 class PublicDiagnosticsTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：frame —— 创建用于诊断验证的合成数据。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     frame：包含特征和实验标签的合成数据表。
+    # 说明：创建用于诊断验证的合成数据。
+    #-----------------------------------------------------------------------------------------------------------------------
     def frame(self):
         rng = np.random.default_rng(6)
         frame = pd.DataFrame(rng.normal(size=(80, 12)), columns=FEATURES)
-        # Unequal arm sizes; exactly constant and near-float32-colliding features.
+        # 构造不等大的两组，并包含常量及 float32 下难以区分的近常量特征。
         frame["f0"] = 7.0
         frame["f1"] = 1 + np.arange(80) * 1e-10
         for name in LABELS:
@@ -130,6 +211,14 @@ class PublicDiagnosticsTests(unittest.TestCase):
         frame["treatment"] = np.r_[np.zeros(20), np.ones(60)]
         return frame[COLUMNS]
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_full_stats_balanced_sampling_precision_and_chunk_reproducibility —— 核对全量统计、平衡抽样、数值精度和分块可复现性。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：核对全量统计、平衡抽样、数值精度和分块可复现性。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_full_stats_balanced_sampling_precision_and_chunk_reproducibility(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "raw.csv"
@@ -154,6 +243,14 @@ class PublicDiagnosticsTests(unittest.TestCase):
             self.assertGreater(sample.f1.nunique(), sample.f1.astype("float32").nunique())
             self.assertEqual(path.read_bytes(), original)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_invalid_data_fails_without_silent_row_deletion —— 确认非法数据报错而非静默删行。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认非法数据报错而非静默删行。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_data_fails_without_silent_row_deletion(self):
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "raw.csv"
@@ -168,6 +265,14 @@ class PublicDiagnosticsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "binary"):
                 scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
 
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_update_replaces_only_existing_diagnostic_files —— 确认诊断更新只替换对应的诊断产物。
+    # 输入：
+    #     self：当前对象，保存模型状态或测试上下文。
+    # 输出：
+    #     返回值：None；通过断言验证预期行为，失败时报告错误。
+    # 说明：确认诊断更新只替换对应的诊断产物。
+    #-----------------------------------------------------------------------------------------------------------------------
     def test_update_replaces_only_existing_diagnostic_files(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)

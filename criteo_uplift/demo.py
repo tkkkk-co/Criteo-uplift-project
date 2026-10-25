@@ -1,4 +1,4 @@
-"""Small synthetic randomized demo; outputs never claim Criteo/online effects."""
+# 使用合成随机实验数据演示训练、策略选择和评价，结果不代表真实 Criteo 实验。
 
 from pathlib import Path
 import json
@@ -6,11 +6,24 @@ import time
 import numpy as np
 import pandas as pd
 from scipy.special import expit
-from .data import FEATURES, safe_output, split_sample, write_json
+from .data import FEATURES, split_sample
+from .pipeline_io import safe_output, write_json
 from .models import make_model
 from .evaluation import evaluate_policies, ranking_metrics
 
 
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run_demo —— 使用合成数据演示完整建模与评价。
+# 输入：
+#     output：本次任务的新输出路径。
+#     n：样本数量或预期数组长度。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+#     trees：XGBoost 候选模型使用的树数量。
+#     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
+# 输出：
+#     policies：主预算下的策略评价结果表。
+# 说明：生成可复现的合成随机实验，只在验证集选择策略，再保存测试评价和运行说明。
+#-----------------------------------------------------------------------------------------------------------------------
 def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
     output = safe_output(output)
     if output.exists():
