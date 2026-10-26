@@ -1,6 +1,3 @@
-# 核验建模缓存并调用唯一的全量扫描入口，为建模和诊断准备数据。
-# Notebook 01 的数据准备调用链：run_pipeline.run → prepare_sample → diagnostics.scan_raw_data。
-# 返回 sample / audit / source / scanned；结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
 import json
@@ -13,7 +10,19 @@ from .diagnostics import scan_raw_data
 #-----------------------------------------------------------------------------------------------------------------------
 # 函数：prepare_sample —— 核验缓存并准备建模样本和全量诊断。
 # 输入：
-#     args：本次运行的配置对象，包含数据路径、规模、种子和输出设置。
+#     args：本次运行的配置对象
+'''
+    - args.data:data的绝对路径
+    - args.sample_size:抽样规模，0=全量
+    - args.seed：控制抽样和模型拟合的随机种子。
+    - args.outcome:选择conversion或visit
+    - args.primary_budget:主策略最多触达的人群比例，默认20%
+    - args.c2st_sample:C2ST 从原始全量来源两组等量抽取的诊断样本规模
+    - args.permutations:C2ST 诊断的置换次数
+    - args.bootstrap:测试集策略评价的 bootstrap 次数
+    - args.trees:XGBoost 模型的树数量
+    - args.output（输出目录）
+'''
 #     root：项目根目录，用于定位缓存或结果。
 #     progress：接收进度文字的函数。
 # 输出：
@@ -24,17 +33,6 @@ from .diagnostics import scan_raw_data
 # 说明：来源与配置一致时复用建模缓存，否则重新抽样；全量诊断在同一次扫描中准备。
 #-----------------------------------------------------------------------------------------------------------------------
 def prepare_sample(args, *, root: Path = ROOT, progress=None):
-    # args 保留 run_pipeline.py 的命令行配置，供样本准备与诊断步骤使用。
-    # - args.data:data的绝对路径
-    # - args.sample_size:抽样规模，0=全量
-    # - args.seed：控制抽样和模型拟合的随机种子。
-    # - args.outcome:选择conversion或visit
-    # - args.primary_budget:主策略最多触达的人群比例，默认20%
-    # - args.c2st_sample:C2ST 从原始全量来源两组等量抽取的诊断样本规模
-    # - args.permutations:C2ST 诊断的置换次数
-    # - args.bootstrap:测试集策略评价的 bootstrap 次数
-    # - args.trees:XGBoost 模型的树数量
-    # - args.output（输出目录）
 
     if progress is None:
         progress = lambda message: print(message, flush=True)
