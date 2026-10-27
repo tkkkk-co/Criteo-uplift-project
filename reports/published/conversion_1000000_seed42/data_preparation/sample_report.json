@@ -1,0 +1,18 @@
+{
+  "scope": "modeling_sample",
+  "sample_cache_version": 1,
+  "source": {
+    "path": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+    "size": 3248115221,
+    "mtime_ns": 1790004809431929026,
+    "sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+  },
+  "source_n": 13979592,
+  "sample_size": 1000000,
+  "sample_n": 1000000,
+  "seed": 42,
+  "sampling": "uniform without replacement, random-priority reservoir",
+  "feature_representation": "float32",
+  "n_treatment": 850411,
+  "n_control": 149589
+}

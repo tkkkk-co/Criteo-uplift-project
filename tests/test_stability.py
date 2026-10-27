@@ -9,8 +9,8 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.data import FEATURES
-from criteo_uplift.pipeline_io import fingerprint, save_sample, write_json
+from criteo_uplift.data import FEATURES, fingerprint
+from criteo_uplift.pipeline_io import save_sample, write_json
 from criteo_uplift.models import make_model
 from criteo_uplift.stability import (
     development_splits,
@@ -49,9 +49,10 @@ def synthetic_inputs(root, n=2000):
     cache = root / "cache/sample.npz"
     base = root / "base"
     base.mkdir()
+    (base / "data_preparation").mkdir()
     save_sample(frame, cache)
     write_json(
-        {"source": {"sha256": "synthetic_source"}, "sample_size": n},
+        {"source": {"sha256": "synthetic_source"}, "sample_size": n, "source_n": n, "sample_n": n},
         cache.with_suffix(".json"),
     )
     write_json(
@@ -63,7 +64,7 @@ def synthetic_inputs(root, n=2000):
         },
         base / "manifest.json",
     )
-    frame.iloc[::5][["row_id"]].to_csv(base / "test_row_ids.csv", index=False)
+    frame.iloc[::5][["row_id"]].to_csv(base / "data_preparation" / "test_row_ids.csv", index=False)
     return cache, base
 
 
@@ -154,18 +155,16 @@ class StabilityTests(unittest.TestCase):
     #     返回值：None；通过断言验证合法全量缓存和不一致缓存的行为。
     # 说明：完整保留来源记录的缓存可以使用，截断或缺少审计依据的缓存仍应报错。
     #-----------------------------------------------------------------------------------------------------------------------
-    def test_requested_sample_larger_than_source_uses_audited_row_count(self):
+    def test_requested_sample_larger_than_source_uses_source_row_count(self):
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
             metadata_path = cache.with_suffix('.json')
             metadata = json.loads(metadata_path.read_text())
-            metadata.update(sample_size=5000, audit={'n_rows': 2000})
-            write_json(metadata, metadata_path)
+            write_json({**metadata, 'sample_size': 5000}, metadata_path)
             development, old_test, _ = load_development_sample(cache, base)
             self.assertEqual(len(development) + len(old_test), 2000)
-            for audit in ({'n_rows': 3000}, {}):
-                metadata['audit'] = audit
-                write_json(metadata, metadata_path)
+            for count_fields in ({'source_n': 3000}, {'source_n': None}, {'sample_n': 1999}):
+                write_json({**metadata, 'sample_size': 5000, **count_fields}, metadata_path)
                 with self.assertRaisesRegex(ValueError, 'cache metadata'):
                     load_development_sample(cache, base)
 
@@ -188,7 +187,7 @@ class StabilityTests(unittest.TestCase):
             metadata["source"]["sha256"] = "synthetic_source"
             write_json(metadata, cache.with_suffix(".json"))
             pd.DataFrame({"row_id": [999999]}).to_csv(
-                base / "test_row_ids.csv", index=False
+                base / "data_preparation" / "test_row_ids.csv", index=False
             )
             with self.assertRaisesRegex(ValueError, "not all present"):
                 load_development_sample(cache, base)
@@ -210,7 +209,7 @@ class StabilityTests(unittest.TestCase):
                 cache,
                 cache.with_suffix(".json"),
                 base / "manifest.json",
-                base / "test_row_ids.csv",
+                base / "data_preparation" / "test_row_ids.csv",
             ]
             before = {str(p): fingerprint(p) for p in paths}
             original_fit_calls = []

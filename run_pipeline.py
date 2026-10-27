@@ -107,14 +107,14 @@ def update_diagnostics_only(args, *, root=ROOT, progress=print):
         args.output
         or Path(root) / f"artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}"
     )
-    audit = json.loads((out / "audit.json").read_text(encoding="utf-8"))
+    audit = json.loads(((out / 'data_preparation' / 'audit.json')).read_text(encoding="utf-8"))
     manifest_path = out / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if args.seed != manifest["seed"]:
         raise ValueError("诊断 seed 必须与当前实验一致")
     update_experiment_diagnostics(
         args.data,
-        out,
+        out / "diagnostics",
         audit=audit,
         source=manifest["source"],
         sample_size=args.c2st_sample,
@@ -141,7 +141,7 @@ def update_diagnostics_only(args, *, root=ROOT, progress=print):
 def run(args):
     started_at = time.perf_counter()
 
-    # 01. 为本次实验创建新的结果目录。
+    # 01. 为本次实验一次性创建总目录和固定的各阶段子目录。
     out = safe_output(
         args.output
         or ROOT / f"artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}"
@@ -151,6 +151,12 @@ def run(args):
             f"结果目录已有正式实验：{out}。仅更新诊断请使用 --diagnostics-only。"
         )
     out.mkdir(parents=True, exist_ok=True)
+    data_out = out / "data_preparation"
+    diagnostics_out = out / "diagnostics"
+    models_out = out / "models"
+    evaluation_out = out / "evaluation"
+    for directory in (data_out, diagnostics_out, models_out, evaluation_out, out / "figures"):
+        directory.mkdir(exist_ok=True)
 
     # 02. 准备建模样本、全量审计、来源指纹和同次扫描的诊断结果。
     sample, audit, source, scanned = prepare_sample(args)
@@ -158,22 +164,23 @@ def run(args):
     del sample
 
     # 03. 保存划分行号与汇总，并检查不同集合间相同特征向量的重叠。
-    write_split_artifacts(parts, out)
+    write_split_artifacts(parts, data_out)
     train, validation, test = (
         parts["train"],
         parts["validation"],
         parts["test"],
     )
     assignment_probability = float(train.treatment.mean())
-    write_feature_overlap(parts, out)
+    write_feature_overlap(parts, data_out)
 
-    # 04. 保存全量审计及汇总 ATE 结果。
-    write_audit_artifacts(audit, out)
+    # 04. 分别保存全量审计、抽样报告及汇总 ATE 结果。
+    write_audit_artifacts(audit, data_out, diagnostics_out)
+    write_json(scanned["sample_report"], data_out / "sample_report.json")
 
     # 05. 执行 SRM、全量 SMD/KS 和 C2ST；复用扫描结果避免重复遍历。
     update_experiment_diagnostics(
         args.data,
-        out,
+        diagnostics_out,
         audit=audit,
         source=source,
         sample_size=args.c2st_sample,
@@ -186,7 +193,7 @@ def run(args):
 
     # 06. 检查处理前特征能否预测观察到的结果。
     run_learnability_diagnostics(
-        train, validation, out, seed=args.seed
+        train, validation, diagnostics_out, seed=args.seed
     )
 
     # 07. 在训练集拟合候选模型，仅用验证集冻结策略选择。
@@ -198,7 +205,7 @@ def run(args):
         trees=args.trees,
         primary_budget=args.primary_budget,
         assignment_probability=assignment_probability,
-        out=out,
+        out=models_out,
         progress=log,
     )
 
@@ -211,7 +218,7 @@ def run(args):
         seed=args.seed,
         bootstrap=args.bootstrap,
         primary_budget=args.primary_budget,
-        out=out,
+        out=evaluation_out,
         progress=log,
     )
 
@@ -239,7 +246,7 @@ def run(args):
 #-----------------------------------------------------------------------------------------------------------------------
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
-        description='运行完整 Criteo uplift 分析：数据准备、诊断、训练、验证集选择、测试集评价和报告。\n原始 data 目录只读；运行示例：python run_pipeline.py --sample-size 1000000 --outcome conversion。'
+        description='运行完整 Criteo uplift 分析：数据准备、诊断、训练、验证集选择、测试集评价和报告。\n 原始 data 目录只读；运行示例：python run_pipeline.py --sample-size 1000000 --outcome conversion。'
     )
 
     # 数据与分析对象：原始 CSV 路径、抽样行数、主结果变量。

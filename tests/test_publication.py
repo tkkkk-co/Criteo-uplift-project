@@ -6,7 +6,8 @@ from unittest.mock import patch
 import json
 import unittest
 import numpy as np
-from criteo_uplift.pipeline_io import result_directory
+from criteo_uplift.pipeline_io import result_directory, write_split_artifacts
+import pandas as pd
 from criteo_uplift.runtime import configure_runtime
 
 configure_runtime()
@@ -22,6 +23,29 @@ from criteo_uplift.demo import run_demo
 # 说明：验证公开快照和演示。
 #-----------------------------------------------------------------------------------------------------------------------
 class PublicationTests(unittest.TestCase):
+    def test_split_files_are_written_directly_with_explicit_names(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            frame = pd.DataFrame({
+                'row_id': range(6), 'treatment': [0, 1] * 3,
+                'conversion': [0, 1, 0, 0, 1, 1], 'visit': [1] * 6,
+            })
+            parts = {name: frame.iloc[i * 2:(i + 1) * 2]
+                     for i, name in enumerate(('train', 'validation', 'test'))}
+            (root / "data_preparation").mkdir()
+            write_split_artifacts(parts, root / "data_preparation")
+            self.assertEqual({p.name for p in root.iterdir()}, {'data_preparation'})
+            target = root / 'data_preparation'
+            self.assertEqual({p.name for p in target.iterdir()}, {
+                'split_summary.csv', 'train_row_ids.csv',
+                'validation_row_ids.csv', 'test_row_ids.csv',
+            })
+            summary = pd.read_csv(target / 'split_summary.csv')
+            self.assertEqual(len(summary), 6)
+            self.assertEqual(summary.n.sum(), 6)
+            for name, part in parts.items():
+                self.assertEqual(pd.read_csv(target / f'{name}_row_ids.csv').row_id.tolist(), part.row_id.tolist())
+
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_local_priority_and_explicit_snapshot_mode —— 核对本地结果优先级及显式公开快照模式。
     # 输入：

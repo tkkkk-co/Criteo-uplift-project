@@ -9,8 +9,9 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import data, diagnostics, pipeline_io
+from criteo_uplift import data, diagnostics
 from criteo_uplift.diagnostics import covariate_balance, update_experiment_diagnostics
+from criteo_uplift.pipeline_io import load_sample
 from run_pipeline import prepare_sample
 
 
@@ -139,10 +140,17 @@ class UnifiedScanTests(unittest.TestCase):
                 pd.testing.assert_frame_equal(scanned['balance'], baseline['balance'])
                 if size is None:
                     self.assertIsNone(scanned['sample'])
+                    self.assertIsNone(scanned['sample_report'])
                     self.assertEqual(scanned['audit']['n_rows'], len(self.raw))
-                    self.assertIsNone(scanned['audit']['sample_n'])
+                    self.assertNotIn('sample_n', scanned['audit'])
                 else:
                     self.assertEqual(len(scanned['sample']), len(self.raw))
+                    self.assertEqual(scanned['sample_report']['sample_size'], size)
+                    self.assertEqual(scanned['sample_report']['sample_n'], len(self.raw))
+                    self.assertEqual(
+                        scanned['sample_report']['sampling'],
+                        'all rows' if size == 0 else 'uniform without replacement, random-priority reservoir',
+                    )
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_audit_diagnostics_and_two_samples_are_independent —— 确认审计、全量诊断和两套抽样可以独立启用。
@@ -171,7 +179,8 @@ class UnifiedScanTests(unittest.TestCase):
                     self.assertEqual(scanned['audit']['duplicate_row_fingerprints'], 1)
                     self.assertEqual(scanned['audit']['n_control'], 40)
                     self.assertEqual(len(scanned['audit']['feature_stats']), 12)
-                    self.assertEqual(scanned['audit']['sample_n'], model_size)
+                    for field in ('sample_n', 'sample_seed', 'sampling'):
+                        self.assertNotIn(field, scanned['audit'])
                 else:
                     self.assertIsNone(scanned['audit'])
                 if checks:
@@ -183,8 +192,20 @@ class UnifiedScanTests(unittest.TestCase):
                     self.assertIsNone(scanned['srm'])
                 if model_size is None:
                     self.assertIsNone(scanned['sample'])
+                    self.assertIsNone(scanned['sample_report'])
                 else:
                     pd.testing.assert_frame_equal(scanned['sample'], baseline['sample'])
+                    report = scanned['sample_report']
+                    self.assertEqual(report, baseline['sample_report'])
+                    self.assertEqual(report['scope'], 'modeling_sample')
+                    self.assertEqual(report['source'], scanned['source'])
+                    self.assertEqual(report['source_n'], len(self.raw))
+                    self.assertEqual(report['sample_n'], len(scanned['sample']))
+                    self.assertEqual(report['seed'], 31)
+                    self.assertEqual(report['feature_representation'], 'float32')
+                    self.assertEqual(report['n_treatment'], int(scanned['sample'].treatment.sum()))
+                    self.assertEqual(report['n_control'], int((scanned['sample'].treatment == 0).sum()))
+                    self.assertNotIn('audit', report)
                 if per_arm is None:
                     self.assertIsNone(scanned['c2st_sample'])
                     self.assertIsNone(scanned['metadata']['sample_n'])
@@ -200,7 +221,7 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认扫描拒绝变化的输入来源和不足的组内人数。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_source_changes_and_insufficient_arms_fail(self):
-        source = pipeline_io.fingerprint(self.path)
+        source = data.fingerprint(self.path)
         with patch.object(diagnostics, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
             with self.assertRaisesRegex(RuntimeError, 'changed'):
                 self.scan()
@@ -257,6 +278,146 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(audit['n_rows'], cached_audit['n_rows'])
         self.assertEqual(source, cached_source)
         self.assertNotIn('sample', prepared)  # 不让后续诊断持有百万行建模表。
+
+    def test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files(self):
+        args = SimpleNamespace(
+            data=self.path, sample_size=1_000_000, seed=42,
+            c2st_sample=20, permutations=1,
+        )
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            sample, audit, source, _ = prepare_sample(args)
+            base = self.root / 'artifacts'
+            cache = base / 'cache/sample_1000000_seed42.npz'
+            metadata = cache.with_suffix('.json')
+            info = json.loads(metadata.read_text())
+            self.assertEqual(info['source'], source)
+            self.assertEqual(info['sample_size'], args.sample_size)
+            self.assertEqual(info['seed'], args.seed)
+            self.assertNotIn('audit', info)
+            self.assertEqual(info['sample_n'], len(sample))
+            self.assertEqual(info['source_n'], audit['n_rows'])
+
+            # 模拟说明缺失的旧缓存；即使旧指纹匹配，也必须重新抽样和审计。
+            metadata.rename(self.root / 'metadata_backup.json')
+            cache.write_bytes(b'old cache must not be loaded')
+            legacy_source = base / 'source_fingerprint.json'
+            legacy_audit = base / 'full_audit.json'
+            legacy_source.write_text(json.dumps(source))
+            legacy_audit.write_text('old audit must not be read')
+            legacy_bytes = [p.read_bytes() for p in (legacy_source, legacy_audit)]
+            with patch('criteo_uplift.preparation.load_sample', side_effect=AssertionError('old cache reused')):
+                rebuilt, rebuilt_audit, rebuilt_source, _ = prepare_sample(args)
+
+        pd.testing.assert_frame_equal(rebuilt, sample)
+        pd.testing.assert_frame_equal(load_sample(cache), sample)
+        self.assertEqual(rebuilt_audit, audit)
+        self.assertEqual(rebuilt_source, source)
+        self.assertEqual(json.loads(metadata.read_text()), info)
+        self.assertEqual([p.read_bytes() for p in (legacy_source, legacy_audit)], legacy_bytes)
+
+
+    def test_sample_and_audit_caches_are_reused_independently(self):
+        for reuse_sample, reuse_audit in product((False, True), repeat=2):
+            with self.subTest(reuse_sample=reuse_sample, reuse_audit=reuse_audit):
+                root = self.root / f'combination_{reuse_sample}_{reuse_audit}'
+                root.mkdir()
+                args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+                with patch('run_pipeline.ROOT', root), patch('run_pipeline.log'):
+                    _, expected_audit, _, _ = prepare_sample(args)
+                    audit_path = next((root / 'artifacts/cache').glob('full_audit_*.json'))
+                    sample_path = root / 'artifacts/cache/sample_43_seed31.npz'
+                    metadata_path = sample_path.with_suffix('.json')
+                    cached_files = {
+                        path: data.fingerprint(path)
+                        for path in (audit_path, sample_path, metadata_path)
+                    }
+                    if not reuse_audit:
+                        audit_path.rename(root / 'saved_audit.json')
+                    if not reuse_sample:
+                        args.sample_size = 57
+                    with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                        sample, audit, _, prepared = prepare_sample(args)
+                    self.assertEqual(scan.call_count, 1)
+                    self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
+                    self.assertEqual(scan.call_args.kwargs['audit_enabled'], not reuse_audit)
+                    current_sample = root / f'artifacts/cache/sample_{args.sample_size}_seed31.npz'
+                    self.assertEqual(json.loads(current_sample.with_suffix('.json').read_text()), prepared['sample_report'])
+                    self.assertEqual(json.loads(audit_path.read_text())['audit'], audit)
+                    if reuse_sample:
+                        for path in (sample_path, metadata_path):
+                            self.assertEqual(data.fingerprint(path), cached_files[path])
+                    if reuse_audit:
+                        self.assertEqual(data.fingerprint(audit_path), cached_files[audit_path])
+                self.assertEqual(audit, expected_audit)
+                self.assertEqual(prepared['sample_report']['sample_n'], len(sample))
+                self.assertNotIn('audit', prepared['sample_report'])
+                for key in ('sample_n', 'sample_seed', 'sampling'):
+                    self.assertNotIn(key, audit)
+
+    def test_incomplete_sample_metadata_is_regenerated_by_scan(self):
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            original, original_audit, source, _ = prepare_sample(args)
+            cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
+            metadata = cache.with_suffix('.json')
+            saved_audit = json.loads(next((self.root / 'artifacts/cache').glob('full_audit_*.json')).read_text())['audit']
+            metadata.write_text(json.dumps({
+                'source': source, 'sample_size': args.sample_size, 'seed': args.seed,
+                'audit': saved_audit,
+            }))
+            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                sample, audit, _, prepared = prepare_sample(args)
+        self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
+        self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+        pd.testing.assert_frame_equal(sample, original)
+        self.assertEqual(audit, original_audit)
+        self.assertEqual(json.loads(metadata.read_text()), prepared['sample_report'])
+        self.assertNotIn('audit', prepared['sample_report'])
+
+    def test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version(self):
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            _, original_audit, _, _ = prepare_sample(args)
+            audit_path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
+            original_fingerprint = data.fingerprint(audit_path)
+            for size, seed in ((61, 31), (61, 32), (0, 32), (5000, 33)):
+                args.sample_size, args.seed = size, seed
+                with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                    sample, audit, _, prepared = prepare_sample(args)
+                self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+                self.assertEqual(scan.call_args.kwargs['sample_size'], size)
+                self.assertEqual(audit, original_audit)
+                self.assertEqual(data.fingerprint(audit_path), original_fingerprint)
+                report = prepared['sample_report']
+                self.assertEqual(report['seed'], seed)
+                self.assertEqual(report['sample_size'], size)
+                self.assertEqual(report['sample_n'], min(size, len(self.raw)) if size else len(self.raw))
+                self.assertEqual(report['sample_n'], len(sample))
+            valid = json.loads(audit_path.read_text())
+            for invalid in (
+                {**valid, 'audit_cache_version': -1},
+                {**valid, 'source': {'sha256': 'another_source'}},
+            ):
+                audit_path.write_text(json.dumps(invalid))
+                with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                    _, audit, _, _ = prepare_sample(args)
+                self.assertTrue(scan.call_args.kwargs['audit_enabled'])
+                self.assertIsNone(scan.call_args.kwargs['sample_size'])
+                self.assertEqual(audit, original_audit)
+
+    def test_source_change_invalidates_both_caches(self):
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            _, _, before_source, _ = prepare_sample(args)
+            changed = pd.read_csv(self.path)
+            changed.loc[0, 'f2'] += 1
+            changed.to_csv(self.path, index=False)
+            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                _, _, after_source, _ = prepare_sample(args)
+        self.assertNotEqual(before_source['sha256'], after_source['sha256'])
+        self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
+        self.assertTrue(scan.call_args.kwargs['audit_enabled'])
+        self.assertEqual(len(list((self.root / 'artifacts/cache').glob('full_audit_*.json'))), 2)
 
 
 if __name__ == '__main__':

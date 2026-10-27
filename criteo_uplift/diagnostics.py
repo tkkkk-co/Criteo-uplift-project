@@ -39,10 +39,11 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
-from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA
-from .pipeline_io import fingerprint, safe_output, write_json
+from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA, fingerprint
+from .pipeline_io import safe_output, write_json
 
 _PRETREATMENT_FEATURES = frozenset(f"f{i}" for i in range(12))
+SAMPLE_CACHE_VERSION = 1
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -59,19 +60,28 @@ _PRETREATMENT_FEATURES = frozenset(f"f{i}" for i in range(12))
 #     source：调用方刚核验的文件指纹；未提供时由本函数计算。
 # 输出：字典，各字段如下。
 #     sample：建模样本表；未启用时为 None。
+#     sample_report：当前建模样本的抽样说明；未启用建模抽样时为 None。
 #     audit：全量审计字典；未启用时为 None。
 #     balance：全量协变量平衡结果表；未启用时为 None。
 #     c2st_sample：两组等量的 C2ST 样本表；未启用时为 None。
 #     srm：全量分组人数与公开参考比例的检查结果；未启用时为 None。
 #     metadata：本次扫描的数据来源、全量人数、任务开关和抽样说明。
 #     source：扫描使用的原始文件指纹。
-# 说明：每个数据块只解析、校验和编号一次，再分别完成所需任务。
-#       建模抽样保留总体构成，C2ST 在两组T/C内分别抽样；两类样本可能重叠。
-#       建模特征最终转为 float32，全量检查和 C2ST 保留原始 float64 精度。
-#       四项任务独立控制；关闭抽样不会自动关闭审计或全量诊断。
-#       已有建模缓存或只更新诊断时，调用方可显式关闭建模抽样和完整审计。
-#       仅审计模式仍输出 SMD，但不计算需要全量取值的 KS。
-#       文件指纹核验仍需读取原始字节，但不会再次按 CSV 解析所有数据行。
+# 说明：
+'''
+    四项开关任务说明：
+    1. sample_size ：
+        sample_size 默认100万 如果reuse=True 则None。
+        sample_size 非none 控制 model_sample_enabled 打开，扫描过程中按照size进行随机优先级蓄水池抽样
+        sample_size =0 则默认全量读取 不进行抽样
+    2. per_arm：
+        per_arm 默认None，此时不进行C2ST诊断抽样
+        per_arm 非0，控制 c2st_sample_enabled开，扫描过程中表示按照随机优先级蓄水池抽样从从T/C分别抽per_arm量的样本
+    3. audit_enabled 默认打开，扫描过程中 直接迭代更新全量基础审计（含SMD）
+    4. diagnostics_enabled 默认打开，扫描过程中将全量特征和treatment写入临时文件；
+                                   扫描结束后进行协变量平衡检验（SMD KS ）、SRM、C2ST【只进行了抽样】
+
+'''
 #-----------------------------------------------------------------------------------------------------------------------
 def scan_raw_data(
     path=DEFAULT_DATA, sample_size=1_000_000, seed=42, chunk_size=250_000,
@@ -127,7 +137,8 @@ def scan_raw_data(
     control_exposure = 0                            # 累计全量 Control 组中 exposure=1 的行数，用于检查对照组曝光情况。
     feature_stats, records = [], []                 # feature_stats 保存各特征的全量审计统计；records 保存各特征的全量平衡检查结果，包含 SMD、KS。
 
-    # 4. 按需创建临时文件。全量 KS 需要每个特征的全部取值，因此逐列写入磁盘。
+    #-----------------------------扫描开始----------------------------
+    # 4. 按需创建临时文件。diagnostics_enabled打开的时候，全量 KS 需要每个特征的全部取值，因此逐列把feature和treatment写入临时二进制文件。
     # ExitStack 在结束或报错时关闭 CSV 读取器和所有临时文件。
     with ExitStack() as stack:
         files = {
@@ -237,8 +248,7 @@ def scan_raw_data(
                 record = covariate_balance(frame, [feature]).iloc[0].to_dict()
                 records.append(record)
                 if audit_enabled:
-                    # 审计复用同一条均值和 SMD 结果，再补齐范围与组内标准差。
-                    # 审计沿用原约定：方差为零且均值不同的 SMD 记录为未定义。
+                    # 审计复用covariant-balance输出的record结果，再补齐范围与组内标准差。
                     row = {'feature': feature, 'min': float(values.min()), 'max': float(values.max())}
                     for arm, name in ((0, 'control'), (1, 'treatment')):
                         row[f'mean_{arm}'] = record[f'mean_{name}']
@@ -249,9 +259,12 @@ def scan_raw_data(
                 progress(f"Full {feature}: SMD={record['smd']:.6g}; KS={record['ks_statistic']:.6g}")
                 del frame, values
             del treatment
+    #-----------------------------扫描结束----------------------------
 
-    # 7. 分别整理建模样本和全量审计。未抽建模样本时，仍可独立返回完整审计。
-    sample, audit = None, None
+    # 7. 整理建模样本、C2ST抽样样本、全量审计、协变量诊断
+    sample, sample_report, audit = None, None, None
+    balance, c2st_sample, srm = None, None, None
+
     if model_sample_enabled:
         if sample_size == 0:
             sample = pd.concat(all_chunks, ignore_index=True)
@@ -261,9 +274,52 @@ def scan_raw_data(
                 **{f: 'float32' for f in FEATURES}, **{label: 'int8' for label in LABELS},
             })
             sample.insert(0, 'row_id', row_ids[order])
+        # 抽样完成时生成说明；来源总行数直接使用本次扫描计数，不依赖审计开关。
+        sample_report = {
+            'scope': 'modeling_sample',
+            'sample_cache_version': SAMPLE_CACHE_VERSION,
+            'source': source,
+            'source_n': total,
+            'sample_size': sample_size,
+            'sample_n': len(sample),
+            'seed': seed,
+            'sampling': (
+                'all rows' if sample_size == 0
+                else 'uniform without replacement, random-priority reservoir'
+            ),
+            'feature_representation': 'float32',
+            'n_treatment': int(sample.treatment.sum()),
+            'n_control': int((sample.treatment == 0).sum()),
+        }
+
+    if c2st_sample_enabled:
+        c2st_sample = pd.concat(diagnostic_reservoirs, ignore_index=True).sort_values('row_id').reset_index(drop=True)
+        for label in LABELS:
+            c2st_sample[label] = c2st_sample[label].astype(np.int8)
+        c2st_sample['row_id'] = c2st_sample.row_id.astype(np.int64)
+        if not c2st_sample.row_id.is_unique or len(c2st_sample) != 2 * per_arm:
+            raise AssertionError('Invalid diagnostic reservoir')
+
     if audit_enabled:
         if not diagnostics_enabled:
-            feature_stats = _audit_feature_stats(counts, means, centered_squares, minimum, maximum)
+            # 未开启全量诊断：用扫描时累计的统计量，整理每个特征的审计记录。
+            for j, feature in enumerate(FEATURES):
+                row = {'feature': feature, 'min': minimum[j], 'max': maximum[j]}
+                for arm in (0, 1):
+                    row[f'mean_{arm}'] = means[arm, j]
+                    row[f'std_{arm}'] = (
+                        # 偏差平方和除以自由度，再开方，得到样本标准差。
+                        np.sqrt(max(0, centered_squares[arm, j] / (counts[arm] - 1)))
+                        if counts[arm] > 1 else np.nan
+                    )
+                denominator = np.sqrt((row['std_0'] ** 2 + row['std_1'] ** 2) / 2)
+                difference = row['mean_1'] - row['mean_0']
+                row['smd'] = difference / denominator if denominator > 0 else (
+                    0.0 if denominator == 0 and difference == 0 else np.nan
+                )
+                row['smd_status'] = 'computed' if np.isfinite(row['smd']) else 'undefined_zero_or_missing_variance'
+                feature_stats.append(row)
+        # 已开启全量诊断时，feature_stats 已在上面的逐列诊断中生成，直接复用。
         #输出完整审计字典
         audit = {
             'n_rows': total, 'n_columns': len(COLUMNS),
@@ -275,12 +331,6 @@ def scan_raw_data(
             'duplicate_row_fingerprints': total - int(np.unique(np.concatenate(hashes)).size),
             'duplicate_method': '64-bit hash of all original float64 fields; diagnostic only; no user ID; not deduplicated',
             'feature_stats': feature_stats,
-            'sample_n': len(sample) if model_sample_enabled else None,
-            'sample_seed': seed if model_sample_enabled else None,
-            'sampling': (
-                ('all rows' if sample_size == 0 else 'uniform without replacement, random-priority reservoir')
-                if model_sample_enabled else None
-            ),
             'groups': {
                 str(arm): {
                     'n': int(counts[arm]),
@@ -290,15 +340,6 @@ def scan_raw_data(
             },
         }
 
-    # 8. 分别整理 C2ST 样本和全量诊断；不抽 C2ST 样本也照常计算 SRM、SMD、KS。
-    balance, c2st_sample, srm = None, None, None
-    if c2st_sample_enabled:
-        c2st_sample = pd.concat(diagnostic_reservoirs, ignore_index=True).sort_values('row_id').reset_index(drop=True)
-        for label in LABELS:
-            c2st_sample[label] = c2st_sample[label].astype(np.int8)
-        c2st_sample['row_id'] = c2st_sample.row_id.astype(np.int64)
-        if not c2st_sample.row_id.is_unique or len(c2st_sample) != 2 * per_arm:
-            raise AssertionError('Invalid diagnostic reservoir')
     if diagnostics_enabled:
         balance = pd.DataFrame(records).assign(
             scope='full_published_dataset', representation='raw_csv_float64', source_sha256=source['sha256'],
@@ -327,46 +368,13 @@ def scan_raw_data(
         'ks_method': 'two-sided asymptotic; unadjusted exploratory p-values; ties and dependence limit calibration' if diagnostics_enabled else None,
     }
 
-    # 9. 核验扫描期间原始文件未改变，统一返回结果。保存 CSV/JSON 和运行 C2ST 交给上层函数。
+    # 8. 核验扫描期间原始文件未改变，统一返回结果。保存 CSV/JSON 和运行 C2ST 交给上层函数。
     if fingerprint(path) != source:
         raise RuntimeError('Raw source changed during scan')
     return {
-        'sample': sample, 'audit': audit, 'balance': balance,
+        'sample': sample, 'sample_report': sample_report, 'audit': audit, 'balance': balance,
         'c2st_sample': c2st_sample, 'srm': srm, 'metadata': metadata, 'source': source,
     }
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_audit_feature_stats —— 从累计量整理仅审计模式的特征统计。
-# 输入：
-#     counts：两组的全量人数。
-#     means：两组各特征的累计均值。
-#     centered_squares：两组各特征相对组内均值的【偏差平方和】。
-#     minimum：各特征的全量最小值。
-#     maximum：各特征的全量最大值。
-# 输出：
-#     records：每个特征一条的审计统计记录列表。
-# 说明：只做审计时无需为 KS 保存临时文件，直接用扫描时累计的统计量整理结果。
-#-----------------------------------------------------------------------------------------------------------------------
-def _audit_feature_stats(counts, means, centered_squares, minimum, maximum):
-    records = []
-    for j, feature in enumerate(FEATURES):
-        row = {'feature': feature, 'min': minimum[j], 'max': maximum[j]}
-        for arm in (0, 1):
-            row[f'mean_{arm}'] = means[arm, j]
-            row[f'std_{arm}'] = (
-                np.sqrt(max(0, centered_squares[arm, j] / (counts[arm] - 1))) #计算分组-样本方差
-                if counts[arm] > 1 else np.nan
-            )
-        denominator = np.sqrt((row['std_0'] ** 2 + row['std_1'] ** 2) / 2) #合并样本方差
-        difference = row['mean_1'] - row['mean_0']
-        #SMD
-        row['smd'] = difference / denominator if denominator > 0 else (
-            0.0 if denominator == 0 and difference == 0 else np.nan
-        )
-        row['smd_status'] = 'computed' if np.isfinite(row['smd']) else 'undefined_zero_or_missing_variance'
-        records.append(row)
-    return records
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -479,7 +487,7 @@ def srm_summary(
 
 
 #-----------------------------------------------------------------------------------------------------------------------
-# 函数：covariate_balance —— 检查两组的特征平衡程度。
+# 函数：covariate_balance —— 全量SMD KS。
 # 输入：
 #     df：包含分组标签和特征的数据表。
 #     features：需要检查的特征名序列。
@@ -807,7 +815,7 @@ def learnability(
 # 函数：update_experiment_diagnostics —— 组织诊断并保存结果。
 # 输入：
 #     path：原始 CSV 文件路径。
-#     out：已有实验结果目录。
+#     out：调用方已创建的诊断结果目录。
 #     audit：当前实验记录的审计人数信息。
 #     source：当前实验记录的数据来源信息。
 #     sample_size：C2ST 使用的总样本数，默认 20,000。
@@ -889,10 +897,10 @@ def update_experiment_diagnostics(
             "这是事后描述性诊断，不用于正式模型选择。"
         ),
     }
-    # 所有计算及来源核对完成后，统一更新原文件，不保存旧诊断副本。
-    balance.to_csv(out / "balance.csv", index=False)
-    summary.to_csv(out / "c2st.csv", index=False)
-    check["null_auc"].assign(scope=details["scope"]).to_csv(out / "c2st_null.csv", index=False)
-    write_json(details, out / "c2st_details.json")
-    write_json(scanned['srm'], out / "srm.json")
+    # 所有计算及来源核对完成后，直接写入调用方传入的诊断目录。
+    balance.to_csv((safe_output(out / 'balance.csv')), index=False)
+    summary.to_csv((safe_output(out / 'c2st.csv')), index=False)
+    check["null_auc"].assign(scope=details["scope"]).to_csv((safe_output(out / 'c2st_null.csv')), index=False)
+    write_json(details, (out / 'c2st_details.json'))
+    write_json(scanned['srm'], (out / 'srm.json'))
     return details

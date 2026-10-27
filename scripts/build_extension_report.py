@@ -72,8 +72,8 @@ def build():
     intervals = pd.read_csv(met / 'ranking_intervals.csv')
     sql = ROOT / 'artifacts/sql_audit_v1'
     run = ROOT / 'artifacts/conversion_1000000_seed42'
-    selection = json.loads((run / 'selection.json').read_text())
-    policies = pd.read_csv(run / 'test_policies.csv')
+    selection = json.loads((run / 'models' / 'selection.json').read_text())
+    policies = pd.read_csv((run / 'evaluation' / 'test_policies.csv'))
     row = policies[
         (policies.policy == selection['selected_policy']) & (policies.budget == 0.2)
     ].iloc[0]
@@ -99,7 +99,7 @@ def build():
     write_json(
         {
             'hypothetical': True,
-            'effect_source': str(run / 'test_policies.csv'),
+            'effect_source': str((run / 'evaluation' / 'test_policies.csv')),
             'frozen_selected_policy': selection['selected_policy'],
             'online_baseline_assumed': 0.003,
             'absolute_mde_scenarios': [0.00015, 0.0003, 0.0006],

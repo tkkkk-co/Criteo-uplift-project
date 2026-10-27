@@ -158,26 +158,23 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
 #-----------------------------------------------------------------------------------------------------------------------
 def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
     out = safe_output(out)
-    manifest, audit = _json(out, "manifest.json"), _json(out, "audit.json")
-    selection, srm = _json(out, "selection.json"), _json(out, "srm.json")
-    overlap = _json(out, "feature_overlap.json")
-    c2st_details, ate_test = _json(out, "c2st_details.json"), _json(
-        out, "ate_test.json"
+    manifest, audit = _json(out, "manifest.json"), _json(out / "data_preparation", "audit.json")
+    selection, srm = _json(out / "models", "selection.json"), _json(out / "diagnostics", "srm.json")
+    overlap = _json(out / "data_preparation", "feature_overlap.json")
+    c2st_details, ate_test = _json(out / "diagnostics", "c2st_details.json"), _json(
+        out / "evaluation", "ate_test.json"
     )
     frames = {
-        name: pd.read_csv(out / f"{name}.csv")
-        for name in (
-            "ate_full",
-            "balance",
-            "c2st",
-            "validation_policies",
-            "test_policies",
-            "test_ranking",
-            "learnability",
-            "splits",
-            "curves",
+        name: pd.read_csv(out / folder / f"{name}.csv")
+        for folder, names in (
+            ("diagnostics", ("ate_full", "balance", "c2st", "learnability")),
+            ("models", ("validation_policies",)),
+            ("evaluation", ("test_policies", "test_ranking", "curves")),
+            ("data_preparation", ("split_summary",)),
         )
+        for name in names
     }
+    sample_report = _json(out / "data_preparation", "sample_report.json")
     selected = selection["selected_policy"]
     selected_uplift = selection["selected_uplift_model"]
     budget = float(selection["primary_budget"])
@@ -192,7 +189,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
     calibration_model = (
         selected if selected not in {"random", "propensity"} else selected_uplift
     )
-    calibration = pd.read_csv(out / f"calibration_{calibration_model}.csv")
+    calibration = pd.read_csv(out / "evaluation" / f"calibration_{calibration_model}.csv")
     figures = safe_output(out / "figures")
     figures.mkdir(exist_ok=True)
 
@@ -420,7 +417,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         save(fig, "calibration")
 
     esc = html.escape
-    test_split = frames["splits"].query("split == 'test'")
+    test_split = frames["split_summary"].query("split == 'test'")
     n_test = int(test_split["n"].sum())
     event_column = f"{outcome}_positive"
     n_events = int(test_split[event_column].sum())
@@ -576,7 +573,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         if significant_c2st
         else "以 5% 作为探索性参考，两模型经 Holm 校正后都未检出可观测分配差异。"
     )
-    split_display = frames["splits"].rename(
+    split_display = frames["split_summary"].rename(
         columns={
             "split": "划分",
             "treatment": "处理组标识",
@@ -599,7 +596,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         '<p>单位均为每 10 万名可触达对象的预期增量结果，比较假设每次触达成本及每个结果价值相同。预算指触达人数比例，未包含真实广告成本、收入或利润，不能解释成线上 ROI。</p></section>',
         '<section><h2>数据、任务和评估边界</h2>'
         f'<p>源文件 <code>{source_file}</code> 共 {int(audit["n_rows"]):,} 行；本次建模样本 {int(manifest["sample_n"]):,} 行，'
-        f'抽样方法：{esc(audit["sampling"])}，随机种子 {int(manifest["seed"])}。固定采用 train / validation / test = 60% / 20% / 20%，'
+        f'抽样方法：{esc(sample_report["sampling"])}，随机种子 {int(manifest["seed"])}。固定采用 train / validation / test = 60% / 20% / 20%，'
         '按 treatment × 主结果联合分层；模型均只在 train 拟合，没有 train + validation 重拟合。</p>'
         '<p>研究对象是公开样本中 treatment <strong>分配</strong>对结果的 ITT 风格效应。模型仅用 f0–f11 处理前特征；'
         'exposure、visit、conversion 不作为特征，也不按曝光或访问行为筛选人群。propensity 在本报告中表示 '
@@ -669,8 +666,12 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         'HT 中心面积 = <code>HT AUUC − G_HT(1)/2</code>。</p>'
         '<p>传统曲线 <code>Q_trad(q) = [R₁(q) − R₀(q) × N₁(q)/N₀(q)] / n</code>；'
         '<code>Nₐ</code> 为已选前缀内各组人数，<code>Rₐ</code> 为对应正例数。传统 Qini score = '
-        '<code>∫₀¹ [Q_trad(q) − q × Q_trad(1)] dq</code>。面积计算将原点 (0,0) 与所有同时包含两组的前缀做线性插值，'
-        '桥接最初未定义的区间；原始曲线仍保留相应缺失值。未进行“完美排序面积”归一化，因此不等于某些库的 normalized Qini score。</p>'
+        '<code>∫₀¹ [Q_trad(q) − q × Q_trad(1)] dq</code>。当前 v2 从原点 (0,0) 开始，对所有 '
+        '<code>N₀(q) &gt; 0</code> 的前缀点作梯形积分，包括仅包含对照组时的零值点。'
+        '尚无对照组的前缀曲线值未定义，不作为积分节点；积分从原点线性连接到首个保留点，原始曲线仍保留相应缺失值。'
+        '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 normalized Qini score。</p>'
+        '<p>版本说明：历史 v1 仅保留同时包含处理组和对照组的前缀作积分节点；当前 v2 保留所有已有对照组的前缀，'
+        '包括仅有对照组的零值点。历史基线与稳定性研究的 v1 结果保持原样，未因本次说明修订而按 v2 重算。</p>'
         '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。'
         '</p></div></section>',
         '<section><h2>CATE 分箱校准</h2>'

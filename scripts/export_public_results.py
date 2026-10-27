@@ -19,29 +19,30 @@ from criteo_uplift.pipeline_io import load_sample, safe_output
 
 BASE = 'conversion_1000000_seed42'
 BASE_FILES = (
-    'audit.json',
+    'data_preparation/audit.json',
+    'data_preparation/sample_report.json',
     'manifest.json',
-    'selection.json',
-    'splits.csv',
-    'ate_full.csv',
-    'ate_test.json',
-    'balance.csv',
-    'c2st.csv',
-    'c2st_null.csv',
-    'c2st_details.json',
-    'srm.json',
-    'learnability.csv',
-    'feature_overlap.json',
-    'validation_policies.csv',
-    'validation_ranking.csv',
-    'test_policies.csv',
-    'test_ranking.csv',
-    'curves.csv',
+    'models/selection.json',
+    'data_preparation/split_summary.csv',
+    'diagnostics/ate_full.csv',
+    'evaluation/ate_test.json',
+    'diagnostics/balance.csv',
+    'diagnostics/c2st.csv',
+    'diagnostics/c2st_null.csv',
+    'diagnostics/c2st_details.json',
+    'diagnostics/srm.json',
+    'diagnostics/learnability.csv',
+    'data_preparation/feature_overlap.json',
+    'models/validation_policies.csv',
+    'models/validation_ranking.csv',
+    'evaluation/test_policies.csv',
+    'evaluation/test_ranking.csv',
+    'evaluation/curves.csv',
     'report.html',
-    'calibration_s_logistic.csv',
-    'calibration_t_logistic.csv',
-    'calibration_t_xgboost.csv',
-    'calibration_x_xgboost.csv',
+    'evaluation/calibration_s_logistic.csv',
+    'evaluation/calibration_t_logistic.csv',
+    'evaluation/calibration_t_xgboost.csv',
+    'evaluation/calibration_x_xgboost.csv',
 )
 EXPORTS = {
     BASE: BASE_FILES,
@@ -105,8 +106,10 @@ def export(output):
     # 先检查必要的来源文件，再创建输出，避免留下不完整产物。
     for directory, names in EXPORTS.items():
         for name in names:
-            if not (ROOT / 'artifacts' / directory / name).is_file():
-                raise FileNotFoundError(ROOT / 'artifacts' / directory / name)
+            base = ROOT / 'artifacts' / directory
+            source = base / name
+            if not source.is_file():
+                raise FileNotFoundError(source)
     output.mkdir(parents=True)
     records = []
 
@@ -138,7 +141,10 @@ def export(output):
 
     for directory, names in EXPORTS.items():
         for name in names:
-            copy(ROOT / 'artifacts' / directory / name, Path(directory) / name)
+            base = ROOT / 'artifacts' / directory
+            source = base / name
+            relative = Path(name)
+            copy(source, Path(directory) / relative)
     for source in sorted((ROOT / 'artifacts' / BASE / 'figures').glob('*.png')):
         copy(source, Path(BASE) / 'figures' / source.name)
     for source in sorted((ROOT / 'artifacts/extension_figures').glob('*.png')):
@@ -159,9 +165,9 @@ def export(output):
                     'rate': float(group[label].mean()),
                 }
             )
-    pd.DataFrame(rows).to_csv(output / BASE / 'sample_group_summary.csv', index=False)
+    pd.DataFrame(rows).to_csv(output / BASE / 'data_preparation' / 'sample_group_summary.csv', index=False)
     sample[FEATURES].describe().T.to_csv(
-        output / BASE / 'sample_feature_summary.csv', index_label='feature'
+        output / BASE / 'data_preparation' / 'sample_feature_summary.csv', index_label='feature'
     )
     del sample
     # 复用 Notebook 实际执行生成的直方图。
@@ -193,8 +199,8 @@ def export(output):
         encoding='utf-8',
     )
     generated = [
-        'sample_group_summary.csv',
-        'sample_feature_summary.csv',
+        'data_preparation/sample_group_summary.csv',
+        'data_preparation/sample_feature_summary.csv',
         'figures/sample_features.png',
     ]
     for name in generated:
@@ -202,7 +208,7 @@ def export(output):
         records.append(
             {
                 'source': 'derived from cached sample / executed notebook',
-                'published': f'{BASE}/{name}',
+                'published': str(p.relative_to(output)),
                 'published_sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
             }
         )

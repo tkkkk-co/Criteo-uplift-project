@@ -76,7 +76,7 @@ class DataTests(unittest.TestCase):
     # 说明：确认抽样读取全量文件且可复现、不受分块影响。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
-        before = pipeline_io.fingerprint(self.source)
+        before = data.fingerprint(self.source)
         scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=57
         )
@@ -98,10 +98,10 @@ class DataTests(unittest.TestCase):
         self.assertGreater(first.row_id.max(), 300)
         np.testing.assert_array_equal(first.f0, first.row_id)
         self.assertEqual(audit["n_rows"], 400)
-        self.assertEqual(audit["sample_n"], 43)
+        self.assertNotIn("sample_n", audit)
         self.assertEqual(audit["n_treatment"], 200)
         self.assertEqual(audit["groups"]["0"]["conversion"]["positive"], 100)
-        self.assertEqual(pipeline_io.fingerprint(self.source), before)
+        self.assertEqual(data.fingerprint(self.source), before)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_full_data_audit_counts_duplicates_without_removing_rows —— 确认全量审计统计重复行但不删除记录。

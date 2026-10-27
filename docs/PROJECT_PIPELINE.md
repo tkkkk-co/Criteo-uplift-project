@@ -15,8 +15,8 @@ run_pipeline.py::main / parse_args
   └─ run_pipeline.py::run
       1. 创建新的实验输出目录，并检查 data/ 只读规则
       2. preparation.py::prepare_sample
-          ├─ pipeline_io.py::fingerprint 核验原始 CSV
-          ├─ 检查/复用建模样本缓存
+          ├─ data.py::fingerprint 核验原始 CSV
+          ├─ 分别检查/复用建模样本缓存与全量审计缓存
           └─ diagnostics.py::scan_raw_data
               ├─ 全量数据审计
               ├─ SRM 与协变量平衡所需统计
@@ -24,7 +24,7 @@ run_pipeline.py::main / parse_args
               └─ C2ST 两臂等量抽样
       3. data.py::split_sample → train / validation / test
       4. pipeline_io.py::write_split_artifacts / write_feature_overlap
-      5. pipeline_io.py::write_audit_artifacts → audit.json / ate_full.csv
+      5. pipeline_io.py::write_audit_artifacts → audit.json / ate_full.csv；另存 sample_report.json
       6. diagnostics.py::update_experiment_diagnostics
           └─ diagnostics.py::c2st → c2st.csv / c2st_null.csv / c2st_details.json
           └─ 保存 srm.json、balance.csv
@@ -63,9 +63,9 @@ run_pipeline.py::main / parse_args
 |---|---|---|
 | run_pipeline.py | CLI、主流程编排、收尾 | 想知道“整体什么时候调用什么”时首先打开 |
 | criteo_uplift/preparation.py | 样本缓存校验和准备流程 | 研究原始 CSV 如何变成可用样本时 |
-| criteo_uplift/data.py | 数据列/路径常量、train/validation/test 划分 | 研究 split 规则时 |
+| criteo_uplift/data.py | 数据列/路径常量、文件指纹、train/validation/test 划分 | 研究来源指纹或 split 规则时 |
 | criteo_uplift/diagnostics.py | 全量扫描、SRM、SMD/KS、C2ST、结果可学习性 | 学 Notebook 01–02 时 |
-| criteo_uplift/pipeline_io.py | 路径保护、JSON、指纹、样本缓存、实验产物写入、结果目录解析 | 需要知道某个文件怎么保存或从哪里读取时 |
+| criteo_uplift/pipeline_io.py | 路径保护、JSON、样本缓存、实验产物写入、结果目录解析 | 需要知道某个文件怎么保存或从哪里读取时 |
 | criteo_uplift/models.py | S/T/X learner 与模型工厂 | 学模型具体实现时 |
 | criteo_uplift/training.py | 训练候选模型、validation 选型、冻结选择 | 学模型如何被比较和选出时 |
 | criteo_uplift/evaluation.py | 纯指标和统计计算 | 追踪 ATE、HT、AUUC/Qini、policy、CI 等计算时 |
@@ -97,6 +97,10 @@ SQL 审计和指标扩展则分别通过 scripts/run_sql_audit.py 与 scripts/ru
 
 - data/ 是原始数据目录，只读。
 - artifacts/ 存放本地正式运行、缓存和扩展分析产物。缓存通常位于 artifacts/cache/。
+- 抽样结果 `sample_<size>_seed<seed>.npz` 与配套 `.json` 只描述样本；全量审计按原始来源 SHA256 独立保存为 `cache/full_audit_<sha256>.json`，内部记录审计版本。更换抽样规模或 seed 不会使同一来源的全量审计失效。
+- 当前抽样说明统一保存于 `data_preparation/sample_report.json`，全量审计保存于 `data_preparation/audit.json`。现有实验的历史指标和 HTML 内容保留。
+- 每次主实验的文件分为 `data_preparation/`、`diagnostics/`、`models/`、`evaluation/`；顶层保留 `manifest.json`、`report.html`、`figures/`。划分汇总使用 `data_preparation/split_summary.csv`。
+- `run()` 在开头一次性创建固定子目录，并把具体输出目录传给对应步骤。保存函数直接写文件，读取也使用同一固定路径；不保留文件名分派、旧名映射或旧目录回退。
 - reports/published/ 存放可以随仓库分发的聚合结果快照，不包含完整逐行预测、训练样本或 fitted models。
 - criteo_uplift/pipeline_io.py::result_directory(name, root) 默认先找本地 artifacts/name/，再找 reports/published/name/。
 - 环境变量 CRITEO_RESULTS_MODE=published 强制使用公开快照；auto（默认）优先使用本地 artifacts/。

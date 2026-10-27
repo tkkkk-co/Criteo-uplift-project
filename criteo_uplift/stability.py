@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
-from .data import FEATURES
-from .pipeline_io import fingerprint, load_sample, safe_output, write_json
+from .data import FEATURES, fingerprint
+from .pipeline_io import load_sample, safe_output, write_json
 from .evaluation import RANKING_METRIC_DESCRIPTION, evaluate_policies, ranking_metrics
 from .models import make_model
 
@@ -153,7 +153,7 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     if outcome not in ("conversion", "visit"):
         raise ValueError("outcome must be conversion or visit")
     manifest_path = base_run / "manifest.json"
-    test_path = base_run / "test_row_ids.csv"
+    test_path = (base_run / 'data_preparation' / 'test_row_ids.csv')
     metadata_path = cache.with_suffix(".json")
     manifest = json.loads(manifest_path.read_text())
     metadata = json.loads(metadata_path.read_text())
@@ -175,17 +175,15 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     if manifest.get("sample_n") != len(sample):
         raise ValueError("cache row count disagrees with base manifest")
     requested = metadata.get("sample_size")
-    source_rows = metadata.get("audit", {}).get("n_rows")
-    # 目标规模超过来源总行数时，扫描器合法地保留全量；用审计行数核验这种情况。
+    source_rows = metadata.get("source_n")
     if (
-        isinstance(requested, bool)
-        or not isinstance(requested, int)
-        or requested < 0
-        or (
-            requested not in (0, len(sample))
-            and not (requested > len(sample) and source_rows == len(sample))
-        )
+        isinstance(requested, bool) or not isinstance(requested, int) or requested < 0
+        or isinstance(source_rows, bool) or not isinstance(source_rows, int)
+        or source_rows < len(sample) or metadata.get("sample_n") != len(sample)
     ):
+        raise ValueError("cache row count disagrees with cache metadata")
+    expected_n = source_rows if requested == 0 else min(requested, source_rows)
+    if len(sample) != expected_n:
         raise ValueError("cache row count disagrees with cache metadata")
     if not np.isfinite(sample[FEATURES].to_numpy()).all():
         raise ValueError("cached features must be finite for this study")

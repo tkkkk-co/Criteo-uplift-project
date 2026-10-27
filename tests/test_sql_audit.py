@@ -219,8 +219,10 @@ class SqlAuditTests(unittest.TestCase):
             root = Path(tmp)
             source = root / "frozen"
             source.mkdir()
+            (source / "models").mkdir()
+            (source / "evaluation").mkdir()
             np.savez(
-                source / "predictions.npz",
+                source / "evaluation" / "predictions.npz",
                 row_id=self.ids,
                 y=self.y,
                 t=self.t,
@@ -235,7 +237,7 @@ class SqlAuditTests(unittest.TestCase):
                     }
                 )
             )
-            (source / "selection.json").write_text(
+            (source / "models" / "selection.json").write_text(
                 json.dumps(
                     {
                         "frozen_before_test": True,
@@ -244,14 +246,14 @@ class SqlAuditTests(unittest.TestCase):
                     }
                 )
             )
-            before = {p.name: p.read_bytes() for p in source.iterdir()}
+            before = {str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}
             output = root / "audit"
             result = run_sql_audit(source, output)
             self.assertEqual(result["n_eligible"], 8)
             self.assertTrue(result["source_unchanged"])
             self.assertEqual(result["maximum_absolute_sql_python_difference"], 0)
             self.assertIn("ROW_NUMBER()", (output / "queries.sql").read_text())
-            self.assertEqual({p.name: p.read_bytes() for p in source.iterdir()}, before)
+            self.assertEqual({str(p.relative_to(source)): p.read_bytes() for p in source.rglob("*") if p.is_file()}, before)
             with self.assertRaises(FileExistsError):
                 run_sql_audit(source, output)
             with self.assertRaises(ValueError):

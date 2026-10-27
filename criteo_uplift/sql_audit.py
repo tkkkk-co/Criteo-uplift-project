@@ -11,7 +11,8 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
-from .pipeline_io import fingerprint, safe_output, write_json
+from .data import fingerprint
+from .pipeline_io import safe_output, write_json
 from .evaluation import evaluate_policies
 
 SCHEMA_SQL = """
@@ -333,8 +334,9 @@ def run_sql_audit(source: str | Path, output: str | Path) -> dict:
     if output.exists():
         raise FileExistsError(f"refusing to overwrite existing output: {output}")
     paths = {
-        name: source / name
-        for name in ("predictions.npz", "manifest.json", "selection.json")
+        "predictions.npz": source / "evaluation" / "predictions.npz",
+        "manifest.json": source / "manifest.json",
+        "selection.json": source / "models" / "selection.json",
     }
     before = {name: fingerprint(path) for name, path in paths.items()}
     manifest = json.loads(paths["manifest.json"].read_text(encoding="utf-8"))

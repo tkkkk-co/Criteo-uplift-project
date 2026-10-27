@@ -11,8 +11,7 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import data, pipeline_io
-from criteo_uplift.data import FEATURES
-from criteo_uplift.pipeline_io import fingerprint
+from criteo_uplift.data import FEATURES, fingerprint
 from criteo_uplift.evaluation import _rank
 from score_policy import score_policy
 
@@ -144,11 +143,12 @@ class ScoringTests(unittest.TestCase):
     def _save_run(self, policy, model=None):
         selection = {"selected_policy": policy, "frozen_before_test": True}
         manifest = {"features": FEATURES, "seed": 42, "selection": selection}
-        (self.run / "selection.json").write_text(json.dumps(selection))
+        (self.run / "models").mkdir(exist_ok=True)
+        (self.run / "models" / "selection.json").write_text(json.dumps(selection))
         (self.run / "manifest.json").write_text(json.dumps(manifest))
         if policy != "random":
             name = "t_xgboost" if policy == "propensity" else policy
-            joblib.dump(model or _FeatureOnlyModel(), self.run / f"{name}.joblib")
+            joblib.dump(model or _FeatureOnlyModel(), self.run / "models" / f"{name}.joblib")
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：_score —— 使用当前临时目录执行打分测试。
@@ -305,7 +305,7 @@ class ScoringTests(unittest.TestCase):
     def test_missing_run_model_features_and_unfrozen_selection_have_clear_errors(self):
         with self.assertRaisesRegex(FileNotFoundError, "run"):
             score_policy(self.root / "missing", self.source, self.output)
-        (self.run / "t_logistic.joblib").unlink()
+        (self.run / "models" / "t_logistic.joblib").unlink()
         with self.assertRaisesRegex(FileNotFoundError, "模型"):
             self._score()
         self._save_run("random")
@@ -315,12 +315,12 @@ class ScoringTests(unittest.TestCase):
             self._score()
         frame["f11"] = 0
         frame.to_csv(self.source, index=False)
-        (self.run / "selection.json").write_text(
+        (self.run / "models" / "selection.json").write_text(
             json.dumps({"selected_policy": "random"})
         )
         with self.assertRaisesRegex(ValueError, "frozen_before_test"):
             self._score()
-        (self.run / "selection.json").write_text(
+        (self.run / "models" / "selection.json").write_text(
             json.dumps({"selected_policy": "random", "frozen_before_test": False})
         )
         with self.assertRaisesRegex(ValueError, "frozen_before_test"):

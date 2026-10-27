@@ -8,8 +8,7 @@ import json
 import unittest
 import numpy as np
 import pandas as pd
-from criteo_uplift.data import FEATURES
-from criteo_uplift.pipeline_io import fingerprint
+from criteo_uplift.data import FEATURES, fingerprint
 from run_pipeline import run
 
 
@@ -69,28 +68,47 @@ class EndToEndTests(unittest.TestCase):
                 if call.args and Path(call.args[0]) == path and 'chunksize' in call.kwargs
             ]
             self.assertEqual(len(raw_scans), 1)
-            manifest = json.loads((out / 'manifest.json').read_text())
+            for name in (
+                'data_preparation/audit.json', 'data_preparation/sample_report.json',
+                'data_preparation/split_summary.csv', 'data_preparation/test_row_ids.csv',
+                'diagnostics/learnability.csv', 'diagnostics/balance.csv',
+                'models/selection.json', 'models/t_xgboost.joblib',
+                'evaluation/test_policies.csv', 'evaluation/predictions.npz',
+            ):
+                self.assertTrue((out / name).is_file(), name)
+            self.assertFalse((out / 'splits.csv').exists())
+            self.assertFalse((out / 'split_summary.csv').exists())
+            manifest = json.loads(((out / 'manifest.json')).read_text())
             self.assertEqual(manifest['status'], 'complete')
+            audit = json.loads(((out / 'data_preparation' / 'audit.json')).read_text())
+            sample_report = json.loads(((out / 'data_preparation' / 'sample_report.json')).read_text())
+            self.assertNotIn('audit', sample_report)
+            self.assertEqual(sample_report['sample_n'], 4000)
+            self.assertEqual(sample_report['seed'], args.seed)
+            self.assertEqual(sample_report['source_n'], audit['n_rows'])
+            for key in ('sample_n', 'sample_seed', 'sampling'):
+                self.assertNotIn(key, audit)
+
             self.assertTrue(manifest['selection']['frozen_before_test'])
-            val = pd.read_csv(out / 'validation_policies.csv')
+            val = pd.read_csv((out / 'models' / 'validation_policies.csv'))
             winner = (
                 val.sort_values('incremental_per_100k', ascending=False, kind='stable')
                 .iloc[0]
                 .policy
             )
             self.assertEqual(manifest['selection']['selected_policy'], winner)
-            ranking = pd.read_csv(out / 'test_ranking.csv')
+            ranking = pd.read_csv((out / 'evaluation' / 'test_ranking.csv'))
             self.assertIn('qini_score_traditional', ranking)
-            policies = pd.read_csv(out / 'test_policies.csv')
+            policies = pd.read_csv((out / 'evaluation' / 'test_policies.csv'))
             self.assertEqual(
                 policies[policies.budget == 1].incremental_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
             self.assertEqual(len(list((out / 'figures').glob('*.png'))), 5)
-            balance = pd.read_csv(out / 'balance.csv')
+            balance = pd.read_csv((out / 'diagnostics' / 'balance.csv'))
             self.assertTrue(balance['scope'].eq('full_published_dataset').all())
             self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())
-            diagnostic = json.loads((out / 'c2st_details.json').read_text())
+            diagnostic = json.loads(((out / 'diagnostics' / 'c2st_details.json')).read_text())
             self.assertEqual(diagnostic['scope'], 'full_source_arm_balanced_sample')
             self.assertEqual(diagnostic['n_treatment'], 500)
             self.assertEqual(diagnostic['n_control'], 500)

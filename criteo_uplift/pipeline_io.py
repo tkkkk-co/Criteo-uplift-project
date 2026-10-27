@@ -1,10 +1,9 @@
-# 统一管理路径保护、JSON、文件指纹、样本缓存和实验产物读写。
+# 统一管理路径保护、JSON、样本缓存和实验产物读写。
 # 这里负责“怎么保存/读取”，不负责决定何时训练或评价；主流程见 run_pipeline.py。
 # Notebook 与结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
 import importlib.metadata
-import hashlib
 import json
 import os
 import platform
@@ -68,35 +67,6 @@ def write_json(value, path):
 
 
 #-----------------------------------------------------------------------------------------------------------------------
-# 函数：fingerprint() —— 记录文件来源信息和内容指纹。
-# 输入：
-#     path：需要读取的文件路径。
-# 输出：字典，各字段如下。
-#     path：文件的绝对路径字符串。
-#     size：文件大小，单位为字节。
-#     mtime_ns：文件修改时间，单位为纳秒。
-#     sha256：文件内容的 SHA256 指纹。
-# 说明：分块读取整个文件并计算指纹，供其他流程检查数据来源和文件是否发生变化。
-#-----------------------------------------------------------------------------------------------------------------------
-def fingerprint(path):
-    path = Path(path)
-    h = hashlib.sha256()
-
-    with path.open('rb') as f:  # 以二进制只读模式读取文件。
-        for block in iter(
-            lambda: f.read(8*1024*1024),
-            b''):
-            h.update(block)
-
-    return {
-        'path':str(path.resolve()),
-        'size':path.stat().st_size,
-        'mtime_ns':path.stat().st_mtime_ns,
-        'sha256':h.hexdigest()
-    }
-
-
-#-----------------------------------------------------------------------------------------------------------------------
 # 函数：save_sample() —— 将样本保存为压缩缓存。
 # 输入：
 #     sample：包含原始行号、特征和标签的样本数据表。
@@ -142,16 +112,16 @@ def load_sample(path):
 # 函数：write_split_artifacts —— 保存各集合的原始行号和分组统计。
 # 输入：
 #     parts：按 train、validation、test 命名的数据划分字典。
-#     out：当前实验的结果保存目录。
+#     out：已创建的数据准备目录，由主流程传入。
 # 输出：
-#     返回值：None；保存 splits.csv 和各集合的行号文件。
+#     返回值：None；保存 split_summary.csv 和各集合的行号文件。
 # 说明：保存各集合的原始行号和分组统计。
 #-----------------------------------------------------------------------------------------------------------------------
 def write_split_artifacts(parts, out):
     out = safe_output(out)
     split_summary = []
     for name, frame in parts.items():
-        frame[["row_id"]].to_csv(out / f"{name}_row_ids.csv", index=False)
+        frame[["row_id"]].to_csv(safe_output(out / f"{name}_row_ids.csv"), index=False)
         for arm in (0, 1):
             rows = frame[frame.treatment == arm]
             split_summary.append(
@@ -163,14 +133,14 @@ def write_split_artifacts(parts, out):
                     "visit_positive": int(rows.visit.sum()),
                 }
             )
-    pd.DataFrame(split_summary).to_csv(out / "splits.csv", index=False)
+    pd.DataFrame(split_summary).to_csv(safe_output(out / "split_summary.csv"), index=False)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
 # 函数：write_feature_overlap —— 检查验证和测试特征是否出现在训练集中。
 # 输入：
 #     parts：按 train、validation、test 命名的数据划分字典。
-#     out：当前实验的结果保存目录。
+#     out：已创建的数据准备目录，由主流程传入。
 # 输出：
 #     overlap：验证集、测试集匹配训练特征的行比例字典。
 # 说明：只比较匿名特征向量，不能把相同特征直接解释为同一用户。
@@ -194,8 +164,8 @@ def write_feature_overlap(parts, out):
     write_json(
         {
             "note": (
-                "Identical anonymized feature vectors, not identified users; "
-                "based on modeling float32 representation"
+                "基于建模使用的 float32 特征表示，检查匿名特征向量是否相同；"
+                "特征相同不代表属于同一用户。"
             ),
             "fraction_matching_training_features": overlap,
         },
@@ -208,17 +178,17 @@ def write_feature_overlap(parts, out):
 # 函数：write_audit_artifacts —— 保存全量审计及两个结果变量的平均效果。
 # 输入：
 #     audit：全量审计的聚合统计字典。
-#     out：当前实验的结果保存目录。
+#     audit_out：已创建的数据准备目录，用于保存全量审计。
+#     diagnostics_out：已创建的诊断目录，用于保存全量 ATE 汇总。
 # 输出：
 #     返回值：None；保存 audit.json 和 ate_full.csv。
 # 说明：保存全量审计及两个结果变量的平均效果。
 #-----------------------------------------------------------------------------------------------------------------------
-def write_audit_artifacts(audit, out):
-    out = Path(out)
-    write_json(audit, out / "audit.json")
+def write_audit_artifacts(audit, audit_out, diagnostics_out):
+    write_json(audit, Path(audit_out) / "audit.json")
     pd.DataFrame(
         [aggregate_ate_from_audit(audit, outcome) for outcome in ("conversion", "visit")]
-    ).to_csv(out / "ate_full.csv", index=False)
+    ).to_csv(safe_output(Path(diagnostics_out) / "ate_full.csv"), index=False)
 
 
 #-----------------------------------------------------------------------------------------------------------------------

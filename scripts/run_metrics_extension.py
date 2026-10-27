@@ -12,7 +12,8 @@ import argparse
 import json
 import numpy as np
 import pandas as pd
-from criteo_uplift.pipeline_io import safe_output, write_json, fingerprint
+from criteo_uplift.data import fingerprint
+from criteo_uplift.pipeline_io import safe_output, write_json
 from criteo_uplift.evaluation import (
     uplift_curve,
     ranking_metrics,
@@ -39,12 +40,14 @@ def run(source, output, bootstrap=200):
         )
     if output.exists():
         raise FileExistsError(output)
-    before = {
-        name: fingerprint(source / name)
-        for name in ['predictions.npz', 'manifest.json', 'selection.json']
+    paths = {
+        'predictions.npz': source / 'evaluation' / 'predictions.npz',
+        'manifest.json': source / 'manifest.json',
+        'selection.json': source / 'models' / 'selection.json',
     }
+    before = {name: fingerprint(path) for name, path in paths.items()}
     manifest = json.loads((source / 'manifest.json').read_text())
-    selection = json.loads((source / 'selection.json').read_text())
+    selection = json.loads((paths['selection.json']).read_text())
     e, seed = manifest['assignment_probability'], manifest['seed']
     output.mkdir(parents=True)
     protocol = {
@@ -62,7 +65,7 @@ def run(source, output, bootstrap=200):
         'ci': 'Paired within-arm percentile bootstrap; models, e, tie priorities and arm sizes fixed; no multiplicity correction.',
     }
     write_json(protocol, output / 'protocol.json')
-    with np.load(source / 'predictions.npz', allow_pickle=False) as predictions:
+    with np.load(paths['predictions.npz'], allow_pickle=False) as predictions:
         y, t = predictions['y'], predictions['t']
         scores = {
             name: predictions[name]
@@ -88,7 +91,7 @@ def run(source, output, bootstrap=200):
     ranking_confidence_intervals(y, t, scores, e, bootstrap, seed).to_csv(
         output / 'ranking_intervals.csv', index=False
     )
-    after = {name: fingerprint(source / name) for name in before}
+    after = {name: fingerprint(paths[name]) for name in before}
     if before != after:
         raise RuntimeError('Source input fingerprint changed during evaluation')
     write_json(

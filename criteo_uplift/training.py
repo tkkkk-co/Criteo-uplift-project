@@ -2,7 +2,6 @@
 # Notebook 03 的核心实现：run_learnability_diagnostics → fit_and_select_models。
 # 输出 learnability.csv、validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
-from pathlib import Path
 import time
 
 import joblib
@@ -10,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .data import FEATURES
-from .pipeline_io import write_json
+from .pipeline_io import safe_output, write_json
 from .diagnostics import learnability
 from .evaluation import evaluate_policies, ranking_metrics
 from .models import make_model
@@ -21,7 +20,7 @@ from .models import make_model
 # 输入：
 #     train：训练集数据表。
 #     validation：验证集数据表，用于评价和策略选择。
-#     out：当前实验的结果保存目录。
+#     out：主流程已创建的诊断结果目录。
 #     seed：控制抽样、同分排序或模型拟合的随机种子。
 # 输出：
 #     返回值：None；保存 learnability.csv。
@@ -32,7 +31,8 @@ def run_learnability_diagnostics(train, validation, out, *, seed):
         learnability(train, validation, FEATURES, outcome, seed=seed)
         for outcome in ("visit", "conversion")
     ]
-    pd.concat(records).to_csv(Path(out) / "learnability.csv", index=False)
+    out = safe_output(out)
+    pd.concat(records).to_csv((safe_output(out / 'learnability.csv')), index=False)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -45,7 +45,7 @@ def run_learnability_diagnostics(train, validation, out, *, seed):
 #     trees：XGBoost 候选模型使用的树数量。
 #     primary_budget：主策略允许触达的人群比例。
 #     assignment_probability：固定使用的处理分配概率估计值。
-#     out：当前实验的结果保存目录。
+#     out：主流程已创建的模型与验证集结果目录。
 #     progress：接收进度文字的函数。
 # 输出：字典，各字段如下。
 #     models：已拟合模型字典。
@@ -65,7 +65,7 @@ def fit_and_select_models(
     out,
     progress=print,
 ):
-    out = Path(out)
+    out = safe_output(out)
     models = {}
     validation_scores = {}
     validation_ranking = []
@@ -96,7 +96,7 @@ def fit_and_select_models(
                 ),
             }
         )
-        joblib.dump(model, out / f"{name}.joblib")
+        joblib.dump(model, (safe_output(out / f'{name}.joblib')))
 
     # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
     validation_scores["propensity"] = models["t_xgboost"].predict_outcomes(
@@ -111,9 +111,9 @@ def fit_and_select_models(
         bootstrap=0,
         seed=seed,
     )
-    validation_policies.to_csv(out / "validation_policies.csv", index=False)
+    validation_policies.to_csv((safe_output(out / 'validation_policies.csv')), index=False)
     pd.DataFrame(validation_ranking).to_csv(
-        out / "validation_ranking.csv", index=False
+        (safe_output(out / 'validation_ranking.csv')), index=False
     )
 
     # 分别冻结全部可用策略中的最佳策略，以及仅增量模型中的最佳候选。
@@ -142,7 +142,7 @@ def fit_and_select_models(
             "no train+validation refit."
         ),
     }
-    write_json(selection, out / "selection.json")
+    write_json(selection, (out / 'selection.json'))
     return {
         "models": models,
         "model_metadata": model_metadata,

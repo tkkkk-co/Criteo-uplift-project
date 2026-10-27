@@ -2,13 +2,11 @@
 # Notebook 04 的核心入口：evaluate_test_set；不重新训练或重新选择策略。
 # 结果文件包括 test_policies.csv、test_ranking.csv、curves.csv、ranking_intervals.csv、predictions.npz。
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
 from .data import FEATURES
-from .pipeline_io import write_json
+from .pipeline_io import safe_output, write_json
 from .evaluation import (
     ate_summary,
     calibration_table,
@@ -29,7 +27,7 @@ from .evaluation import (
 #     seed：控制抽样、同分排序或模型拟合的随机种子。
 #     bootstrap：重抽样次数；支持时可用 0 仅计算点估计。
 #     primary_budget：主策略允许触达的人群比例。
-#     out：当前实验的结果保存目录。
+#     out：主流程已创建的测试集评价结果目录。
 #     progress：接收进度文字的函数。
 # 输出：
 #     policies：测试集策略评价表。
@@ -47,7 +45,7 @@ def evaluate_test_set(
     out,
     progress=print,
 ):
-    out = Path(out)
+    out = safe_output(out)
     test_scores = {
         name: model.predict(test[FEATURES])
         for name, model in models.items()
@@ -88,11 +86,11 @@ def evaluate_test_set(
         curves.append(curve)
         if name != "propensity":
             calibration_table(test[outcome], test.treatment, score).to_csv(
-                out / f"calibration_{name}.csv", index=False
+                (safe_output(out / f'calibration_{name}.csv')), index=False
             )
 
-    pd.DataFrame(rankings).to_csv(out / "test_ranking.csv", index=False)
-    pd.concat(curves).to_csv(out / "curves.csv", index=False)
+    pd.DataFrame(rankings).to_csv((safe_output(out / 'test_ranking.csv')), index=False)
+    pd.concat(curves).to_csv((safe_output(out / 'curves.csv')), index=False)
 
     budgets = sorted(set([0.02, 0.05, 0.1, 0.2, 0.5, 1.0, primary_budget]))
     policies = evaluate_policies(
@@ -104,7 +102,7 @@ def evaluate_test_set(
         bootstrap=bootstrap,
         seed=seed,
     )
-    policies.to_csv(out / "test_policies.csv", index=False)
+    policies.to_csv((safe_output(out / 'test_policies.csv')), index=False)
     progress("计算冻结模型的配对 AUUC / Qini 区间")
     ranking_confidence_intervals(
         test[outcome],
@@ -113,14 +111,14 @@ def evaluate_test_set(
         assignment_probability,
         bootstrap=bootstrap,
         seed=seed,
-    ).to_csv(out / "ranking_intervals.csv", index=False)
+    ).to_csv((safe_output(out / 'ranking_intervals.csv')), index=False)
 
     write_json(
         ate_summary(test[outcome], test.treatment),
-        out / "ate_test.json",
+        (out / 'ate_test.json'),
     )
     np.savez_compressed(
-        out / "predictions.npz",
+        (out / 'predictions.npz'),
         row_id=test.row_id.to_numpy(),
         y=test[outcome].to_numpy(),
         t=test.treatment.to_numpy(),

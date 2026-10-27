@@ -83,7 +83,7 @@ README.md                    项目入口、结果与运行方式
 pyproject.toml               依赖和可安装代码包
 .gitignore                   排除数据/缓存/模型/本机环境
 criteo_uplift/
-  data.py                    数据列、项目路径常量与数据划分
+  data.py                    数据列、项目路径常量、文件指纹与数据划分
   preparation.py             缓存校验与单次原始数据扫描的协调
   diagnostics.py             全量审计、SMD/KS、SRM、C2ST 与可学习性
   evaluation.py              ATE、Uplift 排序指标、策略评价与区间

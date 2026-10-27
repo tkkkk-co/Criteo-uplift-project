@@ -2,9 +2,11 @@
 from pathlib import Path
 import json
 
-from .data import ROOT
-from .pipeline_io import safe_output, fingerprint, load_sample, save_sample, write_json
-from .diagnostics import scan_raw_data
+from .data import ROOT, fingerprint
+from .pipeline_io import safe_output, load_sample, save_sample, write_json
+from .diagnostics import SAMPLE_CACHE_VERSION, scan_raw_data
+
+AUDIT_CACHE_VERSION = 1
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -30,7 +32,7 @@ from .diagnostics import scan_raw_data
 #     audit：全量审计字典。
 #     source：原始文件指纹。
 #     scanned：同一次扫描得到的可复用诊断结果。
-# 说明：来源与配置一致时复用建模缓存，否则重新抽样；全量诊断在同一次扫描中准备。
+# 说明：抽样缓存与全量审计分别校验和复用；缺失任务在同一次扫描中完成，全量诊断照常准备。
 #-----------------------------------------------------------------------------------------------------------------------
 def prepare_sample(args, *, root: Path = ROOT, progress=None):
 
@@ -42,85 +44,95 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
     if args.permutations < 1:
         raise ValueError('permutations must be positive')
 
-    # 1. 定位共享抽样缓存及其元数据；缓存与某次实验的 out 结果目录分开管理。
+    # 1. 分开定位抽样结果、抽样说明和按原始内容指纹共享的全量审计。
     base = safe_output(Path(root) / 'artifacts')
     base.mkdir(exist_ok=True)
-    cache = base / f'cache/sample_{args.sample_size}_seed{args.seed}.npz' # 缓存抽好的样本 下次直接调用不用再抽了
-    metadata = cache.with_suffix('.json') # 缓存说明文件
-
-    # 2. 核对原始文件内容、抽样规模和种子后才复用缓存。
-    # fingerprint 仍会读取文件计算 SHA256；复用缓存不代表完全不读取原始文件。
+    cache = base / f'cache/sample_{args.sample_size}_seed{args.seed}.npz'
+    metadata = cache.with_suffix('.json')
     current = fingerprint(args.data)
-    reuse = False
+    audit_cache = base / f'cache/full_audit_{current["sha256"]}.json'
+
+    # 2. 抽样缓存依赖：原始数据、抽样规模、seed 和抽样规则版本。
+    reuse_sample = False
     if cache.exists() and metadata.exists():
-        info = json.loads(
-            metadata.read_text()
-        )
-        reuse = (
-            info['source']['sha256'] == current['sha256']
-            and info['sample_size'] == args.sample_size
-            and info['seed'] == args.seed
-        )
-    # 3. 兼容早期已生成的 100 万行、seed=42 缓存：用旧的来源指纹验证。
-    # 这是本项目的历史缓存兼容分支，不是通用抽样步骤。
-    initial = base / 'source_fingerprint.json'
-    if (
-        not metadata.exists()
-        and cache.exists()
-        and initial.exists()
-        and args.sample_size == 1_000_000
-        and args.seed == 42
-    ):
-        reuse = (
-            json.loads(initial.read_text())['sha256']
-            == current['sha256']
+        info = json.loads(metadata.read_text())
+        report_fields = {
+            'scope', 'sample_cache_version', 'source', 'source_n', 'sample_size',
+            'sample_n', 'seed', 'sampling', 'feature_representation',
+            'n_treatment', 'n_control',
+        }
+        reuse_sample = (
+            report_fields.issubset(info)
+            and info.get('scope') == 'modeling_sample'
+            and info.get('source', {}).get('sha256') == current['sha256']
+            and info.get('sample_size') == args.sample_size
+            and info.get('seed') == args.seed
+            and info.get('sample_cache_version') == SAMPLE_CACHE_VERSION
         )
 
-    # 4. 只进行一次 CSV 分块扫描，同时准备全量平衡、SRM 和 C2ST 样本。
-    # 有建模缓存时跳过建模抽样及完整审计；没有缓存时在同一次扫描中一并完成。
-    progress('统一扫描：全量检查 + C2ST 抽样' + ('（复用建模缓存）' if reuse else ' + 建模抽样与审计'))
+    # 3. 全量审计依赖：原始内容、审计规则版本。
+    reuse_audit = False
+    if audit_cache.exists():
+        saved_audit = json.loads(audit_cache.read_text())
+        reuse_audit = (
+            saved_audit.get('source', {}).get('sha256') == current['sha256']
+            and saved_audit.get('audit_cache_version') == AUDIT_CACHE_VERSION
+            and isinstance(saved_audit.get('audit'), dict)
+        )
+
+    # 4. 调用scan_raw_data() 完成全量审计、抽样（建模抽样、C2ST抽样）、诊断（SRM SMD KS）
+    progress(
+        '统一扫描：全量检查 + C2ST 抽样；'
+        + ('复用建模缓存' if reuse_sample else '重新建模抽样') + '；'
+        + ('复用全量审计' if reuse_audit else '重新全量审计')
+    )
     scanned = scan_raw_data(
         args.data,
-        sample_size=None if reuse else args.sample_size,
+        sample_size=None if reuse_sample else args.sample_size,
         seed=args.seed,
         per_arm=args.c2st_sample // 2,
-        audit_enabled=not reuse,
+        audit_enabled=not reuse_audit,
         diagnostics_enabled=True,
         progress=progress,
         source=current,
     )
-    if reuse:
-        progress('复用已校验来源 SHA256 的随机样本')
-        sample = load_sample(cache)
-        audit = json.loads(
-            (
-                metadata
-                if metadata.exists()
-                else base / 'full_audit.json'
-            ).read_text()
-        )
-        if 'audit' in audit:
-            audit = audit['audit']
-        for key in ('n_treatment', 'n_control'):
-            if audit[key] != scanned['metadata'][key]:
-                raise ValueError(f'建模缓存审计与当前全量扫描不一致：{key}')
-    else:
-        sample, audit = scanned['sample'], scanned['audit']
-        save_sample(sample, cache)
 
-    # 建模样本由 sample 单独交给划分步骤，诊断结果无需继续持有这份大表。
+    # 5. 全量审计：复用与重新生成各自集中处理。
+    if reuse_audit:
+        # 5.1 复用审计：读取已核验来源和版本的缓存，并与本次扫描人数核对。
+        audit = saved_audit['audit']
+        for audit_key, scan_key in (
+            ('n_rows', 'n'), ('n_treatment', 'n_treatment'), ('n_control', 'n_control'),
+        ):
+            if audit[audit_key] != scanned['metadata'][scan_key]:
+                raise ValueError(f'全量审计缓存与当前扫描不一致：{audit_key}')
+    else:
+        # 5.2 重新审计：取得本次扫描生成的完整审计，并保存独立审计缓存。
+        audit = scanned['audit']
+        write_json(
+            {'source': current, 'audit_cache_version': AUDIT_CACHE_VERSION, 'audit': audit},
+            audit_cache,
+        )
+
+    # 6. 建模样本：复用与重新抽样各自集中处理，报告由扫描函数生成。
+    expected_n = audit['n_rows'] if args.sample_size == 0 else min(args.sample_size, audit['n_rows'])
+    if reuse_sample:
+        # 6.1 复用样本：读取样本及其已有说明，不重新计算抽样报告。
+        sample = load_sample(cache)
+        sample_report = info
+        if len(sample) != expected_n or sample_report['sample_n'] != len(sample):
+            raise ValueError('抽样缓存行数与配置及原始数据规模不一致')
+    else:
+        # 6.2 重新抽样：直接取得扫描函数生成的样本和说明，一起保存。
+        sample = scanned['sample']
+        sample_report = scanned['sample_report']
+        if len(sample) != expected_n:
+            raise ValueError('抽样结果行数与配置及原始数据规模不一致')
+        save_sample(sample, cache)
+        write_json(sample_report, metadata)
+
+    scanned['sample_report'] = sample_report
+    # 诊断结果无需继续持有建模大表或重复持有审计字典。
     scanned.pop('sample')
     scanned.pop('audit')
-
-    # 5. 保存缓存来源，并返回样本、审计、文件指纹和可直接复用的诊断数据。
-    write_json(
-        {
-            'source': current,
-            'sample_size': args.sample_size,
-            'seed': args.seed,
-            'audit': audit,
-        },
-        metadata,
-    )
     return sample, audit, current, scanned
-

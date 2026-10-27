@@ -59,7 +59,7 @@ def _load_frozen_policy(run):
     run = Path(run).resolve()
     if not run.is_dir():
         raise FileNotFoundError(f"run 目录不存在：{run}")
-    selection = _read_json(run / "selection.json")
+    selection = _read_json((run / 'models' / 'selection.json'))
     manifest = _read_json(run / "manifest.json")
     for field in ("selected_policy", "frozen_before_test"):
         if field not in selection:
@@ -89,7 +89,7 @@ def _load_frozen_policy(run):
     model = None
     if policy != "random":
         model_name = "t_xgboost" if policy == "propensity" else policy
-        path = run / f"{model_name}.joblib"
+        path = (run / 'models' / f'{model_name}.joblib')
         if not path.is_file():
             raise FileNotFoundError(f"冻结策略 {policy} 所需模型不存在：{path}")
         try:

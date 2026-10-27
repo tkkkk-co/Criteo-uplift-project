@@ -49,6 +49,8 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
     names = ['s_logistic', 't_logistic', 't_xgboost', 'x_xgboost']
     models, val_scores = {}, {}
     output.mkdir(parents=True)
+    for directory in (output / 'models', output / 'evaluation'):
+        directory.mkdir()
     protocol = {
         'dataset': 'synthetic randomized demonstration',
         'is_criteo_result': False,
@@ -60,7 +62,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         'DGP': 'Normal X; mu0=expit(-2.5+.7*X0), mu1=clip(mu0+.06*tanh(X1),.001,.999); T~Bernoulli(.65)',
         'purpose': 'Verify installation and exercise the real S/T/X + policy evaluation APIs.',
     }
-    write_json(protocol, output / 'protocol.json')
+    write_json(protocol, (output / 'protocol.json'))
     for name in names:
         model = make_model(
             name,
@@ -91,8 +93,8 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         'criterion': 'validation 20% HT gain',
         'synthetic': True,
     }
-    write_json(selection, output / 'selection.json')
-    validation.to_csv(output / 'validation_policies.csv', index=False)
+    write_json(selection, (output / 'models' / 'selection.json'))
+    validation.to_csv((safe_output(output / 'models' / 'validation_policies.csv')), index=False)
     scores = {name: model.predict(test[FEATURES]) for name, model in models.items()}
     scores['propensity'] = models['t_xgboost'].predict_outcomes(test[FEATURES])[1]
     policies = evaluate_policies(
@@ -104,7 +106,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         bootstrap=bootstrap,
         seed=seed,
     )
-    policies.to_csv(output / 'test_policies.csv', index=False)
+    policies.to_csv((safe_output(output / 'evaluation' / 'test_policies.csv')), index=False)
     pd.DataFrame(
         [
             {
@@ -113,7 +115,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
             }
             for name, values in scores.items()
         ]
-    ).to_csv(output / 'ranking.csv', index=False)
+    ).to_csv((safe_output(output / 'evaluation' / 'ranking.csv')), index=False)
     write_json(
         {
             **protocol,
@@ -121,6 +123,6 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
             'selection': selection,
             'elapsed_seconds': time.perf_counter() - start,
         },
-        output / 'manifest.json',
+        (output / 'manifest.json'),
     )
     return policies

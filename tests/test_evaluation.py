@@ -448,6 +448,24 @@ class ExtendedMetricTests(unittest.TestCase):
         m = ranking_metrics([0, 1, 0, 1], [0, 1, 0, 1], [4, 3, 2, 1], 0.5)
         self.assertEqual(m['qini_score_traditional'], -1 / 16)
 
+        # 连续两个对照组前缀的零值点都参与 v2 积分。
+        y, t, scores = [0, 0, 1, 1], [0, 0, 1, 1], [4, 3, 2, 1]
+        curve = uplift_curve(y, t, scores, 0.5)
+        self.assertTrue(np.isnan(curve.qini_traditional.iloc[0]))
+        np.testing.assert_array_equal(curve.qini_traditional.iloc[1:3], [0, 0])
+        np.testing.assert_allclose(curve.qini_traditional.iloc[3:], [1 / 4, 1 / 2])
+
+        def centered_area(mask):
+            x = np.r_[0.0, curve.loc[mask, 'fraction'].to_numpy()]
+            q = np.r_[0.0, curve.loc[mask, 'qini_traditional'].to_numpy()]
+            return np.sum(np.diff(x) * (q[1:] + q[:-1]) / 2) - q[-1] / 2
+
+        v2 = centered_area(curve.n_control > 0)
+        v1 = centered_area((curve.n_control > 0) & (curve.n_treatment > 0))
+        self.assertEqual(v2, -1 / 8)
+        self.assertEqual(v1, -1 / 16)
+        self.assertEqual(ranking_metrics(y, t, scores, 0.5)['qini_score_traditional'], v2)
+
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_relative_lift_undefined_for_nonpositive_total_effect —— 确认总体效果非正时相对提升保持未定义。
     # 输入：

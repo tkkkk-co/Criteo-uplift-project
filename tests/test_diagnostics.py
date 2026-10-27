@@ -10,8 +10,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from criteo_uplift.data import COLUMNS, FEATURES, LABELS
-from criteo_uplift.pipeline_io import fingerprint
+from criteo_uplift.data import COLUMNS, FEATURES, LABELS, fingerprint
 
 from criteo_uplift.diagnostics import (
     c2st,
@@ -276,28 +275,30 @@ class PublicDiagnosticsTests(unittest.TestCase):
     def test_update_replaces_only_existing_diagnostic_files(self):
         with TemporaryDirectory() as tmp:
             directory = Path(tmp)
+            (directory / "diagnostics").mkdir()
+            (directory / "evaluation").mkdir()
             raw = directory / 'raw.csv'
             frame = self.frame()
             frame.to_csv(raw, index=False)
             diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json']
             for name in diagnostic_names:
-                (directory / name).write_text('old diagnostic')
-            protected = directory / 'predictions.npz'
+                (directory / 'diagnostics' / name).write_text('old diagnostic')
+            protected = (directory / 'evaluation' / 'predictions.npz')
             protected.write_bytes(b'fixed-model-predictions')
-            before_names = {p.name for p in directory.iterdir()}
+            before_names = {str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file()}
             details = update_experiment_diagnostics(
-                raw, directory, audit={'n_treatment': 60, 'n_control': 20},
+                raw, directory / "diagnostics", audit={'n_treatment': 60, 'n_control': 20},
                 source=fingerprint(raw), sample_size=20, permutations=3,
                 progress=lambda _: None,
             )
-            self.assertEqual({p.name for p in directory.iterdir()}, before_names)
+            self.assertEqual({str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file()}, before_names)
             self.assertEqual(protected.read_bytes(), b'fixed-model-predictions')
             self.assertEqual(details['full_n'], 80)
             self.assertEqual(details['n_control'], 10)
             self.assertEqual(details['n_treatment'], 10)
-            self.assertTrue(pd.read_csv(directory / 'balance.csv')['scope'].eq('full_published_dataset').all())
-            self.assertEqual(len(pd.read_csv(directory / 'c2st_null.csv')), 6)
-            self.assertEqual(json.loads((directory / 'srm.json').read_text())['expected_ratio'], .85)
+            self.assertTrue(pd.read_csv((directory / 'diagnostics' / 'balance.csv'))['scope'].eq('full_published_dataset').all())
+            self.assertEqual(len(pd.read_csv((directory / 'diagnostics' / 'c2st_null.csv'))), 6)
+            self.assertEqual(json.loads((directory / 'diagnostics' / 'srm.json').read_text())['expected_ratio'], .85)
 
 
 if __name__ == "__main__":
