@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift.data import FEATURES, fingerprint
-from criteo_uplift.pipeline_io import save_sample, write_json
+from criteo_uplift.pipeline_io import save_sample, write_result
 from criteo_uplift.models import make_model
 from criteo_uplift.stability import (
     development_splits,
@@ -51,11 +51,11 @@ def synthetic_inputs(root, n=2000):
     base.mkdir()
     (base / "data_preparation").mkdir()
     save_sample(frame, cache)
-    write_json(
+    write_result(
         {"source": {"sha256": "synthetic_source"}, "sample_size": n, "source_n": n, "sample_n": n},
         cache.with_suffix(".json"),
     )
-    write_json(
+    write_result(
         {
             "status": "complete",
             "source": {"sha256": "synthetic_source"},
@@ -160,11 +160,11 @@ class StabilityTests(unittest.TestCase):
             cache, base = synthetic_inputs(Path(folder))
             metadata_path = cache.with_suffix('.json')
             metadata = json.loads(metadata_path.read_text())
-            write_json({**metadata, 'sample_size': 5000}, metadata_path)
+            write_result({**metadata, 'sample_size': 5000}, metadata_path)
             development, old_test, _ = load_development_sample(cache, base)
             self.assertEqual(len(development) + len(old_test), 2000)
             for count_fields in ({'source_n': 3000}, {'source_n': None}, {'sample_n': 1999}):
-                write_json({**metadata, 'sample_size': 5000, **count_fields}, metadata_path)
+                write_result({**metadata, 'sample_size': 5000, **count_fields}, metadata_path)
                 with self.assertRaisesRegex(ValueError, 'cache metadata'):
                     load_development_sample(cache, base)
 
@@ -181,11 +181,11 @@ class StabilityTests(unittest.TestCase):
             cache, base = synthetic_inputs(Path(folder))
             metadata = json.loads(cache.with_suffix(".json").read_text())
             metadata["source"]["sha256"] = "other"
-            write_json(metadata, cache.with_suffix(".json"))
+            write_result(metadata, cache.with_suffix(".json"))
             with self.assertRaisesRegex(ValueError, "SHA256"):
                 load_development_sample(cache, base)
             metadata["source"]["sha256"] = "synthetic_source"
-            write_json(metadata, cache.with_suffix(".json"))
+            write_result(metadata, cache.with_suffix(".json"))
             pd.DataFrame({"row_id": [999999]}).to_csv(
                 base / "data_preparation" / "test_row_ids.csv", index=False
             )

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from .data import FEATURES
-from .pipeline_io import safe_output, write_json
+from .pipeline_io import safe_output, write_result
 from .diagnostics import learnability
 from .evaluation import evaluate_policies, ranking_metrics
 from .models import make_model
@@ -32,7 +32,7 @@ def run_learnability_diagnostics(train, validation, out, *, seed):
         for outcome in ("visit", "conversion")
     ]
     out = safe_output(out)
-    pd.concat(records).to_csv((safe_output(out / 'learnability.csv')), index=False)
+    write_result(pd.concat(records), out / 'learnability.csv')
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -111,10 +111,8 @@ def fit_and_select_models(
         bootstrap=0,
         seed=seed,
     )
-    validation_policies.to_csv((safe_output(out / 'validation_policies.csv')), index=False)
-    pd.DataFrame(validation_ranking).to_csv(
-        (safe_output(out / 'validation_ranking.csv')), index=False
-    )
+    write_result(validation_policies, out / 'validation_policies.csv')
+    write_result(pd.DataFrame(validation_ranking), out / 'validation_ranking.csv')
 
     # 分别冻结全部可用策略中的最佳策略，以及仅增量模型中的最佳候选。
     selected_policy = (
@@ -142,7 +140,7 @@ def fit_and_select_models(
             "no train+validation refit."
         ),
     }
-    write_json(selection, (out / 'selection.json'))
+    write_result(selection, (out / 'selection.json'))
     return {
         "models": models,
         "model_metadata": model_metadata,

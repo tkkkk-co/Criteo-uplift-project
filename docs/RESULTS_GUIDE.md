@@ -39,13 +39,15 @@
 
 | 文件 | 由谁计算/写入 | 用来回答什么 |
 |---|---|---|
-| manifest.json | pipeline_io.py::write_run_manifest，最后由 run_pipeline.py::finalize_run 更新状态 | 参数、seed、来源指纹、依赖版本、选型记录和运行状态 |
-| audit.json | diagnostics.py::scan_raw_data 产生；pipeline_io.py::write_audit_artifacts 保存 | 仅全量数据计数、质量审计和特征统计，不含抽样信息 |
-| sample_report.json | diagnostics.py::scan_raw_data 生成，prepare_sample 管理缓存；run_pipeline.py 保存 | 当前抽样请求规模、实际行数、seed、方法、精度及样本组别人数；直接读取独立说明文件 |
-| ate_full.csv | evaluation.py::aggregate_ate_from_audit 计算；pipeline_io.py::write_audit_artifacts 保存 | 全量公开数据上的描述性差均值估计 |
+| manifest.json | run_pipeline.py::run 组装运行记录 → pipeline_io.py::write_result，最后由 run_pipeline.py::finalize_run 更新状态 | 参数、seed、来源指纹、依赖版本、选型记录和运行状态 |
+| audit.json | diagnostics.py::scan_raw_data 产生；pipeline_io.py::write_result 保存 | 全量计数、质量审计、特征统计及 group_summary（对照组、处理组、总体的行数、占比、转化数和转化率），不含抽样信息 |
+| sample_report.json | diagnostics.py::scan_raw_data 生成，prepare_sample 管理缓存；run_pipeline.py 保存 | 当前抽样请求规模、实际行数、seed、方法、精度及组别人数；group_summary 保存 Control / Treatment / 总体的行数、占比、转化数和转化率，供 Notebook 直接展示 |
+| ate_full.csv | evaluation.py::aggregate_ate_from_audit 计算；pipeline_io.py::write_result 保存 | 全量公开数据上的描述性差均值估计 |
 | sample_group_summary.csv、sample_feature_summary.csv | 公开快照导出流程 | 仅在没有逐行数据时展示历史聚合样本摘要 |
-| split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | pipeline_io.py::write_split_artifacts | split 规模、分组计数和原始行号 |
-| feature_overlap.json | pipeline_io.py::write_feature_overlap | validation/test 特征向量与 train 的精确重合比例；不是用户身份识别 |
+| split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | data.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
+| feature_overlap.json | data.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
+
+Notebook 01 的审计展示按样本构成与转化、基础质量检查、重复记录候选和特征平衡分区。全量与抽样的组别表直接读取各自 JSON 的 `group_summary`；Notebook 仅选取已有条目、翻译为中文名称并格式化，不现场计算人数或转化率。
 
 ### 实验可信度与可学习性
 

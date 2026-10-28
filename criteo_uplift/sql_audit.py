@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .data import fingerprint
-from .pipeline_io import safe_output, write_json
+from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 
 SCHEMA_SQL = """
@@ -396,7 +396,7 @@ def run_sql_audit(source: str | Path, output: str | Path) -> dict:
     }
     output.mkdir(parents=True, exist_ok=False)
     for name, table in tables.items():
-        table.to_csv(output / f"{name}.csv", index=False)
+        write_result(table, output / f"{name}.csv")
     (output / "queries.sql").write_text(sql_queries(), encoding="utf-8")
-    write_json(provenance, output / "provenance.json")
+    write_result(provenance, output / "provenance.json")
     return provenance

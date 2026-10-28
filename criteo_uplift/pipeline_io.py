@@ -3,18 +3,13 @@
 # Notebook 与结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
-import importlib.metadata
 import json
 import os
-import platform
-import sys
-import time
 
 import numpy as np
 import pandas as pd
 
 from .data import DATA_ROOT, FEATURES, LABELS, ROOT
-from .evaluation import aggregate_ate_from_audit
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -33,25 +28,36 @@ def safe_output(path):
 
 
 #-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_json() —— 将数据保存为 JSON 文件。
+# 函数：write_result() —— 按文件后缀统一保存已经准备好的结果。
 # 输入：
-#     value：需要保存的 Python 对象。
-#     path：目标 JSON 文件路径。
+#     value：JSON 使用字典或列表；CSV 使用 pandas DataFrame。
+#     path：完整目标路径，支持 .json 和 .csv 后缀。
 # 输出：
 #     返回值：None。
 # 保存文件：
-#     path：转换后保存的 JSON 文件。
-# 说明：检查保存路径、创建父目录，将 NumPy 数值和路径等转换为 JSON 可保存的形式后写入。
+#     path：保存的 JSON 或 CSV 文件；CSV 不保存 DataFrame 索引。
+# 说明：只做类型检查、序列化和保存，不计算统计量、不推断业务目录。
+#       保留原始数据路径保护；后缀或类型不匹配时，在写入前报错。
 #-----------------------------------------------------------------------------------------------------------------------
-def write_json(value, path):
+def write_result(value, path):
     path = safe_output(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    suffix = path.suffix.lower()
+    if suffix not in (".json", ".csv"):
+        raise ValueError("write_result 仅支持 .json 和 .csv 文件")
+    if suffix == ".csv":
+        if not isinstance(value, pd.DataFrame):
+            raise TypeError("CSV 结果必须是 pandas DataFrame")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        value.to_csv(path, index=False)
+        return
+    if not isinstance(value, (dict, list, tuple)):
+        raise TypeError("JSON 结果必须是字典或列表")
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：convert —— 转换 JSON 保存过程中不直接支持的对象。
     # 输入：
     #     v：需要转换的对象或其中一个元素。
     # 输出：
-    #     转换结果：处理后的对象，返回给 write_json() 进行保存。
+    #     转换结果：处理后的对象，返回给 write_result() 进行保存。
     # 说明：递归处理字典和序列，将 NumPy 数组及数值转换为普通 Python 类型，
     #       将路径转换为字符串，将非有限浮点数转换为 None。
     #-----------------------------------------------------------------------------------------------------------------------
@@ -63,7 +69,9 @@ def write_json(value, path):
         if isinstance(v,float) and not np.isfinite(v): return None
         if isinstance(v, Path): return str(v)
         return v
-    path.write_text(json.dumps(convert(value), ensure_ascii=False, indent=2, allow_nan=False))
+    content = json.dumps(convert(value), ensure_ascii=False, indent=2, allow_nan=False)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -106,172 +114,6 @@ def load_sample(path):
         frame.insert(0, 'row_id', z['row_id'])
     return frame
 
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_split_artifacts —— 保存各集合的原始行号和分组统计。
-# 输入：
-#     parts：按 train、validation、test 命名的数据划分字典。
-#     out：已创建的数据准备目录，由主流程传入。
-# 输出：
-#     返回值：None；保存 split_summary.csv 和各集合的行号文件。
-# 说明：保存各集合的原始行号和分组统计。
-#-----------------------------------------------------------------------------------------------------------------------
-def write_split_artifacts(parts, out):
-    out = safe_output(out)
-    split_summary = []
-    for name, frame in parts.items():
-        frame[["row_id"]].to_csv(safe_output(out / f"{name}_row_ids.csv"), index=False)
-        for arm in (0, 1):
-            rows = frame[frame.treatment == arm]
-            split_summary.append(
-                {
-                    "split": name,
-                    "treatment": arm,
-                    "n": len(rows),
-                    "conversion_positive": int(rows.conversion.sum()),
-                    "visit_positive": int(rows.visit.sum()),
-                }
-            )
-    pd.DataFrame(split_summary).to_csv(safe_output(out / "split_summary.csv"), index=False)
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_feature_overlap —— 检查验证和测试特征是否出现在训练集中。
-# 输入：
-#     parts：按 train、validation、test 命名的数据划分字典。
-#     out：已创建的数据准备目录，由主流程传入。
-# 输出：
-#     overlap：验证集、测试集匹配训练特征的行比例字典。
-# 说明：只比较匿名特征向量，不能把相同特征直接解释为同一用户。
-#-----------------------------------------------------------------------------------------------------------------------
-def write_feature_overlap(parts, out):
-    train = parts["train"]
-    validation = parts["validation"]
-    test = parts["test"]
-    train_hash = pd.util.hash_pandas_object(
-        train[FEATURES], index=False
-    ).to_numpy()
-    overlap = {
-        name: float(
-            np.isin(
-                pd.util.hash_pandas_object(frame[FEATURES], index=False).to_numpy(),
-                train_hash,
-            ).mean()
-        )
-        for name, frame in (("validation", validation), ("test", test))
-    }
-    write_json(
-        {
-            "note": (
-                "基于建模使用的 float32 特征表示，检查匿名特征向量是否相同；"
-                "特征相同不代表属于同一用户。"
-            ),
-            "fraction_matching_training_features": overlap,
-        },
-        Path(out) / "feature_overlap.json",
-    )
-    return overlap
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_audit_artifacts —— 保存全量审计及两个结果变量的平均效果。
-# 输入：
-#     audit：全量审计的聚合统计字典。
-#     audit_out：已创建的数据准备目录，用于保存全量审计。
-#     diagnostics_out：已创建的诊断目录，用于保存全量 ATE 汇总。
-# 输出：
-#     返回值：None；保存 audit.json 和 ate_full.csv。
-# 说明：保存全量审计及两个结果变量的平均效果。
-#-----------------------------------------------------------------------------------------------------------------------
-def write_audit_artifacts(audit, audit_out, diagnostics_out):
-    write_json(audit, Path(audit_out) / "audit.json")
-    pd.DataFrame(
-        [aggregate_ate_from_audit(audit, outcome) for outcome in ("conversion", "visit")]
-    ).to_csv(safe_output(Path(diagnostics_out) / "ate_full.csv"), index=False)
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_run_manifest —— 保存本次运行的配置、来源和环境记录。
-# 输入：
-#     out：当前实验的结果保存目录。
-#     args：本次运行的配置对象，包含数据路径、规模、种子和输出设置。
-#     assignment_probability：固定使用的处理分配概率估计值。
-#     selection：在验证集上冻结的策略选择记录。
-#     model_metadata：模型参数和训练耗时记录。
-#     source：输入来源路径或指纹记录，具体类型由本函数的用途决定。
-#     sample_n：本次建模样本的总行数。
-#     started_at：任务开始时记录的单调时钟读数。
-# 输出：
-#     返回值：None；写入等待报告完成的 manifest.json。
-# 说明：记录输入来源、运行参数、模型配置和依赖版本，报告生成完成后再标记整体运行成功。
-#-----------------------------------------------------------------------------------------------------------------------
-def write_run_manifest(
-    out,
-    *,
-    args,
-    assignment_probability,
-    selection,
-    model_metadata,
-    source,
-    sample_n,
-    started_at,
-):
-    write_json(
-        {
-            "assignment_probability": assignment_probability,
-            "probability_source": "training treatment fraction; plug-in estimate",
-            "ci_method": (
-                "paired within-arm percentile bootstrap, fixed learned scores and "
-                "assignment probability; top-k reselected"
-            ),
-            "uncertainty_excluded": [
-                "model training and selection",
-                "assignment probability estimation",
-                "unidentified user dependence",
-            ],
-            "estimand": (
-                "public-sample assignment (ITT-style) incremental outcome relative "
-                "to treat-none"
-            ),
-            "cost_assumption": "equal cost/value; budget is contact fraction, not currency",
-            "ranking_metric_version": (
-                "v2; Qini retains control-only zero prefixes; plug-in AUUC explicit; "
-                "no perfect normalization"
-            ),
-            "primary_outcome": args.outcome,
-            "selection": selection,
-            "models": model_metadata,
-            "assumptions": [
-                "released sample has approximately constant assignment probability conditional on X",
-                "independent rows, consistency and no interference",
-                "equal value per conversion and equal contact cost",
-            ],
-            "status": "metrics_complete",
-            "source": source,
-            "features": FEATURES,
-            "seed": args.seed,
-            "sample_n": sample_n,
-            "arguments": vars(args),
-            "python": sys.version,
-            "platform": platform.platform(),
-            "versions": {
-                name: importlib.metadata.version(name)
-                for name in (
-                    "numpy",
-                    "pandas",
-                    "scipy",
-                    "statsmodels",
-                    "scikit-learn",
-                    "xgboost",
-                    "matplotlib",
-                    "joblib",
-                )
-            },
-            "elapsed_seconds": time.perf_counter() - started_at,
-        },
-        Path(out) / "manifest.json",
-    )
 
 
 #-----------------------------------------------------------------------------------------------------------------------

@@ -174,12 +174,14 @@ def aggregate_ate_from_audit(audit, outcome):
         for value in (n0, n1, r0, r1)
     ) or not (n0 > 0 and n1 > 0 and 0 <= r0 <= n0 and 0 <= r1 <= n1):
         raise ValueError('Audit counts must be valid integers with both arms present')
+    
     p0, p1 = r0 / n0, r1 / n1
     delta = p1 - p0
     se = np.sqrt(
-        p1 * (1 - p1) / (n1 - 1)
-        + p0 * (1 - p0) / (n0 - 1)
+        p1 * (1 - p1) / n1 
+        + p0 * (1 - p0) / n0 
     ) if min(n0, n1) > 1 else np.nan
+
     pooled = (r0 + r1) / (n0 + n1)
     nullse = np.sqrt(pooled * (1 - pooled) * (1 / n0 + 1 / n1))
     return {

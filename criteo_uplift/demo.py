@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 from .data import FEATURES, split_sample
-from .pipeline_io import safe_output, write_json
+from .pipeline_io import safe_output, write_result
 from .models import make_model
 from .evaluation import evaluate_policies, ranking_metrics
 
@@ -43,7 +43,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
     frame['row_id'] = np.arange(n)
     frame['treatment'], frame['conversion'] = treatment, y
     frame['true_tau'] = mu1 - mu0
-    parts = split_sample(frame, seed=seed)
+    parts, _, _ = split_sample(frame, seed=seed)
     train, val, test = (parts[k] for k in ['train', 'validation', 'test'])
     e = float(train.treatment.mean())
     names = ['s_logistic', 't_logistic', 't_xgboost', 'x_xgboost']
@@ -62,7 +62,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         'DGP': 'Normal X; mu0=expit(-2.5+.7*X0), mu1=clip(mu0+.06*tanh(X1),.001,.999); T~Bernoulli(.65)',
         'purpose': 'Verify installation and exercise the real S/T/X + policy evaluation APIs.',
     }
-    write_json(protocol, (output / 'protocol.json'))
+    write_result(protocol, (output / 'protocol.json'))
     for name in names:
         model = make_model(
             name,
@@ -93,8 +93,8 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         'criterion': 'validation 20% HT gain',
         'synthetic': True,
     }
-    write_json(selection, (output / 'models' / 'selection.json'))
-    validation.to_csv((safe_output(output / 'models' / 'validation_policies.csv')), index=False)
+    write_result(selection, (output / 'models' / 'selection.json'))
+    write_result(validation, output / 'models' / 'validation_policies.csv')
     scores = {name: model.predict(test[FEATURES]) for name, model in models.items()}
     scores['propensity'] = models['t_xgboost'].predict_outcomes(test[FEATURES])[1]
     policies = evaluate_policies(
@@ -106,8 +106,8 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         bootstrap=bootstrap,
         seed=seed,
     )
-    policies.to_csv((safe_output(output / 'evaluation' / 'test_policies.csv')), index=False)
-    pd.DataFrame(
+    write_result(policies, output / 'evaluation' / 'test_policies.csv')
+    write_result(pd.DataFrame(
         [
             {
                 'policy': name,
@@ -115,8 +115,8 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
             }
             for name, values in scores.items()
         ]
-    ).to_csv((safe_output(output / 'evaluation' / 'ranking.csv')), index=False)
-    write_json(
+    ), output / 'evaluation' / 'ranking.csv')
+    write_result(
         {
             **protocol,
             'status': 'complete',

@@ -14,7 +14,7 @@ import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from .data import FEATURES, fingerprint
-from .pipeline_io import load_sample, safe_output, write_json
+from .pipeline_io import load_sample, safe_output, write_result
 from .evaluation import RANKING_METRIC_DESCRIPTION, evaluate_policies, ranking_metrics
 from .models import make_model
 
@@ -443,7 +443,7 @@ def run_stability(
         ],
     }
     output.mkdir(parents=True, exist_ok=True)
-    write_json(protocol, output / "protocol.json")
+    write_result(protocol, output / "protocol.json")
     protocol_sha = fingerprint(output / "protocol.json")["sha256"]
     records, audits = [], []
     for seed in seeds:
@@ -595,12 +595,12 @@ def run_stability(
                         }
                     )
                 # 进度文件只保存在本次新目录中；预先冻结的分析配置保持不变。
-                pd.DataFrame(records).to_csv(output / "longmetrics.csv", index=False)
-                pd.DataFrame(audits).to_csv(output / "split_audit.csv", index=False)
+                write_result(pd.DataFrame(records), output / "longmetrics.csv")
+                write_result(pd.DataFrame(audits), output / "split_audit.csv")
     longmetrics = pd.DataFrame(records)
     aggregate, frequencies = _summarize(longmetrics)
-    aggregate.to_csv(output / "aggregate.csv", index=False)
-    frequencies.to_csv(output / "selection_frequency.csv", index=False)
+    write_result(aggregate, output / "aggregate.csv")
+    write_result(frequencies, output / "selection_frequency.csv")
     if fingerprint(output / "protocol.json")["sha256"] != protocol_sha:
         raise AssertionError("protocol changed after study started")
     # 结束前再次核验各只读输入文件的字节内容未改变。
@@ -646,5 +646,5 @@ def run_stability(
         "models_saved": False,
         "original_test_re_evaluated": False,
     }
-    write_json(report, output / "report.json")
+    write_result(report, output / "report.json")
     return output

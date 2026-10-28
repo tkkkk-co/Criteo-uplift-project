@@ -7,8 +7,8 @@
     {
       "source": "artifacts/conversion_1000000_seed42/data_preparation/audit.json",
       "published": "conversion_1000000_seed42/data_preparation/audit.json",
-      "source_sha256": "2a27c8f7abe8be7f541d77dd4a1d15f6e78f6fdfd2b5afede5785d40c89959f2",
-      "published_sha256": "2a27c8f7abe8be7f541d77dd4a1d15f6e78f6fdfd2b5afede5785d40c89959f2"
+      "source_sha256": "967989d5df474d61f5a105fe851fc6600918a111149d986242922f47b92cfea8",
+      "published_sha256": "967989d5df474d61f5a105fe851fc6600918a111149d986242922f47b92cfea8"
     },
     {
       "source": "artifacts/conversion_1000000_seed42/manifest.json",
@@ -340,7 +340,7 @@
     {
       "source": "derived once from saved manifest, audit and split_summary; no model or metric recomputation",
       "published": "conversion_1000000_seed42/data_preparation/sample_report.json",
-      "published_sha256": "59eaa8debd7b154a738ef90b1f3a31fcfc70425ffec295a684b14cd9114f5063"
+      "published_sha256": "b7affe8fd6bb49f4d735dc0c0ac0d63116a691cf4621d7b8b677e326e8c2d605"
     }
   ]
 }

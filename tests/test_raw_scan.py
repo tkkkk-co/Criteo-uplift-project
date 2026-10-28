@@ -179,6 +179,16 @@ class UnifiedScanTests(unittest.TestCase):
                     self.assertEqual(scanned['audit']['duplicate_row_fingerprints'], 1)
                     self.assertEqual(scanned['audit']['n_control'], 40)
                     self.assertEqual(len(scanned['audit']['feature_stats']), 12)
+                    for group, (name, rows) in zip(scanned['audit']['group_summary'], (
+                        ('Control', self.raw[self.raw.treatment == 0]),
+                        ('Treatment', self.raw[self.raw.treatment == 1]),
+                        ('总体', self.raw),
+                    )):
+                        self.assertEqual(group['group'], name)
+                        self.assertEqual(group['n'], len(rows))
+                        self.assertEqual(group['fraction'], len(rows) / len(self.raw))
+                        self.assertEqual(group['conversion_positive'], int(rows.conversion.sum()))
+                        self.assertAlmostEqual(group['conversion_rate'], float(rows.conversion.mean()))
                     for field in ('sample_n', 'sample_seed', 'sampling'):
                         self.assertNotIn(field, scanned['audit'])
                 else:
@@ -205,6 +215,16 @@ class UnifiedScanTests(unittest.TestCase):
                     self.assertEqual(report['feature_representation'], 'float32')
                     self.assertEqual(report['n_treatment'], int(scanned['sample'].treatment.sum()))
                     self.assertEqual(report['n_control'], int((scanned['sample'].treatment == 0).sum()))
+                    for group, (name, rows) in zip(report['group_summary'], (
+                        ('Control', scanned['sample'][scanned['sample'].treatment == 0]),
+                        ('Treatment', scanned['sample'][scanned['sample'].treatment == 1]),
+                        ('总体', scanned['sample']),
+                    )):
+                        self.assertEqual(group['group'], name)
+                        self.assertEqual(group['n'], len(rows))
+                        self.assertEqual(group['fraction'], len(rows) / len(scanned['sample']))
+                        self.assertEqual(group['conversion_positive'], int(rows.conversion.sum()))
+                        self.assertAlmostEqual(group['conversion_rate'], float(rows.conversion.mean()))
                     self.assertNotIn('audit', report)
                 if per_arm is None:
                     self.assertIsNone(scanned['c2st_sample'])

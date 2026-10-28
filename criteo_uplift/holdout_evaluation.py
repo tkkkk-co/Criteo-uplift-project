@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .data import FEATURES
-from .pipeline_io import safe_output, write_json
+from .pipeline_io import safe_output, write_result
 from .evaluation import (
     ate_summary,
     calibration_table,
@@ -85,12 +85,11 @@ def evaluate_test_set(
         curve.insert(0, "policy", name)
         curves.append(curve)
         if name != "propensity":
-            calibration_table(test[outcome], test.treatment, score).to_csv(
-                (safe_output(out / f'calibration_{name}.csv')), index=False
-            )
+            calibration = calibration_table(test[outcome], test.treatment, score)
+            write_result(calibration, out / f'calibration_{name}.csv')
 
-    pd.DataFrame(rankings).to_csv((safe_output(out / 'test_ranking.csv')), index=False)
-    pd.concat(curves).to_csv((safe_output(out / 'curves.csv')), index=False)
+    write_result(pd.DataFrame(rankings), out / 'test_ranking.csv')
+    write_result(pd.concat(curves), out / 'curves.csv')
 
     budgets = sorted(set([0.02, 0.05, 0.1, 0.2, 0.5, 1.0, primary_budget]))
     policies = evaluate_policies(
@@ -102,21 +101,20 @@ def evaluate_test_set(
         bootstrap=bootstrap,
         seed=seed,
     )
-    policies.to_csv((safe_output(out / 'test_policies.csv')), index=False)
+    write_result(policies, out / 'test_policies.csv')
     progress("计算冻结模型的配对 AUUC / Qini 区间")
-    ranking_confidence_intervals(
+    ranking_intervals = ranking_confidence_intervals(
         test[outcome],
         test.treatment,
         test_scores,
         assignment_probability,
         bootstrap=bootstrap,
         seed=seed,
-    ).to_csv((safe_output(out / 'ranking_intervals.csv')), index=False)
-
-    write_json(
-        ate_summary(test[outcome], test.treatment),
-        (out / 'ate_test.json'),
     )
+    write_result(ranking_intervals, out / 'ranking_intervals.csv')
+
+    ate_test = ate_summary(test[outcome], test.treatment)
+    write_result(ate_test, out / 'ate_test.json')
     np.savez_compressed(
         (out / 'predictions.npz'),
         row_id=test.row_id.to_numpy(),

@@ -76,6 +76,31 @@ class EndToEndTests(unittest.TestCase):
                 'evaluation/test_policies.csv', 'evaluation/predictions.npz',
             ):
                 self.assertTrue((out / name).is_file(), name)
+            summary = pd.read_csv(out / 'data_preparation/split_summary.csv')
+            self.assertEqual(len(summary), 6)
+            self.assertEqual(summary.n.sum(), len(frame))
+            source_by_id = frame.copy()
+            source_by_id.index.name = 'row_id'
+            all_ids = []
+            for name in ('train', 'validation', 'test'):
+                ids = pd.read_csv(out / f'data_preparation/{name}_row_ids.csv').row_id
+                all_ids.extend(ids.tolist())
+                members = source_by_id.loc[ids]
+                for arm in (0, 1):
+                    rows = members[members.treatment == arm]
+                    actual = summary[(summary.split == name) & (summary.treatment == arm)].iloc[0]
+                    self.assertEqual(actual.n, len(rows))
+                    self.assertEqual(actual.conversion_positive, int(rows.conversion.sum()))
+                    self.assertEqual(actual.visit_positive, int(rows.visit.sum()))
+            self.assertEqual(sorted(all_ids), list(range(len(frame))))
+            from criteo_uplift.evaluation import ate_summary
+            ate_full = pd.read_csv(out / 'diagnostics/ate_full.csv')
+            for outcome in ('conversion', 'visit'):
+                expected = ate_summary(frame[outcome], frame.treatment)
+                actual = ate_full[ate_full.outcome == outcome].iloc[0]
+                for key, value in expected.items():
+                    if key in actual.index and isinstance(value, (int, float)):
+                        self.assertAlmostEqual(actual[key], value)
             self.assertFalse((out / 'splits.csv').exists())
             self.assertFalse((out / 'split_summary.csv').exists())
             manifest = json.loads(((out / 'manifest.json')).read_text())

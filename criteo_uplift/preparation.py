@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 
 from .data import ROOT, fingerprint
-from .pipeline_io import safe_output, load_sample, save_sample, write_json
+from .pipeline_io import safe_output, load_sample, save_sample, write_result
 from .diagnostics import SAMPLE_CACHE_VERSION, scan_raw_data
 
 AUDIT_CACHE_VERSION = 1
@@ -60,6 +60,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
             'scope', 'sample_cache_version', 'source', 'source_n', 'sample_size',
             'sample_n', 'seed', 'sampling', 'feature_representation',
             'n_treatment', 'n_control',
+            'group_summary',
         }
         reuse_sample = (
             report_fields.issubset(info)
@@ -78,6 +79,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
             saved_audit.get('source', {}).get('sha256') == current['sha256']
             and saved_audit.get('audit_cache_version') == AUDIT_CACHE_VERSION
             and isinstance(saved_audit.get('audit'), dict)
+            and 'group_summary' in saved_audit['audit']
         )
 
     # 4. 调用scan_raw_data() 完成全量审计、抽样（建模抽样、C2ST抽样）、诊断（SRM SMD KS）
@@ -109,7 +111,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
     else:
         # 5.2 重新审计：取得本次扫描生成的完整审计，并保存独立审计缓存。
         audit = scanned['audit']
-        write_json(
+        write_result(
             {'source': current, 'audit_cache_version': AUDIT_CACHE_VERSION, 'audit': audit},
             audit_cache,
         )
@@ -129,7 +131,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
         if len(sample) != expected_n:
             raise ValueError('抽样结果行数与配置及原始数据规模不一致')
         save_sample(sample, cache)
-        write_json(sample_report, metadata)
+        write_result(sample_report, metadata)
 
     scanned['sample_report'] = sample_report
     # 诊断结果无需继续持有建模大表或重复持有审计字典。

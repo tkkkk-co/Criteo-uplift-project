@@ -14,5 +14,28 @@
   "sampling": "uniform without replacement, random-priority reservoir",
   "feature_representation": "float32",
   "n_treatment": 850411,
-  "n_control": 149589
+  "n_control": 149589,
+  "group_summary": [
+    {
+      "group": "Control",
+      "n": 149589,
+      "fraction": 0.149589,
+      "conversion_positive": 273,
+      "conversion_rate": 0.0018250005013737641
+    },
+    {
+      "group": "Treatment",
+      "n": 850411,
+      "fraction": 0.850411,
+      "conversion_positive": 2609,
+      "conversion_rate": 0.0030679283311245975
+    },
+    {
+      "group": "总体",
+      "n": 1000000,
+      "fraction": 1.0,
+      "conversion_positive": 2882,
+      "conversion_rate": 0.002882
+    }
+  ]
 }

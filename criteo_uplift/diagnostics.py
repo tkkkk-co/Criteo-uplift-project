@@ -40,7 +40,7 @@ from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
 from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA, fingerprint
-from .pipeline_io import safe_output, write_json
+from .pipeline_io import safe_output, write_result
 
 _PRETREATMENT_FEATURES = frozenset(f"f{i}" for i in range(12))
 SAMPLE_CACHE_VERSION = 1
@@ -290,6 +290,21 @@ def scan_raw_data(
             'feature_representation': 'float32',
             'n_treatment': int(sample.treatment.sum()),
             'n_control': int((sample.treatment == 0).sum()),
+            # 抽样报告自带可展示的分组汇总，Notebook 无需重读样本或汇总划分表。
+            'group_summary': [
+                {
+                    'group': name,
+                    'n': len(rows),
+                    'fraction': len(rows) / len(sample),
+                    'conversion_positive': int(rows.conversion.sum()),
+                    'conversion_rate': float(rows.conversion.mean()),
+                }
+                for name, rows in (
+                    ('Control', sample[sample.treatment == 0]),
+                    ('Treatment', sample[sample.treatment == 1]),
+                    ('总体', sample),
+                )
+            ],
         }
 
     if c2st_sample_enabled:
@@ -338,6 +353,21 @@ def scan_raw_data(
                        for k, label in enumerate(LABELS[1:])},
                 } for arm in (0, 1)
             },
+            # 与 sample_report 使用同一份展示字段；总体行也在计算阶段准备好。
+            'group_summary': [
+                {
+                    'group': name,
+                    'n': int(n),
+                    'fraction': float(n / total),
+                    'conversion_positive': int(positive),
+                    'conversion_rate': float(positive / n),
+                }
+                for name, n, positive in (
+                    ('Control', counts[0], positives[0, 0]),
+                    ('Treatment', counts[1], positives[1, 0]),
+                    ('总体', total, positives[:, 0].sum()),
+                )
+            ],
         }
 
     if diagnostics_enabled:
@@ -898,9 +928,9 @@ def update_experiment_diagnostics(
         ),
     }
     # 所有计算及来源核对完成后，直接写入调用方传入的诊断目录。
-    balance.to_csv((safe_output(out / 'balance.csv')), index=False)
-    summary.to_csv((safe_output(out / 'c2st.csv')), index=False)
-    check["null_auc"].assign(scope=details["scope"]).to_csv((safe_output(out / 'c2st_null.csv')), index=False)
-    write_json(details, (out / 'c2st_details.json'))
-    write_json(scanned['srm'], (out / 'srm.json'))
+    write_result(balance, out / 'balance.csv')
+    write_result(summary, out / 'c2st.csv')
+    write_result(check["null_auc"].assign(scope=details["scope"]), out / 'c2st_null.csv')
+    write_result(details, (out / 'c2st_details.json'))
+    write_result(scanned['srm'], (out / 'srm.json'))
     return details

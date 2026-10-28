@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import tempfile
+import json
 import unittest
 from unittest.mock import patch
 
@@ -174,14 +175,14 @@ class DataTests(unittest.TestCase):
                 with self.subTest(destination=destination), self.assertRaises(
                     ValueError
                 ):
-                    pipeline_io.write_json({"replace": True}, destination)
+                    pipeline_io.write_result({"replace": True}, destination)
             with self.assertRaises(ValueError):
                 pipeline_io.save_sample(pd.DataFrame(), link / "sample.npz")
             for destination in (protected, link):
                 with self.subTest(destination=destination), self.assertRaises(ValueError):
-                    pipeline_io.write_split_artifacts({}, destination)
+                    pipeline_io.write_result(pd.DataFrame({"n": [1]}), destination / "summary.csv")
             destination = self.root / "artifacts" / "allowed.json"
-            pipeline_io.write_json({"ok": True}, destination)
+            pipeline_io.write_result({"ok": True}, destination)
             self.assertTrue(destination.is_file())
         self.assertEqual(marker.read_text(encoding="utf-8"), "original")
         self.assertFalse((protected / "new").exists())
@@ -215,9 +216,12 @@ class DataTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_split_is_disjoint_reproducible_and_preserves_joint_strata(self):
         frame = _synthetic_frame(2000)
-        frame.insert(0, "row_id", np.arange(len(frame)))
-        parts = data.split_sample(frame, outcome="conversion", seed=42)
-        repeated = data.split_sample(frame, outcome="conversion", seed=42)
+        frame.insert(0, "row_id", np.arange(len(frame)) * 3 + 100)
+        parts, summary, overlap = data.split_sample(frame, outcome="conversion", seed=42)
+        repeated, repeated_summary, repeated_overlap = data.split_sample(frame, outcome="conversion", seed=42)
+        pd.testing.assert_frame_equal(summary, repeated_summary)
+        self.assertEqual(overlap, repeated_overlap)
+        self.assertTrue(all(overlap['row_id_checks'].values()))
         expected_sizes = {"train": 1200, "validation": 400, "test": 400}
         identifiers = []
         expected_proportions = frame.groupby(["treatment", "conversion"]).size() / len(
@@ -235,8 +239,77 @@ class DataTests(unittest.TestCase):
         self.assertFalse(identifiers[0] & identifiers[2])
         self.assertFalse(identifiers[1] & identifiers[2])
         self.assertEqual(set.union(*identifiers), set(frame.row_id))
-        visit_parts = data.split_sample(frame, outcome="visit", seed=42)
+        visit_parts, visit_summary, _ = data.split_sample(frame, outcome="visit", seed=42)
         self.assertEqual(sum(map(len, visit_parts.values())), len(frame))
+        for splits, table in ((parts, summary), (visit_parts, visit_summary)):
+            self.assertEqual(list(table.columns), [
+                "split", "treatment", "n", "conversion_positive", "visit_positive",
+            ])
+            self.assertEqual(len(table), 6)
+            self.assertEqual(table.n.sum(), len(frame))
+            for name, part in splits.items():
+                for arm in (0, 1):
+                    rows = part[part.treatment == arm]
+                    actual = table[(table.split == name) & (table.treatment == arm)].iloc[0]
+                    self.assertEqual(actual.n, len(rows))
+                    self.assertEqual(actual.conversion_positive, int(rows.conversion.sum()))
+                    self.assertEqual(actual.visit_positive, int(rows.visit.sum()))
+
+        _, conversion_only, _ = data.split_sample(frame.drop(columns="visit"), seed=42)
+        self.assertNotIn("visit_positive", conversion_only.columns)
+        self.assertEqual(conversion_only.conversion_positive.sum(), frame.conversion.sum())
+
+    def test_split_rejects_missing_null_or_duplicate_source_ids(self):
+        frame = _synthetic_frame(2000)
+        frame.insert(0, "row_id", np.arange(len(frame)))
+        missing = frame.drop(columns="row_id")
+        null = frame.copy()
+        null.loc[0, "row_id"] = np.nan
+        duplicated = frame.copy()
+        duplicated.loc[1, "row_id"] = duplicated.loc[0, "row_id"]
+        for invalid in (missing, null, duplicated):
+            with self.subTest(columns=invalid.columns.tolist()), self.assertRaisesRegex(ValueError, "row_id"):
+                data.split_sample(invalid)
+
+    def test_split_detects_corrupted_partition_membership(self):
+        frame = _synthetic_frame(2000)
+        frame.insert(0, "row_id", np.arange(len(frame)))
+        train, holdout = np.arange(1200), np.arange(1200, 2000)
+        validation, test = np.arange(1200, 1600), np.arange(1600, 2000)
+        cases = [
+            (np.r_[train[:-1], train[0]], validation, test, "train 的 row_id"),
+            (train, np.r_[train[0], validation[1:]], test, "train 与 validation"),
+            (train, validation, np.r_[train[0], test[1:]], "train 与 test"),
+            (train, validation, np.r_[validation[0], test[1:]], "validation 与 test"),
+            (train, validation, test[:-1], "完整覆盖"),
+        ]
+        for train_ids, validation_ids, test_ids, error in cases:
+            with self.subTest(error=error), patch.object(
+                data, "train_test_split",
+                side_effect=[(train_ids, holdout), (validation_ids, test_ids)],
+            ), self.assertRaisesRegex(ValueError, error):
+                data.split_sample(frame)
+
+    def test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates(self):
+        frame = _synthetic_frame(12)
+        frame.insert(0, 'row_id', np.arange(12))
+        frame[data.FEATURES] = frame[data.FEATURES].astype('float32')
+        # 不同 row_id 保持原样，只复制特征；重复训练向量不应重复计数。
+        frame.loc[[1, 6, 7, 9], data.FEATURES] = frame.loc[0, data.FEATURES].to_numpy()
+        frame.loc[10, data.FEATURES] = frame.loc[8, data.FEATURES].to_numpy()
+        with patch.object(data, 'train_test_split', side_effect=[
+            (np.arange(6), np.arange(6, 12)),
+            (np.arange(6, 9), np.arange(9, 12)),
+        ]):
+            parts, _, overlap = data.split_sample(frame)
+        self.assertTrue(all(overlap['row_id_checks'].values()))
+        self.assertEqual(overlap['fraction_matching_training_features'], {
+            'validation': 2 / 3, 'test': 1 / 3,
+        })
+        self.assertEqual(overlap['fraction_test_matching_validation_features'], 2 / 3)
+        self.assertEqual(overlap['features'], data.FEATURES)
+        self.assertEqual(set(overlap['feature_dtypes'].values()), {'float32'})
+        self.assertEqual(sum(map(len, parts.values())), len(frame))
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_invalid_schema_nonfinite_and_nonbinary_labels_fail —— 确认错误列结构、非有限特征及非二分类标签报错。
@@ -284,9 +357,39 @@ class DataTests(unittest.TestCase):
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         with self.assertRaises(ValueError):
             data.split_sample(self.frame, outcome="exposure")
-        tiny = self.frame.iloc[:4]
+        tiny = self.frame.iloc[:4].assign(row_id=np.arange(4))
         with self.assertRaises(ValueError):
             data.split_sample(tiny, outcome="conversion")
+
+
+    def test_write_result_preserves_json_values_and_csv_columns(self):
+        report = {"中文": np.int64(3), "array": np.array([1.5, np.nan]),
+                  "path": Path("result"), "infinity": float("inf")}
+        path = self.root / "results" / "audit.json"
+        pipeline_io.write_result(report, path)
+        self.assertEqual(json.loads(path.read_text()), {
+            "中文": 3, "array": [1.5, None], "path": "result", "infinity": None,
+        })
+        frame = pd.DataFrame({"split": ["train", "test"], "n": [8, 2]}, index=[10, 20])
+        target = path.with_name("split_summary.csv")
+        pipeline_io.write_result(frame, target)
+        pd.testing.assert_frame_equal(pd.read_csv(target), frame.reset_index(drop=True))
+
+    def test_write_result_rejects_invalid_format_before_writing(self):
+        for value, name, error in [
+            ({"n": 1}, "summary.csv", TypeError),
+            (pd.DataFrame({"n": [1]}), "audit.json", TypeError),
+            ({"n": 1}, "report.txt", ValueError),
+        ]:
+            target = self.root / "invalid" / name
+            with self.subTest(name=name), self.assertRaises(error):
+                pipeline_io.write_result(value, target)
+            self.assertFalse(target.parent.exists())
+        target = self.root / "existing.csv"
+        target.write_text("original")
+        with self.assertRaises(TypeError):
+            pipeline_io.write_result({"n": 1}, target)
+        self.assertEqual(target.read_text(), "original")
 
 
 if __name__ == "__main__":

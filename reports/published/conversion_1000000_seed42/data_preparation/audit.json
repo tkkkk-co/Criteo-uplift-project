@@ -166,5 +166,28 @@
         "rate": 0.036036727482199896
       }
     }
-  }
+  },
+  "group_summary": [
+    {
+      "group": "Control",
+      "n": 2096937,
+      "fraction": 0.1499998712408774,
+      "conversion_positive": 4063,
+      "conversion_rate": 0.0019375880152813366
+    },
+    {
+      "group": "Treatment",
+      "n": 11882655,
+      "fraction": 0.8500001287591226,
+      "conversion_positive": 36711,
+      "conversion_rate": 0.0030894610674129645
+    },
+    {
+      "group": "总体",
+      "n": 13979592,
+      "fraction": 1.0,
+      "conversion_positive": 40774,
+      "conversion_rate": 0.002916680257907384
+    }
+  ]
 }

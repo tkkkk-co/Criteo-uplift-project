@@ -12,7 +12,7 @@ from criteo_uplift.runtime import configure_runtime
 configure_runtime()
 import pandas as pd
 from criteo_uplift.planning import plan_policy_ab, cost_value_scenario
-from criteo_uplift.pipeline_io import safe_output, write_json
+from criteo_uplift.pipeline_io import safe_output, write_result
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -94,9 +94,9 @@ def build():
     )
     planning = safe_output(ROOT / 'artifacts/planning_v1')
     planning.mkdir(exist_ok=True)
-    plans.to_csv(planning / 'hypothetical_ab_plans.csv', index=False)
-    scenarios.to_csv(planning / 'hypothetical_cost_scenarios.csv', index=False)
-    write_json(
+    write_result(plans, planning / 'hypothetical_ab_plans.csv')
+    write_result(scenarios, planning / 'hypothetical_cost_scenarios.csv')
+    write_result(
         {
             'hypothetical': True,
             'effect_source': str((run / 'evaluation' / 'test_policies.csv')),

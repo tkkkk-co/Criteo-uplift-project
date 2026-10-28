@@ -22,9 +22,9 @@ run_pipeline.py::main / parse_args
               ├─ SRM 与协变量平衡所需统计
               ├─ 建模样本抽样（需要时）
               └─ C2ST 两臂等量抽样
-      3. data.py::split_sample → train / validation / test
-      4. pipeline_io.py::write_split_artifacts / write_feature_overlap
-      5. pipeline_io.py::write_audit_artifacts → audit.json / ate_full.csv；另存 sample_report.json
+      3. data.py::split_sample → parts（train / validation / test）、split_summary 和 feature_overlap
+      4. run_pipeline.py::run → pipeline_io.py::write_result 保存划分行号、汇总与重叠报告
+      5. run_pipeline.py::run 调用 aggregate_ate 计算 ATE → write_result 保存 audit.json / ate_full.csv / sample_report.json
       6. diagnostics.py::update_experiment_diagnostics
           └─ diagnostics.py::c2st → c2st.csv / c2st_null.csv / c2st_details.json
           └─ 保存 srm.json、balance.csv
@@ -35,11 +35,19 @@ run_pipeline.py::main / parse_args
           └─ 仅用 validation 冻结策略选择
       9. holdout_evaluation.py::evaluate_test_set
           └─ 对冻结模型做一次 test 评价并保存结果
-     10. pipeline_io.py::write_run_manifest
+     10. run_pipeline.py::run 组装运行记录 → pipeline_io.py::write_result
      11. run_pipeline.py::finalize_run → reporting.py::build_report
 ~~~
 
 注意：当前代码在 prepare_sample() 内通过一次分块 CSV 扫描复用多个任务的结果。不要为了让函数看起来更短，把这次扫描拆成多次独立扫描；那可能改变计算成本、抽样流和诊断结果。
+
+统一的结果保存接口是 `pipeline_io.write_result(value, path)`：字典 / 列表写入 JSON，DataFrame 写入不含索引的 CSV。调用方先完成计算和结果整理，并传入完整路径；写入函数只负责类型检查、路径保护和序列化。NPZ 样本 / 预测缓存、模型对象和图像继续使用对应的保存方式。
+
+`split_sample()` 返回三个对象：`parts, split_summary, feature_overlap = split_sample(sample, outcome, seed)`。`parts` 包含三个集合的数据表；`split_summary` 按集合与处理臂统计人数及输入中已有 conversion / visit 列的正例数；`feature_overlap` 保存来源行核验结果、三对集合的特征匹配比例、比较字段与实际精度。划分函数不写文件，主流程通过 `write_result()` 保存这些结果和各集合行号。
+
+每次划分都检查 `row_id` 存在、非空且唯一，三集合内部唯一、两两互斥并完整覆盖输入；失败时明确报错。`row_id` 代表来源行，不是用户身份。特征哈希匹配只作诊断，不因此删除或拒绝样本；validation / test 匹配 train 的分母分别为 validation / test 行数，test 匹配 validation 的分母为 test 行数。
+
+不设置划分检查的缓存开关：当前复用的是划分前的样本，`split_sample()` 仍会根据本次 outcome 和 seed 生成集合。复用样本不等于已经验证本次划分；这些检查只使用内存中的样本，不重新扫描原始 CSV。
 
 ## 2. 主流程各阶段的职责
 
@@ -48,7 +56,7 @@ run_pipeline.py::main / parse_args
 | 配置和编排 | run_pipeline.py::parse_args, run() | CLI 参数 | 决定本次运行的参数与阶段顺序 |
 | 来源核验、缓存和扫描 | preparation.py::prepare_sample | 原始 CSV、抽样规模、seed、缓存 | 样本、审计字典、来源指纹、可复用扫描结果 |
 | 全量扫描 | diagnostics.py::scan_raw_data | 原始 CSV 分块 | 审计、SRM/SMD/KS 所需统计、建模样本、C2ST 样本 |
-| 数据划分 | data.py::split_sample | 建模样本 | 60% train / 20% validation / 20% test |
+| 数据划分 | data.py::split_sample | 建模样本 | parts（60% train / 20% validation / 20% test）及分组人数、正例数汇总表 |
 | 产物写入 | pipeline_io.py::write_* | 已算好的统计和元数据 | CSV、JSON、缓存、manifest |
 | 诊断 | diagnostics.py::srm_summary, covariate_balance, c2st, update_experiment_diagnostics | 原始来源统计和 C2ST 样本 | SRM、SMD/KS、C2ST 结果 |
 | 结果可学习性 | training.py::run_learnability_diagnostics → diagnostics.py::learnability | train、validation | learnability.csv |

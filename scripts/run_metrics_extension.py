@@ -13,7 +13,7 @@ import json
 import numpy as np
 import pandas as pd
 from criteo_uplift.data import fingerprint
-from criteo_uplift.pipeline_io import safe_output, write_json
+from criteo_uplift.pipeline_io import safe_output, write_result
 from criteo_uplift.evaluation import (
     uplift_curve,
     ranking_metrics,
@@ -64,7 +64,7 @@ def run(source, output, bootstrap=200):
         'normalization': 'Population-fraction x axis; y divided by n. No perfect-ranking normalization.',
         'ci': 'Paired within-arm percentile bootstrap; models, e, tie priorities and arm sizes fixed; no multiplicity correction.',
     }
-    write_json(protocol, output / 'protocol.json')
+    write_result(protocol, output / 'protocol.json')
     with np.load(paths['predictions.npz'], allow_pickle=False) as predictions:
         y, t = predictions['y'], predictions['t']
         scores = {
@@ -86,15 +86,14 @@ def run(source, output, bootstrap=200):
         curve = curve.iloc[ix].copy()
         curve.insert(0, 'policy', name)
         curves.append(curve)
-    pd.DataFrame(rows).to_csv(output / 'ranking.csv', index=False)
-    pd.concat(curves).to_csv(output / 'curves_display_only.csv', index=False)
-    ranking_confidence_intervals(y, t, scores, e, bootstrap, seed).to_csv(
-        output / 'ranking_intervals.csv', index=False
-    )
+    write_result(pd.DataFrame(rows), output / 'ranking.csv')
+    write_result(pd.concat(curves), output / 'curves_display_only.csv')
+    intervals = ranking_confidence_intervals(y, t, scores, e, bootstrap, seed)
+    write_result(intervals, output / 'ranking_intervals.csv')
     after = {name: fingerprint(paths[name]) for name in before}
     if before != after:
         raise RuntimeError('Source input fingerprint changed during evaluation')
-    write_json(
+    write_result(
         {**protocol, 'status': 'complete', 'source_unchanged': True, 'n': len(y)},
         output / 'report.json',
     )
