@@ -680,8 +680,10 @@ def c2st(
     t_train, t_test = t[train_idx], t[test_idx]
     if min(np.unique(t_train).size, np.unique(t_test).size) != 2:
         raise ValueError("C2ST split has a single arm; supply a larger sample")
+    
     # 常数基线：每个留出样本都预测训练集的 Treatment 占比；本次等量样本中为 0.5。
     dummy = _probability_metrics(t_test, np.full(len(t_test), t_train.mean()))
+    
     # 用真实标签分别训练 Logistic 和 HGB，记录留出集的观测指标。
     observed = {}
     for name in ("logistic", "hgb"):

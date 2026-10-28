@@ -341,6 +341,12 @@
       "source": "derived once from saved manifest, audit and split_summary; no model or metric recomputation",
       "published": "conversion_1000000_seed42/data_preparation/sample_report.json",
       "published_sha256": "b7affe8fd6bb49f4d735dc0c0ac0d63116a691cf4621d7b8b677e326e8c2d605"
+    },
+    {
+      "source": "artifacts/conversion_1000000_seed42/figures/c2st_null.png",
+      "published": "conversion_1000000_seed42/figures/c2st_null.png",
+      "source_sha256": "502f3e85040d6f790a75dd53a0b339b77fa28ff504ab306a8130243c4875a82e",
+      "published_sha256": "502f3e85040d6f790a75dd53a0b339b77fa28ff504ab306a8130243c4875a82e"
     }
   ]
 }

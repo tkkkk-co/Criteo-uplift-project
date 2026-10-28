@@ -9,7 +9,6 @@ from criteo_uplift.runtime import configure_runtime
 
 configure_runtime()
 import argparse
-import base64
 import hashlib
 import json
 import shutil
@@ -110,6 +109,8 @@ def export(output):
             source = base / name
             if not source.is_file():
                 raise FileNotFoundError(source)
+    if not (ROOT / 'artifacts' / BASE / 'figures/sample_features.png').is_file():
+        raise FileNotFoundError('Missing pipeline figure: figures/sample_features.png')
     output.mkdir(parents=True)
     records = []
 
@@ -170,25 +171,7 @@ def export(output):
         output / BASE / 'data_preparation' / 'sample_feature_summary.csv', index_label='feature'
     )
     del sample
-    # 复用 Notebook 实际执行生成的直方图。
-    nb = json.loads((ROOT / 'notebooks/01_data_understanding.ipynb').read_text())
-    found = False
-    for cell in nb['cells']:
-        if 'ax.hist(sample[feature]' not in ''.join(cell.get('source', [])):
-            continue
-        for result in cell.get('outputs', []):
-            encoded = result.get('data', {}).get('image/png')
-            if encoded:
-                if isinstance(encoded, list):
-                    encoded = ''.join(encoded)
-                (output / BASE / 'figures/sample_features.png').write_bytes(
-                    base64.b64decode(encoded)
-                )
-                found = True
-    if not found:
-        raise ValueError(
-            'Execute notebook 01 before exporting its real feature histogram'
-        )
+    # 图片由主流程生成并在上方复制；导出不依赖 Notebook 的源码或输出。
     (output / 'README.md').write_text(
         '# Published aggregate snapshot\n\n'
         'Computed from the historical Criteo experiment. No raw rows, row-ID lists, individual '
@@ -201,13 +184,12 @@ def export(output):
     generated = [
         'data_preparation/sample_group_summary.csv',
         'data_preparation/sample_feature_summary.csv',
-        'figures/sample_features.png',
     ]
     for name in generated:
         p = output / BASE / name
         records.append(
             {
-                'source': 'derived from cached sample / executed notebook',
+                'source': 'derived from cached sample',
                 'published': str(p.relative_to(output)),
                 'published_sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
             }

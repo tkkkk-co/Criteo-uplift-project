@@ -32,6 +32,63 @@ _LABELS = {
 
 
 #-----------------------------------------------------------------------------------------------------------------------
+# 函数：save_sample_feature_plot —— 在运行阶段保存建模样本的特征分布图。
+# 输入：sample：已经抽取的建模样本；path：图片的完整输出路径。
+# 输出：返回保存路径，写入一张 PNG 图片。
+# 说明：直方图分箱在包内完成；Notebook 只读取图片，不加载逐行样本或重新分箱。
+#-----------------------------------------------------------------------------------------------------------------------
+def save_sample_feature_plot(sample, path):
+    from matplotlib.figure import Figure
+    from .data import FEATURES
+
+    path = safe_output(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig = Figure(figsize=(13, 8), constrained_layout=True)
+    axes = fig.subplots(3, 4)
+    for feature, ax in zip(FEATURES, axes.flat):
+        ax.hist(sample[feature], bins=40, color="#2476a8", log=True)
+        ax.set_title(feature)
+        ax.set_ylabel("Count (log)")
+    fig.suptitle(f"Feature distributions | modeling sample n = {len(sample):,}")
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    return path
+
+
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：save_c2st_plot —— 根据已保存的诊断结果生成置换分布图。
+# 输入：out：实验结果目录，包含 diagnostics 下的 C2ST 结果。
+# 输出：返回 figures/c2st_null.png 路径，并保存图片。
+# 说明：只将已有置换 AUC 分箱绘图，不重新抽样、训练、置换或计算检验结果。
+#-----------------------------------------------------------------------------------------------------------------------
+def save_c2st_plot(out):
+    from matplotlib.figure import Figure
+
+    out = Path(out)
+    scores = pd.read_csv(out / "diagnostics/c2st.csv")
+    null = pd.read_csv(out / "diagnostics/c2st_null.csv")
+    details = json.loads((out / "diagnostics/c2st_details.json").read_text())
+    path = safe_output(out / "figures/c2st_null.png")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig = Figure(figsize=(11, 4), constrained_layout=True)
+    axes = fig.subplots(1, len(scores), squeeze=False)[0]
+    for ax, row in zip(axes, scores.itertuples()):
+        ax.hist(null.loc[null["model"] == row.model, "roc_auc"],
+                bins=24, color="#2171ad", alpha=.8)
+        ax.axvline(row.roc_auc, color="#ba6b24", label=f"Observed {row.roc_auc:.4f}")
+        ax.set_title(f"{row.model} | Holm p = {row.pvalue_holm:.3f}")
+        ax.set_xlabel("Diagnostic holdout ROC AUC")
+        ax.set_ylabel("Permutation count")
+        ax.legend(frameon=False)
+    fig.suptitle(
+        f"Full-source balanced C2ST | {details['n_control']:,} control + "
+        f"{details['n_treatment']:,} treatment\n"
+        f"{details['permutations']} complete-refit permutations; internal 70/30 split"
+    )
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    return path
+
+
+#-----------------------------------------------------------------------------------------------------------------------
 # 函数：_json —— 读取一个结果 JSON 文件。
 # 输入：
 #     out：当前实验的结果保存目录。
@@ -192,6 +249,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
     calibration = pd.read_csv(out / "evaluation" / f"calibration_{calibration_model}.csv")
     figures = safe_output(out / "figures")
     figures.mkdir(exist_ok=True)
+    save_c2st_plot(out)
 
     import matplotlib
 

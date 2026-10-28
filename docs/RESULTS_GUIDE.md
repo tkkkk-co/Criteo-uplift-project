@@ -14,7 +14,7 @@
 
 | Notebook | 业务问题 | 主要调用链 / 计算位置 | 关键结果文件 | 阅读时重点 |
 |---|---|---|---|---|
-| 01_data_understanding.ipynb | 数据来源、质量、抽样和 split 是否可复核？ | run_pipeline.py::run → preparation.py::prepare_sample → diagnostics.py::scan_raw_data; data.py::split_sample | audit.json、ate_full.csv、sample_group_summary.csv、sample_feature_summary.csv、split_summary.csv、feature_overlap.json、manifest.json | 区分全量审计与 100 万行建模样本；特征重叠只代表匿名特征向量重叠，不是识别用户 |
+| 01_data_understanding.ipynb | 数据来源、质量、抽样和 split 是否可复核？ | run_pipeline.py::run → preparation.py::prepare_sample → diagnostics.py::scan_raw_data; data.py::split_sample | audit.json、sample_report.json、split_summary.csv、feature_overlap.json、manifest.json、figures/sample_features.png | 区分全量审计与 100 万行建模样本；特征重叠只代表匿名特征向量重叠，不是识别用户 |
 | 02_sanity_and_ate.ipynb | 公开数据计数、单变量平衡、联合可区分性与结果可学习性如何？ | diagnostics.py::scan_raw_data, srm_summary, covariate_balance, c2st, update_experiment_diagnostics; evaluation.py::aggregate_ate_from_audit; training.py::run_learnability_diagnostics | ate_full.csv、srm.json、balance.csv、c2st.csv、c2st_details.json、c2st_null.csv、learnability.csv | C2ST 用两组等量抽样；不显著不等于联合分布相同，也不能证明随机化 |
 | 03_uplift_models.ipynb | 候选模型怎样产生 CATE 分数，validation 如何冻结策略？ | models.py::make_model; training.py::fit_and_select_models; evaluation.py::ranking_metrics | selection.json、validation_policies.csv、validation_ranking.csv、模型 .joblib、calibration_*.csv | 选型只看 validation；不要因为 test 上另一个点估计更高就重新选模型 |
 | 04_policy_evaluation.ipynb | 冻结策略在 test 上的预算价值和不确定性如何？ | holdout_evaluation.py::evaluate_test_set; evaluation.py::evaluate_policies, ranking_confidence_intervals, uplift_curve | test_policies.csv、test_ranking.csv、curves.csv、ranking_intervals.csv、ate_test.json、predictions.npz、figures/policy.png | 主预算为 20%；每十万人增量以全部待选用户为分母；区间有明确条件限制 |
@@ -47,7 +47,9 @@
 | split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | data.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
 | feature_overlap.json | data.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
 
-Notebook 01 的审计展示按样本构成与转化、基础质量检查、重复记录候选和特征平衡分区。全量与抽样的组别表直接读取各自 JSON 的 `group_summary`；Notebook 只选择已保存的字段、按需要排序并使用英文标签格式化展示，不重新执行审计、样本划分或统计检验。
+Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分和重叠核验；SMD／KS 统一放在 Notebook 02。两页只读取结果、选列、排序、转换显示单位及排版，不定义计算函数、不读取逐行原始数据或样本缓存、不保存实验产物。表头与组别为英文（Control / Treatment / Total），正文、注释和结果文件的原有中文说明保留。所有表格隐藏默认索引；共用的范围、样本量和精度在表外说明。
+
+`figures/sample_features.png` 由 `reporting.save_sample_feature_plot` 在主流程中生成；`figures/c2st_null.png` 由 `reporting.save_c2st_plot` 根据已保存的诊断结果生成。Notebook 只读取这些图片，缺图时明确提示，不触发计算。公开快照导出复制主流程图片，不再读取 Notebook 源码或单元格输出。
 
 ### 实验可信度与可学习性
 

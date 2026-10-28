@@ -74,6 +74,7 @@ class EndToEndTests(unittest.TestCase):
                 'diagnostics/learnability.csv', 'diagnostics/balance.csv',
                 'models/selection.json', 'models/t_xgboost.joblib',
                 'evaluation/test_policies.csv', 'evaluation/predictions.npz',
+                'figures/sample_features.png', 'figures/c2st_null.png',
             ):
                 self.assertTrue((out / name).is_file(), name)
             summary = pd.read_csv(out / 'data_preparation/split_summary.csv')
@@ -129,7 +130,7 @@ class EndToEndTests(unittest.TestCase):
                 policies[policies.budget == 1].incremental_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
-            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 5)
+            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 7)
             balance = pd.read_csv((out / 'diagnostics' / 'balance.csv'))
             self.assertTrue(balance['scope'].eq('full_published_dataset').all())
             self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())

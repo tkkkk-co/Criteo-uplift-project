@@ -28,7 +28,7 @@ from criteo_uplift.training import (
     run_learnability_diagnostics,
 )
 from criteo_uplift.holdout_evaluation import evaluate_test_set
-from criteo_uplift.reporting import build_report
+from criteo_uplift.reporting import build_report, save_sample_feature_plot
 from criteo_uplift.pipeline_io import (
     safe_output,
     write_result,
@@ -161,6 +161,8 @@ def run(args):
     # 02. 准备建模样本、全量审计、来源指纹、诊断结果；建模样本划分、重叠性检验
     sample, audit, source, scanned = prepare_sample(args)
     parts, split_summary, feature_overlap = split_sample(sample, args.outcome, args.seed)
+    # 分布图在运行阶段生成，Notebook 只读取已保存的图片。
+    save_sample_feature_plot(sample, out / "figures/sample_features.png")
     del sample
 
     train, validation, test = (

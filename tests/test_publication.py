@@ -3,6 +3,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+import ast
 import json
 import unittest
 import numpy as np
@@ -22,6 +23,34 @@ from criteo_uplift.demo import run_demo
 # 说明：验证公开快照和演示。
 #-----------------------------------------------------------------------------------------------------------------------
 class PublicationTests(unittest.TestCase):
+    #-----------------------------------------------------------------------------------------------------------------------
+    # 函数：test_presentation_notebooks_do_not_compute_or_write_artifacts —— 防止展示页重新承担计算和写入职责。
+    # 输入：仓库内 Notebook 01/02 的代码单元格。
+    # 输出：断言通过；不运行 Notebook，不写入结果。
+    # 说明：禁止函数定义、检验/训练/抽样和文件写入入口；允许读取、选列、格式化和显示。
+    #-----------------------------------------------------------------------------------------------------------------------
+    def test_presentation_notebooks_do_not_compute_or_write_artifacts(self):
+        root = Path(__file__).resolve().parents[1]
+        forbidden = {
+            'write_result', 'write_text', 'write_bytes', 'to_csv', 'to_json', 'savefig',
+            'fit', 'fit_transform', 'scan_raw_data', 'split_sample', 'prepare_sample',
+            'load_sample', 'hist', 'groupby', 'sum', 'mean', 'std', 'var',
+            'c2st', 'aggregate_ate_from_audit', 'build_report', 'open',
+        }
+        for filename in ('01_data_understanding.ipynb', '02_sanity_and_ate.ipynb'):
+            notebook = json.loads((root / 'notebooks' / filename).read_text())
+            for cell in notebook['cells']:
+                if cell['cell_type'] != 'code':
+                    continue
+                tree = ast.parse(''.join(cell['source']))
+                for node in ast.walk(tree):
+                    self.assertNotIsInstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda))
+                    if isinstance(node, ast.Call):
+                        name = getattr(node.func, 'id', getattr(node.func, 'attr', None))
+                        self.assertNotIn(name, forbidden, (filename, name))
+        exporter = (root / 'scripts/export_public_results.py').read_text()
+        self.assertNotIn('01_data_understanding.ipynb', exporter)
+
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_local_priority_and_explicit_snapshot_mode —— 核对本地结果优先级及显式公开快照模式。
     # 输入：
