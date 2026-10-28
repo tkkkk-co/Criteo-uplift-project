@@ -47,7 +47,7 @@
 | split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | data.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
 | feature_overlap.json | data.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
 
-Notebook 01 的审计展示按样本构成与转化、基础质量检查、重复记录候选和特征平衡分区。全量与抽样的组别表直接读取各自 JSON 的 `group_summary`；Notebook 仅选取已有条目、翻译为中文名称并格式化，不现场计算人数或转化率。
+Notebook 01 的审计展示按样本构成与转化、基础质量检查、重复记录候选和特征平衡分区。全量与抽样的组别表直接读取各自 JSON 的 `group_summary`；Notebook 只选择已保存的字段、按需要排序并使用英文标签格式化展示，不重新执行审计、样本划分或统计检验。
 
 ### 实验可信度与可学习性
 
