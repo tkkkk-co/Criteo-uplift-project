@@ -182,7 +182,7 @@ class UnifiedScanTests(unittest.TestCase):
                     for group, (name, rows) in zip(scanned['audit']['group_summary'], (
                         ('Control', self.raw[self.raw.treatment == 0]),
                         ('Treatment', self.raw[self.raw.treatment == 1]),
-                        ('总体', self.raw),
+                        ('Total', self.raw),
                     )):
                         self.assertEqual(group['group'], name)
                         self.assertEqual(group['n'], len(rows))
@@ -218,7 +218,7 @@ class UnifiedScanTests(unittest.TestCase):
                     for group, (name, rows) in zip(report['group_summary'], (
                         ('Control', scanned['sample'][scanned['sample'].treatment == 0]),
                         ('Treatment', scanned['sample'][scanned['sample'].treatment == 1]),
-                        ('总体', scanned['sample']),
+                        ('Total', scanned['sample']),
                     )):
                         self.assertEqual(group['group'], name)
                         self.assertEqual(group['n'], len(rows))
@@ -424,6 +424,47 @@ class UnifiedScanTests(unittest.TestCase):
                 self.assertTrue(scan.call_args.kwargs['audit_enabled'])
                 self.assertIsNone(scan.call_args.kwargs['sample_size'])
                 self.assertEqual(audit, original_audit)
+
+    def test_duplicate_excess_counts_are_not_unique_duplicate_patterns(self):
+        frame = self.raw.copy()
+        frame.iloc[-3:] = frame.iloc[0].to_numpy()
+        frame.iloc[-5:-3] = frame.iloc[1].to_numpy()
+        frame.to_csv(self.path, index=False)
+        audit = self.scan(chunk_size=7)['audit']
+        expected = int(frame.duplicated().sum())
+        unique_patterns = len(frame[frame.duplicated(keep=False)].drop_duplicates())
+        self.assertEqual(expected, 5)
+        self.assertEqual(unique_patterns, 2)
+        self.assertEqual(audit['duplicate_row_fingerprints'], expected)
+        self.assertEqual(audit['duplicate_fraction_denominator'], len(frame))
+        self.assertEqual(audit['duplicate_row_fraction'], expected / len(frame))
+        self.assertIn('k-1', audit['duplicate_count_definition'])
+        self.assertIn('碰撞', audit['duplicate_method'])
+        self.assertIn('index=False', audit['duplicate_method'])
+
+    def test_missing_duplicate_fields_rebuild_audit_without_resampling(self):
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
+            sample, original, _, _ = prepare_sample(args)
+            path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
+            saved = json.loads(path.read_text())
+            for field in ('duplicate_row_fraction', 'duplicate_fraction_denominator', 'duplicate_count_definition'):
+                saved['audit'].pop(field)
+            path.write_text(json.dumps(saved))
+            cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
+            before = cache.read_bytes()
+            info = json.loads(cache.with_suffix('.json').read_text())
+            info['group_summary'][-1]['group'] = '总体'
+            cache.with_suffix('.json').write_text(json.dumps(info))
+            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                reused, audit, _, result = prepare_sample(args)
+        self.assertTrue(scan.call_args.kwargs['audit_enabled'])
+        self.assertIsNone(scan.call_args.kwargs['sample_size'])
+        self.assertEqual(cache.read_bytes(), before)
+        pd.testing.assert_frame_equal(sample, reused)
+        self.assertEqual(audit, original)
+        self.assertEqual(result['sample_report']['group_summary'][-1]['group'], 'Total')
+        self.assertEqual(json.loads(cache.with_suffix('.json').read_text())['group_summary'][-1]['group'], 'Total')
 
     def test_source_change_invalidates_both_caches(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)

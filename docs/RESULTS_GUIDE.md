@@ -47,9 +47,9 @@
 | split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | data.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
 | feature_overlap.json | data.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
 
-Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分和重叠核验；SMD／KS 统一放在 Notebook 02。两页只读取结果、选列、排序、转换显示单位及排版，不定义计算函数、不读取逐行原始数据或样本缓存、不保存实验产物。表头与组别为英文（Control / Treatment / Total），正文、注释和结果文件的原有中文说明保留。所有表格隐藏默认索引；共用的范围、样本量和精度在表外说明。
+Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分和重叠核验；SMD／KS 统一放在 Notebook 02。两页可以读取结果、选列、排序、转换显示单位、绘图和排版；不重新执行统计检验、不读取逐行原始数据或样本缓存、不保存实验产物。表头与组别为英文（Control / Treatment / Total），正文、注释和结果文件的原有中文说明保留。所有表格隐藏默认索引；共用的范围、样本量和精度在表外说明。
 
-`figures/sample_features.png` 由 `reporting.save_sample_feature_plot` 在主流程中生成；`figures/c2st_null.png` 由 `reporting.save_c2st_plot` 根据已保存的诊断结果生成。Notebook 只读取这些图片，缺图时明确提示，不触发计算。公开快照导出复制主流程图片，不再读取 Notebook 源码或单元格输出。
+`figures/sample_features.png` 由 `reporting.save_sample_feature_plot` 在主流程中生成；`figures/c2st_null.png` 由 `reporting.save_c2st_plot` 根据已保存的诊断结果生成。Notebook 01 可读取已保存的特征图；Notebook 02 可以从已保存的 ATE 和置换明细重新绘图，独立设置样式和坐标轴，不回写底层结果。公开快照导出复制主流程图片，不再读取 Notebook 源码或单元格输出。
 
 ### 实验可信度与可学习性
 
@@ -57,7 +57,7 @@ Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分�
 |---|---|---|
 | srm.json | diagnostics.py::srm_summary / update_experiment_diagnostics | 公开数据计数与 85% 外部参考比例的一致性检查 |
 | balance.csv、figures/balance.png | diagnostics.py::covariate_balance / update_experiment_diagnostics | 各特征的均值差、SMD 和 KS 统计量 |
-| c2st.csv | diagnostics.py::c2st / update_experiment_diagnostics | Logistic 与 HGB 的留出 ROC AUC、原始和 Holm 校正 p 值 |
+| c2st.csv | diagnostics.py::c2st / update_experiment_diagnostics | Logistic 与 XGBoost 的留出 ROC AUC、原始和 Holm 校正 p 值 |
 | c2st_null.csv | diagnostics.py::c2st / update_experiment_diagnostics | 每个模型每次置换的 AUC 零分布 |
 | c2st_details.json | diagnostics.py::update_experiment_diagnostics | 抽样规模、内部划分、seed、置换次数、p 值分辨率、来源指纹和解释边界 |
 | learnability.csv | training.py::run_learnability_diagnostics 调用 diagnostics.py::learnability | 处理前特征对 visit/conversion 的结果预测能力；不是 CATE 可预测性的证明 |
@@ -89,7 +89,7 @@ Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分�
 - **ATE**：ate_full.csv 来自公开数据的全量汇总，是描述性差均值，不等于真实线上广告的增量收益。
 - **SRM**：85% 是数据集公开资料提供的外部参考比例。本检查比较发布数据计数与参考比例，不能证明原始线上实验通过 SRM。
 - **SMD / KS**：单变量统计不能证明联合分布一致；大样本下 p 值可能非常小，应同时看差异量级和数据生成背景。
-- **C2ST**：每组从原始来源等概率无放回抽样，默认 10,000 control + 10,000 treatment；内部按 treatment 分层做 70/30 train/holdout；Logistic 和 HGB 的标签在两个集合分别置换并完整重拟合，p 值再做 Holm 校正。AUC 高于 0.5 表示分类器在该设计下有区分能力；不显著不能证明联合分布完全相同或随机化成立。
+- **C2ST**：每组从原始来源等概率无放回抽样，默认 10,000 control + 10,000 treatment；内部按 treatment 分层做 70/30 train/holdout；Logistic 和 XGBoost 的标签在两个集合分别置换并完整重拟合，p 值再做 Holm 校正。AUC 高于 0.5 表示分类器在该设计下有区分能力；不显著不能证明联合分布完全相同或随机化成立。
 - **置信区间**：当前配对 bootstrap 区间条件于已拟合模型、冻结分数、固定的分配概率估计和观测臂样本量；不包含重训、模型选型、分配概率估计误差或未知用户依赖。
 - **稳定性与记录敏感性**：扩展分析排除旧测试行，但分析者此前已看过旧测试结果，因此它是后续开发诊断，不是全新独立确认。另有一份 2026-10-20 的本机记录核验与特征组隔离归档，位于被 Git 忽略的 artifacts/audits/record_duplicates_20261020/，不包含在公开仓库；没有用户 ID，不能把记录/特征匹配解释为真实用户身份。
 - **SQL**：用于核对 join 完整性、分组汇总、预算排名和 Python 评价口径；row_id 是原始行号，不是真实用户 ID。
@@ -117,3 +117,5 @@ python run_pipeline.py --diagnostics-only --output artifacts/conversion_1000000_
 可以说：在当前公开基准、既定 20% 预算和现有评估口径下，response propensity 是首轮 validation 冻结选择的最终策略；已经完成了候选 uplift 模型、离线预算评价、配对区间、开发期稳定性与 SQL 核对。
 
 不应说：已经证明线上收入提升、识别了真实用户级重复、证明随机化完全成立、证明扩样一定改善 X-Learner，或用假设成本情景声称真实 ROI。真实部署前仍需要预先冻结策略、候选池、转化/归因窗口、主指标、成本护栏、频控/负反馈指标和停止规则，并进行独立线上随机实验。随机单元应是可信的用户或实体；各策略臂使用相同预算约束，比较全部入组人群的结果，而不是只比较各自被选中的人群。
+
+诊断修缮：`--diagnostics-only` 沿既有准备入口补齐缺失审计字段、将旧汇总标签统一为 Total，并补存全量 ATE 的 `log_p_value`（自然对数）与 `p_value_text`。它保留既有 ATE 点估计、标准误和区间，复用保存的 train/validation 行号重做结果可学习性，不重训正式 uplift 模型。诊断树模型为固定配置的 XGBoost，C2ST 继续使用原有组内置换、ROC-AUC 和 Holm 校正；与历史 HGB 结果不能视为同一分类器配置。

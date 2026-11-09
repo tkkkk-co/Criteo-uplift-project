@@ -222,7 +222,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         out / "evaluation", "ate_test.json"
     )
     frames = {
-        name: pd.read_csv(out / folder / f"{name}.csv")
+        name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_full" else None)
         for folder, names in (
             ("diagnostics", ("ate_full", "balance", "c2st", "learnability")),
             ("models", ("validation_policies",)),
@@ -512,7 +512,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
             "相对增幅": ate["relative_uplift"].map(
                 lambda x: "—" if pd.isna(x) else f"{100*x:.2f}%"
             ),
-            "双侧 p": ate["p_value"].map(_p),
+            "双侧 p": ate["p_value_text"] if "p_value_text" in ate else ate["p_value"].map(_p),
         }
     )
     c2 = frames["c2st"]

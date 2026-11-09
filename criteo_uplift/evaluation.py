@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from math import erfc, sqrt
+from math import sqrt
+from scipy.special import log_ndtr
 from typing import Mapping, Sequence
 
 import numpy as np
@@ -101,6 +102,30 @@ def _rank(scores, seed):
 
 
 #-----------------------------------------------------------------------------------------------------------------------
+# 函数：_normal_pvalue —— 稳定计算双侧标准正态尾概率及其展示文本。
+# 输入：z：原有检验公式得到的 z 统计量，可为未定义值。
+# 输出：p_value、log_p_value（自然对数）、p_value_text（科学计数法，约四位有效数字）。
+# 说明：使用 log(2)+log(Phi(-abs(z)))；不设置概率下限。浮点概率下溢时，
+#       仍保存有限对数概率，并从它生成科学计数文本；文本不是人为截断的上界。
+#-----------------------------------------------------------------------------------------------------------------------
+def _normal_pvalue(z):
+    log_p = float(np.log(2.0) + log_ndtr(-abs(z)))
+    p = float(np.exp(log_p))
+    if np.isnan(log_p):
+        text = None
+    elif np.isfinite(log_p) and p == 0:
+        exponent = int(np.floor(log_p / np.log(10.0)))
+        mantissa = np.exp(log_p - exponent * np.log(10.0))
+        if round(float(mantissa), 3) >= 10:
+            mantissa /= 10
+            exponent += 1
+        text = f"{mantissa:.3f}e{exponent:+d}"
+    else:
+        text = f"{p:.3e}" if p > 0 else "0 (non-finite test statistic)"
+    return p, log_p, text
+
+
+#-----------------------------------------------------------------------------------------------------------------------
 # 函数：_mean_difference —— 计算两组平均结果的差异和不确定性。
 # 输入：
 #     y：每行的二分类结果标签。
@@ -128,11 +153,11 @@ def _mean_difference(y, t):
         sqrt(pooled_p * (1 - pooled_p) * (1 / n1 + 1 / n0)) if min(n1, n0) else np.nan
     )
     if null_se > 0:
-        p_value = erfc(abs(ate / null_se) / sqrt(2))
+        p_value, log_p_value, p_value_text = _normal_pvalue(ate / null_se)
     elif null_se == 0 and ate == 0:
-        p_value = 1.0
+        p_value, log_p_value, p_value_text = _normal_pvalue(0.0)
     else:
-        p_value = np.nan
+        p_value, log_p_value, p_value_text = _normal_pvalue(np.nan)
     return {
         "n": n1 + n0,
         "n_treatment": n1,
@@ -145,6 +170,8 @@ def _mean_difference(y, t):
         "ci_high": ate + _Z_975 * se,
         "pooled_null_standard_error": null_se,
         "p_value": p_value,
+        "log_p_value": log_p_value,
+        "p_value_text": p_value_text,
         "relative_uplift": ate / p0 if p0 > 0 else np.nan,
     }
 
@@ -159,8 +186,6 @@ def _mean_difference(y, t):
 # 说明：比较两组结果率；区间反映组内结果变动，不能据此验证因果识别假设。
 #-----------------------------------------------------------------------------------------------------------------------
 def aggregate_ate_from_audit(audit, outcome):
-    from scipy.stats import norm
-
     n0, n1 = (
         audit["groups"][str(arm)]["n"]
         for arm in (0, 1)
@@ -184,6 +209,7 @@ def aggregate_ate_from_audit(audit, outcome):
 
     pooled = (r0 + r1) / (n0 + n1)
     nullse = np.sqrt(pooled * (1 - pooled) * (1 / n0 + 1 / n1))
+    p_value, log_p_value, p_value_text = _normal_pvalue(delta / nullse if nullse > 0 else 0.0)
     return {
         "outcome": outcome,
         "n": n0 + n1,
@@ -195,7 +221,9 @@ def aggregate_ate_from_audit(audit, outcome):
         "standard_error": se,
         "ci_low": delta - 1.95996398454 * se,
         "ci_high": delta + 1.95996398454 * se,
-        "p_value": 2 * norm.sf(abs(delta / nullse)) if nullse > 0 else 1.0,
+        "p_value": p_value,
+        "log_p_value": log_p_value,
+        "p_value_text": p_value_text,
         "relative_uplift": delta / p0 if p0 else None,
     }
 

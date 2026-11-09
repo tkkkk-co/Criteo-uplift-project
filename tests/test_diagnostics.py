@@ -116,9 +116,27 @@ class DiagnosticsTests(unittest.TestCase):
         from criteo_uplift import diagnostics
 
         factory = diagnostics._model
-        with patch.object(diagnostics, "_model", wraps=factory) as wrapped:
+        signatures = []
+        def record_model(name, seed):
+            model = factory(name, seed)
+            signatures.append((name, {key: repr(value) for key, value in model.get_params().items()}))
+            return model
+        with patch.object(diagnostics, "_model", side_effect=record_model) as wrapped:
             result = c2st(frame, ["f0"], sample_size=300, permutations=3, seed=7)
+        for name in ("logistic", "xgboost"):
+            configurations = [params for model_name, params in signatures if model_name == name]
+            self.assertEqual(len(configurations), 4)
+            self.assertTrue(all(params == configurations[0] for params in configurations))
+        repeat = c2st(frame, ["f0"], sample_size=300, permutations=3, seed=7)
+        assert_frame_equal(result["summary"], repeat["summary"])
+        assert_frame_equal(result["null_auc"], repeat["null_auc"])
+        self.assertTrue({"log_loss", "brier", "average_precision"}.issubset(result["summary"].columns))
+        with self.assertRaisesRegex(ValueError, "Unknown model"):
+            factory("hgb", 7)
         self.assertEqual(wrapped.call_count, 2 * (1 + 3))
+        self.assertEqual(set(result["summary"].model), {"logistic", "xgboost"})
+        self.assertEqual(factory("xgboost", 7).get_params()["n_estimators"], 30)
+        self.assertEqual(factory("xgboost", 7).get_params()["tree_method"], "hist")
         self.assertEqual(result["train_n"] + result["test_n"], 300)
         self.assertEqual(len(result["null_auc"]), 6)
         for row in result["summary"].itertuples():

@@ -172,3 +172,5 @@ python scripts/execute_notebooks.py --local-results
 7. 学 Notebook 06 时分别读 stability.py、sql_audit.py 和 planning.py。
 
 每次只沿当前业务问题追踪相关函数。Notebook 是结果解释入口，run_pipeline.py 是调用地图，模块函数才是具体实现。
+
+诊断修缮：`--diagnostics-only` 沿既有准备入口补齐缺失审计字段、将旧汇总标签统一为 Total，并补存全量 ATE 的 `log_p_value`（自然对数）与 `p_value_text`。它保留既有 ATE 点估计、标准误和区间，复用保存的 train/validation 行号重做结果可学习性，不重训正式 uplift 模型。诊断树模型为固定配置的 XGBoost，C2ST 继续使用原有组内置换、ROC-AUC 和 Holm 校正；与历史 HGB 结果不能视为同一分类器配置。

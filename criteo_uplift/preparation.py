@@ -79,7 +79,8 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
             saved_audit.get('source', {}).get('sha256') == current['sha256']
             and saved_audit.get('audit_cache_version') == AUDIT_CACHE_VERSION
             and isinstance(saved_audit.get('audit'), dict)
-            and 'group_summary' in saved_audit['audit']
+            and {'group_summary', 'duplicate_row_fraction', 'duplicate_fraction_denominator',
+                 'duplicate_count_definition', 'duplicate_method'}.issubset(saved_audit['audit'])
         )
 
     # 4. 调用scan_raw_data() 完成全量审计、抽样（建模抽样、C2ST抽样）、诊断（SRM SMD KS）
@@ -124,6 +125,12 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
         sample_report = info
         if len(sample) != expected_n or sample_report['sample_n'] != len(sample):
             raise ValueError('抽样缓存行数与配置及原始数据规模不一致')
+        # 仅统一旧汇总标签，不重新抽样或计算已经正确的统计量。
+        if any(row['group'] == '总体' for row in sample_report['group_summary']):
+            for row in sample_report['group_summary']:
+                if row['group'] == '总体':
+                    row['group'] = 'Total'
+            write_result(sample_report, metadata)
     else:
         # 6.2 重新抽样：直接取得扫描函数生成的样本和说明，一起保存。
         sample = scanned['sample']

@@ -1,12 +1,15 @@
 # 项目测试：验证效果估计和策略评价。
 
 import math
+from io import StringIO
+import pandas as pd
 import unittest
 
 import numpy as np
 
 from criteo_uplift.evaluation import (
     _prefix_values,
+    _normal_pvalue,
     aggregate_ate_from_audit,
     ate_summary,
     calibration_table,
@@ -72,7 +75,7 @@ class EvaluationTests(unittest.TestCase):
             }}
             actual = aggregate_ate_from_audit(audit, 'conversion')
             expected = ate_summary(y, t)
-            for field in actual.keys() - {'outcome'}:
+            for field in actual.keys() - {'outcome', 'p_value_text'}:
                 np.testing.assert_allclose(actual[field], expected[field], equal_nan=True)
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -83,6 +86,48 @@ class EvaluationTests(unittest.TestCase):
     #     返回值：None；通过断言验证预期行为，失败时报告错误。
     # 说明：确认汇总 ATE 拒绝不合法的人数和事件数。
     #-----------------------------------------------------------------------------------------------------------------------
+    def test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range(self):
+        # z=38 的双侧尾概率仍可用 subnormal float 表达，不能提前截为零。
+        p, log_p, text = _normal_pvalue(38.0)
+        self.assertGreater(p, 0.0)
+        self.assertLess(p, np.finfo(float).tiny)
+        self.assertAlmostEqual(math.log(p), log_p, places=7)
+        # z=50 超出 float 范围；用 Mills 上下界独立核对稳定对数概率。
+        p, log_p, text = _normal_pvalue(50.0)
+        upper = math.log(2) - 50**2 / 2 - .5 * math.log(2 * math.pi) - math.log(50)
+        lower = upper + math.log(50**2 / (50**2 + 1))
+        self.assertEqual(p, 0.0)
+        self.assertTrue(math.isfinite(log_p))
+        self.assertLess(log_p, upper)
+        self.assertGreater(log_p, lower)
+        self.assertRegex(text, r"^[1-9]\.\d{3}e-\d+$")
+        self.assertEqual(_normal_pvalue(-50.0), (p, log_p, text))
+        self.assertEqual(_normal_pvalue(0.0), (1.0, 0.0, '1.000e+00'))
+
+    def test_ate_extreme_pvalues_preserve_test_and_estimates(self):
+        y = np.r_[np.ones(8000), np.zeros(2000), np.ones(1000), np.zeros(9000)]
+        t = np.repeat([1, 0], 10000)
+        row = ate_summary(y, t)
+        audit = {'groups': {
+            str(arm): {'n': 10000, 'conversion': {'positive': int(y[t == arm].sum())}}
+            for arm in (0, 1)
+        }}
+        aggregate = aggregate_ate_from_audit(audit, 'conversion')
+        self.assertAlmostEqual(row['ate'], .7)
+        self.assertEqual(row['p_value'], 0.0)
+        self.assertEqual(aggregate['p_value'], 0.0)
+        self.assertEqual(row['log_p_value'], aggregate['log_p_value'])
+        self.assertEqual(row['p_value_text'], aggregate['p_value_text'])
+        saved = StringIO(pd.DataFrame([row]).to_csv(index=False))
+        restored = pd.read_csv(saved, dtype={'p_value_text': 'string'})
+        self.assertEqual(restored.loc[0, 'p_value_text'], row['p_value_text'])
+        self.assertTrue(math.isfinite(row['log_p_value']))
+        self.assertAlmostEqual(row['standard_error'], math.sqrt(y[t == 1].var(ddof=1)/10000 + y[t == 0].var(ddof=1)/10000))
+        self.assertAlmostEqual(aggregate['standard_error'], math.sqrt(.8*.2/10000 + .1*.9/10000))
+        constant = ate_summary(np.zeros(8), self.t)
+        self.assertEqual(constant['log_p_value'], 0.0)
+        self.assertTrue(np.isnan(ate_summary(np.r_[1., 0., 1.], np.r_[0, 1, 1])['standard_error']))
+
     def test_aggregate_ate_rejects_invalid_counts(self):
         for n, positive in ((0, 0), (2, 3), (2, -1), (2.5, 1), (True, 1)):
             audit = {'groups': {

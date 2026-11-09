@@ -40,9 +40,6400 @@
   "holdout_n_treatment": 3000,
   "metric": "one-sided ROC AUC",
   "multiplicity": "Holm across two prespecified classifiers",
+  "models": [
+    "logistic",
+    "xgboost"
+  ],
+  "xgboost_parameters": {
+    "objective": "binary:logistic",
+    "base_score": null,
+    "booster": null,
+    "callbacks": null,
+    "colsample_bylevel": null,
+    "colsample_bynode": null,
+    "colsample_bytree": null,
+    "device": null,
+    "early_stopping_rounds": null,
+    "enable_categorical": false,
+    "eval_metric": "logloss",
+    "feature_types": null,
+    "feature_weights": null,
+    "gamma": null,
+    "grow_policy": "lossguide",
+    "importance_type": null,
+    "interaction_constraints": null,
+    "learning_rate": 0.1,
+    "max_bin": null,
+    "max_cat_threshold": null,
+    "max_cat_to_onehot": null,
+    "max_delta_step": null,
+    "max_depth": 0,
+    "max_leaves": 15,
+    "min_child_weight": 1.0,
+    "missing": null,
+    "monotone_constraints": null,
+    "multi_strategy": null,
+    "n_estimators": 30,
+    "n_jobs": 1,
+    "num_parallel_tree": null,
+    "random_state": 42,
+    "reg_alpha": null,
+    "reg_lambda": 1.0,
+    "sampling_method": null,
+    "scale_pos_weight": null,
+    "subsample": null,
+    "tree_method": "hist",
+    "validate_parameters": null,
+    "verbosity": null
+  },
   "permutations": 499,
   "pvalue_resolution": 0.002,
   "sample_row_ids_sha256": "bb9fe41fe6bf19c4e5909b2095a4e36de181e5b1f8dca199f989098ca619d5ce",
   "ks_method": "two-sided asymptotic; unadjusted exploratory p-values; ties and dependence limit calibration",
-  "elapsed_seconds": 98.11603404203197
+  "elapsed_seconds": 13.559308166964911,
+  "previous_hgb_diagnostics": {
+    "note": "历史 HGB 配置结果；未按 XGBoost 重算，不参与当前两模型 Holm 校正。",
+    "details": {
+      "sample_n": 20000,
+      "train_n": 14000,
+      "test_n": 6000,
+      "seed": 42,
+      "interpretation": "全量原始数据组内等概率、两组等量抽样，比较P(X|T=1)与P(X|T=0)。不显著不证明联合分布相同或随机化；显著不单独证明随机化失败。置换依赖可交换性，未知分块、多实验和实体依赖未验证。这是事后描述性诊断，不用于正式模型选择。",
+      "scope": "full_source_arm_balanced_sample",
+      "source": {
+        "path": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+        "size": 3248115221,
+        "mtime_ns": 1790004809431929026,
+        "sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+      },
+      "representation": "raw_csv_float64",
+      "features": [
+        "f0",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11"
+      ],
+      "full_n": 13979592,
+      "full_n_control": 2096937,
+      "full_n_treatment": 11882655,
+      "rows_dropped": 0,
+      "sampling": "independent uniform-priority reservoir without replacement within each arm",
+      "sampling_target": "P(X|T=1) versus P(X|T=0); balanced arms, not population T prevalence",
+      "n_control": 10000,
+      "n_treatment": 10000,
+      "train_n_control": 7000,
+      "train_n_treatment": 7000,
+      "holdout_n_control": 3000,
+      "holdout_n_treatment": 3000,
+      "metric": "one-sided ROC AUC",
+      "multiplicity": "Holm across two prespecified classifiers",
+      "permutations": 499,
+      "pvalue_resolution": 0.002,
+      "sample_row_ids_sha256": "bb9fe41fe6bf19c4e5909b2095a4e36de181e5b1f8dca199f989098ca619d5ce",
+      "ks_method": "two-sided asymptotic; unadjusted exploratory p-values; ties and dependence limit calibration",
+      "elapsed_seconds": 98.11603404203197
+    },
+    "c2st": [
+      {
+        "model": "logistic",
+        "roc_auc": 0.5177147777777777,
+        "average_precision": 0.5188373831213582,
+        "log_loss": 0.6925252789034378,
+        "brier": 0.2496870294160001,
+        "dummy_log_loss": 0.6931471805599454,
+        "dummy_roc_auc": 0.5,
+        "dummy_brier": 0.25,
+        "train_treatment_ratio": 0.5,
+        "test_treatment_ratio": 0.5,
+        "pvalue": 0.006,
+        "null_auc_mean": 0.4999378982409262,
+        "permutations": 499,
+        "pvalue_holm": 0.012,
+        "scope": "full_source_arm_balanced_sample",
+        "representation": "raw_csv_float64",
+        "metric": "ROC AUC",
+        "sample_n": 20000,
+        "n_control": 10000,
+        "n_treatment": 10000,
+        "pvalue_resolution": 0.002,
+        "source_sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+      },
+      {
+        "model": "hgb",
+        "roc_auc": 0.5101459444444445,
+        "average_precision": 0.5120000954464529,
+        "log_loss": 0.6944090673515928,
+        "brier": 0.2506131877259461,
+        "dummy_log_loss": 0.6931471805599454,
+        "dummy_roc_auc": 0.5,
+        "dummy_brier": 0.25,
+        "train_treatment_ratio": 0.5,
+        "test_treatment_ratio": 0.5,
+        "pvalue": 0.076,
+        "null_auc_mean": 0.4996283009352038,
+        "permutations": 499,
+        "pvalue_holm": 0.076,
+        "scope": "full_source_arm_balanced_sample",
+        "representation": "raw_csv_float64",
+        "metric": "ROC AUC",
+        "sample_n": 20000,
+        "n_control": 10000,
+        "n_treatment": 10000,
+        "pvalue_resolution": 0.002,
+        "source_sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+      }
+    ],
+    "c2st_null": [
+      {
+        "model": "logistic",
+        "permutation": 1,
+        "roc_auc": 0.4923997777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 1,
+        "roc_auc": 0.4823988333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 2,
+        "roc_auc": 0.4907553333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 2,
+        "roc_auc": 0.5016116111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 3,
+        "roc_auc": 0.5064155555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 3,
+        "roc_auc": 0.5035522222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 4,
+        "roc_auc": 0.5067117777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 4,
+        "roc_auc": 0.508089111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 5,
+        "roc_auc": 0.5104465555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 5,
+        "roc_auc": 0.5044873333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 6,
+        "roc_auc": 0.5017921111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 6,
+        "roc_auc": 0.5071007777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 7,
+        "roc_auc": 0.5050282222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 7,
+        "roc_auc": 0.4921383888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 8,
+        "roc_auc": 0.4969534444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 8,
+        "roc_auc": 0.5057393888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 9,
+        "roc_auc": 0.4942852222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 9,
+        "roc_auc": 0.5025930555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 10,
+        "roc_auc": 0.4994834444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 10,
+        "roc_auc": 0.5116114444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 11,
+        "roc_auc": 0.5067735555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 11,
+        "roc_auc": 0.5051142222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 12,
+        "roc_auc": 0.4929836666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 12,
+        "roc_auc": 0.5054670555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 13,
+        "roc_auc": 0.4933116666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 13,
+        "roc_auc": 0.4988658888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 14,
+        "roc_auc": 0.5024417777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 14,
+        "roc_auc": 0.4987215,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 15,
+        "roc_auc": 0.4846574444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 15,
+        "roc_auc": 0.4885710555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 16,
+        "roc_auc": 0.4958847777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 16,
+        "roc_auc": 0.5029991666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 17,
+        "roc_auc": 0.5068246666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 17,
+        "roc_auc": 0.4994080555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 18,
+        "roc_auc": 0.5025217777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 18,
+        "roc_auc": 0.4979265555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 19,
+        "roc_auc": 0.4976246666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 19,
+        "roc_auc": 0.4959789444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 20,
+        "roc_auc": 0.5061063333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 20,
+        "roc_auc": 0.5041057222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 21,
+        "roc_auc": 0.4954022222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 21,
+        "roc_auc": 0.4991895,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 22,
+        "roc_auc": 0.4975695555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 22,
+        "roc_auc": 0.4897199444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 23,
+        "roc_auc": 0.4909417777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 23,
+        "roc_auc": 0.4903537777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 24,
+        "roc_auc": 0.4949212222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 24,
+        "roc_auc": 0.4905962777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 25,
+        "roc_auc": 0.498368,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 25,
+        "roc_auc": 0.4956133333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 26,
+        "roc_auc": 0.50548,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 26,
+        "roc_auc": 0.5125075000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 27,
+        "roc_auc": 0.5006981111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 27,
+        "roc_auc": 0.4953476666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 28,
+        "roc_auc": 0.5060138888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 28,
+        "roc_auc": 0.4857443333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 29,
+        "roc_auc": 0.5034435555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 29,
+        "roc_auc": 0.5091425,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 30,
+        "roc_auc": 0.5035088888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 30,
+        "roc_auc": 0.498466611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 31,
+        "roc_auc": 0.4921284444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 31,
+        "roc_auc": 0.508127,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 32,
+        "roc_auc": 0.490375,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 32,
+        "roc_auc": 0.4793529444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 33,
+        "roc_auc": 0.495992,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 33,
+        "roc_auc": 0.496043,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 34,
+        "roc_auc": 0.495305,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 34,
+        "roc_auc": 0.5052422777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 35,
+        "roc_auc": 0.4943287777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 35,
+        "roc_auc": 0.5154538333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 36,
+        "roc_auc": 0.4944879999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 36,
+        "roc_auc": 0.4916777222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 37,
+        "roc_auc": 0.5033977777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 37,
+        "roc_auc": 0.4963616666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 38,
+        "roc_auc": 0.4986991111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 38,
+        "roc_auc": 0.4908589444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 39,
+        "roc_auc": 0.496195,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 39,
+        "roc_auc": 0.5050764444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 40,
+        "roc_auc": 0.4988843333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 40,
+        "roc_auc": 0.4949291111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 41,
+        "roc_auc": 0.497929,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 41,
+        "roc_auc": 0.4916856666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 42,
+        "roc_auc": 0.4912384444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 42,
+        "roc_auc": 0.5064451666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 43,
+        "roc_auc": 0.501066,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 43,
+        "roc_auc": 0.5085196111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 44,
+        "roc_auc": 0.4943081111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 44,
+        "roc_auc": 0.4956391666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 45,
+        "roc_auc": 0.5018901111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 45,
+        "roc_auc": 0.510725,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 46,
+        "roc_auc": 0.4941056666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 46,
+        "roc_auc": 0.4892049444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 47,
+        "roc_auc": 0.5077571111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 47,
+        "roc_auc": 0.501134,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 48,
+        "roc_auc": 0.494768,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 48,
+        "roc_auc": 0.4944176666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 49,
+        "roc_auc": 0.5009285555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 49,
+        "roc_auc": 0.4945639444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 50,
+        "roc_auc": 0.4890728888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 50,
+        "roc_auc": 0.5037475555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 51,
+        "roc_auc": 0.5069986666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 51,
+        "roc_auc": 0.5061513888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 52,
+        "roc_auc": 0.4913128888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 52,
+        "roc_auc": 0.4994128888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 53,
+        "roc_auc": 0.4961338888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 53,
+        "roc_auc": 0.5064717777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 54,
+        "roc_auc": 0.5021668888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 54,
+        "roc_auc": 0.4994246666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 55,
+        "roc_auc": 0.5099887777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 55,
+        "roc_auc": 0.506250611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 56,
+        "roc_auc": 0.4949633333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 56,
+        "roc_auc": 0.4855901666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 57,
+        "roc_auc": 0.5092113333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 57,
+        "roc_auc": 0.5022346666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 58,
+        "roc_auc": 0.4971792222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 58,
+        "roc_auc": 0.5022021666666668,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 59,
+        "roc_auc": 0.5073047777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 59,
+        "roc_auc": 0.4976597777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 60,
+        "roc_auc": 0.4945728888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 60,
+        "roc_auc": 0.4908905555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 61,
+        "roc_auc": 0.4897051111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 61,
+        "roc_auc": 0.4982031666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 62,
+        "roc_auc": 0.4972486666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 62,
+        "roc_auc": 0.493834,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 63,
+        "roc_auc": 0.5029195555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 63,
+        "roc_auc": 0.5013426111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 64,
+        "roc_auc": 0.5053554444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 64,
+        "roc_auc": 0.4978808333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 65,
+        "roc_auc": 0.507268111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 65,
+        "roc_auc": 0.4992166666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 66,
+        "roc_auc": 0.4778753333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 66,
+        "roc_auc": 0.4952104444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 67,
+        "roc_auc": 0.5080264444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 67,
+        "roc_auc": 0.5113623333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 68,
+        "roc_auc": 0.5161074444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 68,
+        "roc_auc": 0.508238388888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 69,
+        "roc_auc": 0.5078662222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 69,
+        "roc_auc": 0.5016311666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 70,
+        "roc_auc": 0.4972102222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 70,
+        "roc_auc": 0.4954997222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 71,
+        "roc_auc": 0.5053225555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 71,
+        "roc_auc": 0.4864891666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 72,
+        "roc_auc": 0.4978594444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 72,
+        "roc_auc": 0.4933124444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 73,
+        "roc_auc": 0.4990284444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 73,
+        "roc_auc": 0.5070701111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 74,
+        "roc_auc": 0.503327,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 74,
+        "roc_auc": 0.4940626666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 75,
+        "roc_auc": 0.4850812222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 75,
+        "roc_auc": 0.4945257777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 76,
+        "roc_auc": 0.5015732222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 76,
+        "roc_auc": 0.4977918888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 77,
+        "roc_auc": 0.501682,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 77,
+        "roc_auc": 0.4931756666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 78,
+        "roc_auc": 0.5033662222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 78,
+        "roc_auc": 0.4999623888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 79,
+        "roc_auc": 0.4917986666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 79,
+        "roc_auc": 0.4873989444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 80,
+        "roc_auc": 0.4970734444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 80,
+        "roc_auc": 0.495091,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 81,
+        "roc_auc": 0.4953026666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 81,
+        "roc_auc": 0.5010951666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 82,
+        "roc_auc": 0.5086062222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 82,
+        "roc_auc": 0.4981369444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 83,
+        "roc_auc": 0.5071824444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 83,
+        "roc_auc": 0.5043834444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 84,
+        "roc_auc": 0.4938378888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 84,
+        "roc_auc": 0.4966954444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 85,
+        "roc_auc": 0.5011938888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 85,
+        "roc_auc": 0.5011183333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 86,
+        "roc_auc": 0.4948988888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 86,
+        "roc_auc": 0.4997672777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 87,
+        "roc_auc": 0.4964661111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 87,
+        "roc_auc": 0.4910209999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 88,
+        "roc_auc": 0.5060714444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 88,
+        "roc_auc": 0.502832,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 89,
+        "roc_auc": 0.4919852222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 89,
+        "roc_auc": 0.5043325,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 90,
+        "roc_auc": 0.5107971111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 90,
+        "roc_auc": 0.4938174444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 91,
+        "roc_auc": 0.5003154444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 91,
+        "roc_auc": 0.5022698888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 92,
+        "roc_auc": 0.505284,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 92,
+        "roc_auc": 0.5214886666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 93,
+        "roc_auc": 0.4920114444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 93,
+        "roc_auc": 0.494155611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 94,
+        "roc_auc": 0.4884515555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 94,
+        "roc_auc": 0.4946262222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 95,
+        "roc_auc": 0.5029335555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 95,
+        "roc_auc": 0.5045397222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 96,
+        "roc_auc": 0.4931286666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 96,
+        "roc_auc": 0.5009475,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 97,
+        "roc_auc": 0.5004908888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 97,
+        "roc_auc": 0.4769217222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 98,
+        "roc_auc": 0.5122478888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 98,
+        "roc_auc": 0.5144272777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 99,
+        "roc_auc": 0.5068957777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 99,
+        "roc_auc": 0.4942983888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 100,
+        "roc_auc": 0.4999046666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 100,
+        "roc_auc": 0.4832226666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 101,
+        "roc_auc": 0.4984128888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 101,
+        "roc_auc": 0.4991080555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 102,
+        "roc_auc": 0.495085,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 102,
+        "roc_auc": 0.4938229444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 103,
+        "roc_auc": 0.5006966666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 103,
+        "roc_auc": 0.4950903333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 104,
+        "roc_auc": 0.4954727777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 104,
+        "roc_auc": 0.4920062777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 105,
+        "roc_auc": 0.4971146666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 105,
+        "roc_auc": 0.5031537777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 106,
+        "roc_auc": 0.5022627777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 106,
+        "roc_auc": 0.518521,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 107,
+        "roc_auc": 0.4948773333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 107,
+        "roc_auc": 0.4946920555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 108,
+        "roc_auc": 0.5021862222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 108,
+        "roc_auc": 0.4926196666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 109,
+        "roc_auc": 0.4993768888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 109,
+        "roc_auc": 0.4908927222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 110,
+        "roc_auc": 0.5098865555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 110,
+        "roc_auc": 0.4952937222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 111,
+        "roc_auc": 0.4947284444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 111,
+        "roc_auc": 0.5064410555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 112,
+        "roc_auc": 0.5082297777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 112,
+        "roc_auc": 0.5089672222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 113,
+        "roc_auc": 0.4970166666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 113,
+        "roc_auc": 0.4816599444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 114,
+        "roc_auc": 0.5028052222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 114,
+        "roc_auc": 0.5003902222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 115,
+        "roc_auc": 0.5088306666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 115,
+        "roc_auc": 0.5014763888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 116,
+        "roc_auc": 0.491116,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 116,
+        "roc_auc": 0.5013773333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 117,
+        "roc_auc": 0.5058863333333332,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 117,
+        "roc_auc": 0.4995561111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 118,
+        "roc_auc": 0.5022112222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 118,
+        "roc_auc": 0.4992061111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 119,
+        "roc_auc": 0.5058320000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 119,
+        "roc_auc": 0.4962788333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 120,
+        "roc_auc": 0.4957314444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 120,
+        "roc_auc": 0.4908699444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 121,
+        "roc_auc": 0.4881219999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 121,
+        "roc_auc": 0.499747111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 122,
+        "roc_auc": 0.5005253333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 122,
+        "roc_auc": 0.4907828888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 123,
+        "roc_auc": 0.5026467777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 123,
+        "roc_auc": 0.5049642777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 124,
+        "roc_auc": 0.4938592222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 124,
+        "roc_auc": 0.4888765,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 125,
+        "roc_auc": 0.5119763333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 125,
+        "roc_auc": 0.5038811666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 126,
+        "roc_auc": 0.4857231111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 126,
+        "roc_auc": 0.4960994999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 127,
+        "roc_auc": 0.4995949999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 127,
+        "roc_auc": 0.4989781111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 128,
+        "roc_auc": 0.5027444444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 128,
+        "roc_auc": 0.5071581666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 129,
+        "roc_auc": 0.5046703333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 129,
+        "roc_auc": 0.5007916111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 130,
+        "roc_auc": 0.5047526666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 130,
+        "roc_auc": 0.4986044444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 131,
+        "roc_auc": 0.4926900000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 131,
+        "roc_auc": 0.4961750555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 132,
+        "roc_auc": 0.5089204444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 132,
+        "roc_auc": 0.5039597222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 133,
+        "roc_auc": 0.5085081111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 133,
+        "roc_auc": 0.497284,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 134,
+        "roc_auc": 0.4985648888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 134,
+        "roc_auc": 0.5108885555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 135,
+        "roc_auc": 0.5039627777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 135,
+        "roc_auc": 0.5141312222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 136,
+        "roc_auc": 0.4911134444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 136,
+        "roc_auc": 0.4947070555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 137,
+        "roc_auc": 0.4954114444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 137,
+        "roc_auc": 0.4979461666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 138,
+        "roc_auc": 0.4994056666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 138,
+        "roc_auc": 0.4964351111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 139,
+        "roc_auc": 0.5028523333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 139,
+        "roc_auc": 0.4942890555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 140,
+        "roc_auc": 0.4949202222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 140,
+        "roc_auc": 0.4940004444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 141,
+        "roc_auc": 0.4853661111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 141,
+        "roc_auc": 0.4808270555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 142,
+        "roc_auc": 0.4936991111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 142,
+        "roc_auc": 0.507942611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 143,
+        "roc_auc": 0.489729,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 143,
+        "roc_auc": 0.4997747222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 144,
+        "roc_auc": 0.5044034444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 144,
+        "roc_auc": 0.5100175,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 145,
+        "roc_auc": 0.4958467777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 145,
+        "roc_auc": 0.5053148888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 146,
+        "roc_auc": 0.5133522222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 146,
+        "roc_auc": 0.5077114444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 147,
+        "roc_auc": 0.5004025555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 147,
+        "roc_auc": 0.5032765,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 148,
+        "roc_auc": 0.4978309999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 148,
+        "roc_auc": 0.5067817777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 149,
+        "roc_auc": 0.5053046666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 149,
+        "roc_auc": 0.4974785,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 150,
+        "roc_auc": 0.4992774444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 150,
+        "roc_auc": 0.4911602222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 151,
+        "roc_auc": 0.5069613333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 151,
+        "roc_auc": 0.5100806111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 152,
+        "roc_auc": 0.4964625555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 152,
+        "roc_auc": 0.4902728888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 153,
+        "roc_auc": 0.5035794444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 153,
+        "roc_auc": 0.4943193333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 154,
+        "roc_auc": 0.5053270000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 154,
+        "roc_auc": 0.4993782777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 155,
+        "roc_auc": 0.4970259999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 155,
+        "roc_auc": 0.4958243888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 156,
+        "roc_auc": 0.4991058888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 156,
+        "roc_auc": 0.4912132222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 157,
+        "roc_auc": 0.4891295555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 157,
+        "roc_auc": 0.4918911666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 158,
+        "roc_auc": 0.4929683333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 158,
+        "roc_auc": 0.4932243888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 159,
+        "roc_auc": 0.5086677777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 159,
+        "roc_auc": 0.4938943333333332,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 160,
+        "roc_auc": 0.4862657777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 160,
+        "roc_auc": 0.5000211666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 161,
+        "roc_auc": 0.5050884444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 161,
+        "roc_auc": 0.5030105555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 162,
+        "roc_auc": 0.5083436666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 162,
+        "roc_auc": 0.5001041666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 163,
+        "roc_auc": 0.511452,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 163,
+        "roc_auc": 0.5083622777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 164,
+        "roc_auc": 0.4918742222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 164,
+        "roc_auc": 0.494302111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 165,
+        "roc_auc": 0.5006086666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 165,
+        "roc_auc": 0.4936580555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 166,
+        "roc_auc": 0.4992508888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 166,
+        "roc_auc": 0.4984385555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 167,
+        "roc_auc": 0.5007716666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 167,
+        "roc_auc": 0.4948670555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 168,
+        "roc_auc": 0.4953452222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 168,
+        "roc_auc": 0.4925705555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 169,
+        "roc_auc": 0.5050479999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 169,
+        "roc_auc": 0.4963408888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 170,
+        "roc_auc": 0.5071652222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 170,
+        "roc_auc": 0.5097708333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 171,
+        "roc_auc": 0.4947101111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 171,
+        "roc_auc": 0.5033521666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 172,
+        "roc_auc": 0.5003894444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 172,
+        "roc_auc": 0.4954842222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 173,
+        "roc_auc": 0.4918198888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 173,
+        "roc_auc": 0.4993705,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 174,
+        "roc_auc": 0.512078,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 174,
+        "roc_auc": 0.4969081111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 175,
+        "roc_auc": 0.4968246666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 175,
+        "roc_auc": 0.5037610555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 176,
+        "roc_auc": 0.5036326666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 176,
+        "roc_auc": 0.4967378333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 177,
+        "roc_auc": 0.4944278888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 177,
+        "roc_auc": 0.4952641666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 178,
+        "roc_auc": 0.4909669999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 178,
+        "roc_auc": 0.4905480555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 179,
+        "roc_auc": 0.4958718888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 179,
+        "roc_auc": 0.5000553888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 180,
+        "roc_auc": 0.4996455555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 180,
+        "roc_auc": 0.4967242777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 181,
+        "roc_auc": 0.5085218888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 181,
+        "roc_auc": 0.5108017222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 182,
+        "roc_auc": 0.5042992222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 182,
+        "roc_auc": 0.5029965555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 183,
+        "roc_auc": 0.4976304444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 183,
+        "roc_auc": 0.4939465,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 184,
+        "roc_auc": 0.5078191111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 184,
+        "roc_auc": 0.5041001666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 185,
+        "roc_auc": 0.5013621111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 185,
+        "roc_auc": 0.4955603333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 186,
+        "roc_auc": 0.5095895555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 186,
+        "roc_auc": 0.4957626666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 187,
+        "roc_auc": 0.4962067777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 187,
+        "roc_auc": 0.4995577222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 188,
+        "roc_auc": 0.496171,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 188,
+        "roc_auc": 0.5014100555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 189,
+        "roc_auc": 0.4869034444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 189,
+        "roc_auc": 0.492356,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 190,
+        "roc_auc": 0.4963496666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 190,
+        "roc_auc": 0.5058385555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 191,
+        "roc_auc": 0.4966091111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 191,
+        "roc_auc": 0.4914326111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 192,
+        "roc_auc": 0.5117118888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 192,
+        "roc_auc": 0.5138195555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 193,
+        "roc_auc": 0.4927958888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 193,
+        "roc_auc": 0.4934506666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 194,
+        "roc_auc": 0.5015617777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 194,
+        "roc_auc": 0.4926517222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 195,
+        "roc_auc": 0.511446,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 195,
+        "roc_auc": 0.4960657222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 196,
+        "roc_auc": 0.4905703333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 196,
+        "roc_auc": 0.4847609444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 197,
+        "roc_auc": 0.4930542222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 197,
+        "roc_auc": 0.4940033888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 198,
+        "roc_auc": 0.4926788888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 198,
+        "roc_auc": 0.5054773333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 199,
+        "roc_auc": 0.5079502222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 199,
+        "roc_auc": 0.5071832777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 200,
+        "roc_auc": 0.4927642222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 200,
+        "roc_auc": 0.5026538333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 201,
+        "roc_auc": 0.5087463333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 201,
+        "roc_auc": 0.5052478888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 202,
+        "roc_auc": 0.4960901111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 202,
+        "roc_auc": 0.5038977222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 203,
+        "roc_auc": 0.4962446666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 203,
+        "roc_auc": 0.5061517777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 204,
+        "roc_auc": 0.497527,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 204,
+        "roc_auc": 0.5019480000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 205,
+        "roc_auc": 0.497005,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 205,
+        "roc_auc": 0.4976011666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 206,
+        "roc_auc": 0.4842631111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 206,
+        "roc_auc": 0.4971806666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 207,
+        "roc_auc": 0.4983037777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 207,
+        "roc_auc": 0.4816207222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 208,
+        "roc_auc": 0.4902377777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 208,
+        "roc_auc": 0.4842202222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 209,
+        "roc_auc": 0.4990134444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 209,
+        "roc_auc": 0.5132585555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 210,
+        "roc_auc": 0.4910840000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 210,
+        "roc_auc": 0.4980619444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 211,
+        "roc_auc": 0.5060693333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 211,
+        "roc_auc": 0.4929378333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 212,
+        "roc_auc": 0.49612,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 212,
+        "roc_auc": 0.494807,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 213,
+        "roc_auc": 0.5014576666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 213,
+        "roc_auc": 0.4973375,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 214,
+        "roc_auc": 0.5030383333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 214,
+        "roc_auc": 0.4863854999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 215,
+        "roc_auc": 0.5068268888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 215,
+        "roc_auc": 0.5047870555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 216,
+        "roc_auc": 0.5073146666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 216,
+        "roc_auc": 0.4984646666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 217,
+        "roc_auc": 0.5038581111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 217,
+        "roc_auc": 0.4886755,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 218,
+        "roc_auc": 0.525128,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 218,
+        "roc_auc": 0.4857160555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 219,
+        "roc_auc": 0.5113635555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 219,
+        "roc_auc": 0.5091053888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 220,
+        "roc_auc": 0.4919157777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 220,
+        "roc_auc": 0.4879015,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 221,
+        "roc_auc": 0.4945273333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 221,
+        "roc_auc": 0.5043543333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 222,
+        "roc_auc": 0.5061783333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 222,
+        "roc_auc": 0.492321388888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 223,
+        "roc_auc": 0.4995434444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 223,
+        "roc_auc": 0.4988432777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 224,
+        "roc_auc": 0.4944438888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 224,
+        "roc_auc": 0.5048444444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 225,
+        "roc_auc": 0.4968986666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 225,
+        "roc_auc": 0.4985835555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 226,
+        "roc_auc": 0.5071631111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 226,
+        "roc_auc": 0.4913578333333332,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 227,
+        "roc_auc": 0.4918585555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 227,
+        "roc_auc": 0.5062154444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 228,
+        "roc_auc": 0.5037191111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 228,
+        "roc_auc": 0.4988952222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 229,
+        "roc_auc": 0.5046338888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 229,
+        "roc_auc": 0.5017299444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 230,
+        "roc_auc": 0.5039798888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 230,
+        "roc_auc": 0.5050461111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 231,
+        "roc_auc": 0.4906265555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 231,
+        "roc_auc": 0.4935108333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 232,
+        "roc_auc": 0.4974577777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 232,
+        "roc_auc": 0.5003599999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 233,
+        "roc_auc": 0.5037122222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 233,
+        "roc_auc": 0.5078957222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 234,
+        "roc_auc": 0.5039184444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 234,
+        "roc_auc": 0.5053083333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 235,
+        "roc_auc": 0.5011916666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 235,
+        "roc_auc": 0.5051475555555557,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 236,
+        "roc_auc": 0.4915593333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 236,
+        "roc_auc": 0.4963621666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 237,
+        "roc_auc": 0.5066007777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 237,
+        "roc_auc": 0.4997815555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 238,
+        "roc_auc": 0.4939215555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 238,
+        "roc_auc": 0.4955578888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 239,
+        "roc_auc": 0.5027166666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 239,
+        "roc_auc": 0.4954286111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 240,
+        "roc_auc": 0.4936192222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 240,
+        "roc_auc": 0.5017261111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 241,
+        "roc_auc": 0.5070319999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 241,
+        "roc_auc": 0.5072116666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 242,
+        "roc_auc": 0.4876361111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 242,
+        "roc_auc": 0.5004818333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 243,
+        "roc_auc": 0.5072887777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 243,
+        "roc_auc": 0.5040937777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 244,
+        "roc_auc": 0.4941305555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 244,
+        "roc_auc": 0.5016290555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 245,
+        "roc_auc": 0.5012208888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 245,
+        "roc_auc": 0.4892632777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 246,
+        "roc_auc": 0.4985185555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 246,
+        "roc_auc": 0.4919855,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 247,
+        "roc_auc": 0.504410888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 247,
+        "roc_auc": 0.5080415555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 248,
+        "roc_auc": 0.5111153333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 248,
+        "roc_auc": 0.4975907777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 249,
+        "roc_auc": 0.4918978888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 249,
+        "roc_auc": 0.502159,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 250,
+        "roc_auc": 0.5031135555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 250,
+        "roc_auc": 0.4969305555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 251,
+        "roc_auc": 0.5036105555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 251,
+        "roc_auc": 0.5096183333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 252,
+        "roc_auc": 0.5103482222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 252,
+        "roc_auc": 0.5051016111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 253,
+        "roc_auc": 0.4998602222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 253,
+        "roc_auc": 0.5026860555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 254,
+        "roc_auc": 0.50558,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 254,
+        "roc_auc": 0.5085857222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 255,
+        "roc_auc": 0.4900994444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 255,
+        "roc_auc": 0.4940636666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 256,
+        "roc_auc": 0.5086142222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 256,
+        "roc_auc": 0.5027607222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 257,
+        "roc_auc": 0.509852,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 257,
+        "roc_auc": 0.5146530555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 258,
+        "roc_auc": 0.494347,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 258,
+        "roc_auc": 0.4919111666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 259,
+        "roc_auc": 0.5014388888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 259,
+        "roc_auc": 0.4875846666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 260,
+        "roc_auc": 0.5010526666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 260,
+        "roc_auc": 0.4999342222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 261,
+        "roc_auc": 0.5064914444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 261,
+        "roc_auc": 0.5044612222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 262,
+        "roc_auc": 0.498584111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 262,
+        "roc_auc": 0.4895752222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 263,
+        "roc_auc": 0.5084162222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 263,
+        "roc_auc": 0.5043441111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 264,
+        "roc_auc": 0.5084234444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 264,
+        "roc_auc": 0.5029771666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 265,
+        "roc_auc": 0.504827,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 265,
+        "roc_auc": 0.4974671666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 266,
+        "roc_auc": 0.498587,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 266,
+        "roc_auc": 0.490769,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 267,
+        "roc_auc": 0.5057414444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 267,
+        "roc_auc": 0.5019838888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 268,
+        "roc_auc": 0.4939318888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 268,
+        "roc_auc": 0.4843916111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 269,
+        "roc_auc": 0.4974483333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 269,
+        "roc_auc": 0.5093004999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 270,
+        "roc_auc": 0.5108716666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 270,
+        "roc_auc": 0.5046042777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 271,
+        "roc_auc": 0.5028203333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 271,
+        "roc_auc": 0.5065693333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 272,
+        "roc_auc": 0.494006,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 272,
+        "roc_auc": 0.5017347777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 273,
+        "roc_auc": 0.5170476666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 273,
+        "roc_auc": 0.5097665555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 274,
+        "roc_auc": 0.4823326666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 274,
+        "roc_auc": 0.5013029999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 275,
+        "roc_auc": 0.488368,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 275,
+        "roc_auc": 0.4955558333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 276,
+        "roc_auc": 0.5056773333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 276,
+        "roc_auc": 0.4973942222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 277,
+        "roc_auc": 0.5046787777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 277,
+        "roc_auc": 0.5095107222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 278,
+        "roc_auc": 0.4882952222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 278,
+        "roc_auc": 0.4766867222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 279,
+        "roc_auc": 0.4992485555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 279,
+        "roc_auc": 0.4927591666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 280,
+        "roc_auc": 0.4968217777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 280,
+        "roc_auc": 0.5035646666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 281,
+        "roc_auc": 0.5054555555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 281,
+        "roc_auc": 0.5058121666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 282,
+        "roc_auc": 0.5111826666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 282,
+        "roc_auc": 0.4983799444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 283,
+        "roc_auc": 0.4893508888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 283,
+        "roc_auc": 0.4887189999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 284,
+        "roc_auc": 0.5034685555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 284,
+        "roc_auc": 0.5052311666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 285,
+        "roc_auc": 0.4907248888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 285,
+        "roc_auc": 0.5046927777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 286,
+        "roc_auc": 0.4875136666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 286,
+        "roc_auc": 0.4985426666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 287,
+        "roc_auc": 0.5056274444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 287,
+        "roc_auc": 0.4964506111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 288,
+        "roc_auc": 0.5082997777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 288,
+        "roc_auc": 0.4987622222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 289,
+        "roc_auc": 0.5142878888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 289,
+        "roc_auc": 0.4979336111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 290,
+        "roc_auc": 0.4933925555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 290,
+        "roc_auc": 0.5007258333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 291,
+        "roc_auc": 0.4845934444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 291,
+        "roc_auc": 0.4875296666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 292,
+        "roc_auc": 0.5003286666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 292,
+        "roc_auc": 0.5011128888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 293,
+        "roc_auc": 0.5129431111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 293,
+        "roc_auc": 0.5022481111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 294,
+        "roc_auc": 0.4919204444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 294,
+        "roc_auc": 0.4898013888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 295,
+        "roc_auc": 0.493961,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 295,
+        "roc_auc": 0.4943773888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 296,
+        "roc_auc": 0.5099601111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 296,
+        "roc_auc": 0.5138281111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 297,
+        "roc_auc": 0.4978678888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 297,
+        "roc_auc": 0.5060724444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 298,
+        "roc_auc": 0.5037825555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 298,
+        "roc_auc": 0.5050022777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 299,
+        "roc_auc": 0.5107704444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 299,
+        "roc_auc": 0.4943906111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 300,
+        "roc_auc": 0.4957381111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 300,
+        "roc_auc": 0.4999465,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 301,
+        "roc_auc": 0.5003683333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 301,
+        "roc_auc": 0.5017453333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 302,
+        "roc_auc": 0.4890635555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 302,
+        "roc_auc": 0.4948220555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 303,
+        "roc_auc": 0.5039675555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 303,
+        "roc_auc": 0.5040659444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 304,
+        "roc_auc": 0.4943538888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 304,
+        "roc_auc": 0.5077689444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 305,
+        "roc_auc": 0.4921283333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 305,
+        "roc_auc": 0.4990634444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 306,
+        "roc_auc": 0.5072182222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 306,
+        "roc_auc": 0.5057362777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 307,
+        "roc_auc": 0.5001174444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 307,
+        "roc_auc": 0.5047856111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 308,
+        "roc_auc": 0.5092752222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 308,
+        "roc_auc": 0.5036634444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 309,
+        "roc_auc": 0.5059577777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 309,
+        "roc_auc": 0.4953260555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 310,
+        "roc_auc": 0.4975135555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 310,
+        "roc_auc": 0.4908146666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 311,
+        "roc_auc": 0.5072165555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 311,
+        "roc_auc": 0.5091174444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 312,
+        "roc_auc": 0.5038127777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 312,
+        "roc_auc": 0.5149257222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 313,
+        "roc_auc": 0.4930153333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 313,
+        "roc_auc": 0.4955802222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 314,
+        "roc_auc": 0.4951172222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 314,
+        "roc_auc": 0.501583388888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 315,
+        "roc_auc": 0.488056,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 315,
+        "roc_auc": 0.4961027777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 316,
+        "roc_auc": 0.491796,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 316,
+        "roc_auc": 0.492323,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 317,
+        "roc_auc": 0.5065625555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 317,
+        "roc_auc": 0.5008240555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 318,
+        "roc_auc": 0.497396111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 318,
+        "roc_auc": 0.5061588888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 319,
+        "roc_auc": 0.4934199999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 319,
+        "roc_auc": 0.4910397777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 320,
+        "roc_auc": 0.4953503333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 320,
+        "roc_auc": 0.4987250555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 321,
+        "roc_auc": 0.5116245555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 321,
+        "roc_auc": 0.5070646111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 322,
+        "roc_auc": 0.5017532222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 322,
+        "roc_auc": 0.5077677777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 323,
+        "roc_auc": 0.5020084444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 323,
+        "roc_auc": 0.4914395555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 324,
+        "roc_auc": 0.4798365555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 324,
+        "roc_auc": 0.4931933333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 325,
+        "roc_auc": 0.4979402222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 325,
+        "roc_auc": 0.4940335555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 326,
+        "roc_auc": 0.5070883333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 326,
+        "roc_auc": 0.502952,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 327,
+        "roc_auc": 0.4981353333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 327,
+        "roc_auc": 0.5133129444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 328,
+        "roc_auc": 0.4981762222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 328,
+        "roc_auc": 0.5109322222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 329,
+        "roc_auc": 0.5058836666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 329,
+        "roc_auc": 0.4940317222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 330,
+        "roc_auc": 0.5080022222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 330,
+        "roc_auc": 0.5008637777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 331,
+        "roc_auc": 0.4952423333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 331,
+        "roc_auc": 0.5034107777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 332,
+        "roc_auc": 0.5031527777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 332,
+        "roc_auc": 0.5113535,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 333,
+        "roc_auc": 0.5021513333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 333,
+        "roc_auc": 0.5064026111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 334,
+        "roc_auc": 0.5004891111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 334,
+        "roc_auc": 0.5091002222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 335,
+        "roc_auc": 0.495697,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 335,
+        "roc_auc": 0.4977103333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 336,
+        "roc_auc": 0.4831792222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 336,
+        "roc_auc": 0.4999906666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 337,
+        "roc_auc": 0.5146085555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 337,
+        "roc_auc": 0.5069700555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 338,
+        "roc_auc": 0.5052143333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 338,
+        "roc_auc": 0.4981104444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 339,
+        "roc_auc": 0.5142427777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 339,
+        "roc_auc": 0.5002781111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 340,
+        "roc_auc": 0.5084385555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 340,
+        "roc_auc": 0.4965118888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 341,
+        "roc_auc": 0.4911123333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 341,
+        "roc_auc": 0.5028293888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 342,
+        "roc_auc": 0.494837111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 342,
+        "roc_auc": 0.5162186111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 343,
+        "roc_auc": 0.5026918888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 343,
+        "roc_auc": 0.5075396111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 344,
+        "roc_auc": 0.4919293333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 344,
+        "roc_auc": 0.4950227777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 345,
+        "roc_auc": 0.5040472222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 345,
+        "roc_auc": 0.4878558888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 346,
+        "roc_auc": 0.5064032222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 346,
+        "roc_auc": 0.5154112777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 347,
+        "roc_auc": 0.4937675555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 347,
+        "roc_auc": 0.4960332222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 348,
+        "roc_auc": 0.5085615555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 348,
+        "roc_auc": 0.5009203888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 349,
+        "roc_auc": 0.4990972222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 349,
+        "roc_auc": 0.5077756111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 350,
+        "roc_auc": 0.5033707777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 350,
+        "roc_auc": 0.4987452777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 351,
+        "roc_auc": 0.4910757777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 351,
+        "roc_auc": 0.5071289999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 352,
+        "roc_auc": 0.4969224444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 352,
+        "roc_auc": 0.499636,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 353,
+        "roc_auc": 0.506788888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 353,
+        "roc_auc": 0.5045368333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 354,
+        "roc_auc": 0.4817757777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 354,
+        "roc_auc": 0.5011726111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 355,
+        "roc_auc": 0.4942334444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 355,
+        "roc_auc": 0.4925866111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 356,
+        "roc_auc": 0.4775608888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 356,
+        "roc_auc": 0.5047726666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 357,
+        "roc_auc": 0.503812,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 357,
+        "roc_auc": 0.5046949999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 358,
+        "roc_auc": 0.5168487777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 358,
+        "roc_auc": 0.5106294444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 359,
+        "roc_auc": 0.4904236666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 359,
+        "roc_auc": 0.4934228888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 360,
+        "roc_auc": 0.4993893333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 360,
+        "roc_auc": 0.5020651666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 361,
+        "roc_auc": 0.4957273333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 361,
+        "roc_auc": 0.5016157222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 362,
+        "roc_auc": 0.497362111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 362,
+        "roc_auc": 0.4917921666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 363,
+        "roc_auc": 0.4938818888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 363,
+        "roc_auc": 0.5015027777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 364,
+        "roc_auc": 0.4931922222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 364,
+        "roc_auc": 0.5085578888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 365,
+        "roc_auc": 0.4941287777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 365,
+        "roc_auc": 0.4951946666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 366,
+        "roc_auc": 0.502312,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 366,
+        "roc_auc": 0.5027109999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 367,
+        "roc_auc": 0.5088911111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 367,
+        "roc_auc": 0.5028468888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 368,
+        "roc_auc": 0.5012252222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 368,
+        "roc_auc": 0.489663611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 369,
+        "roc_auc": 0.4931516666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 369,
+        "roc_auc": 0.4998082222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 370,
+        "roc_auc": 0.5106361111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 370,
+        "roc_auc": 0.5096712222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 371,
+        "roc_auc": 0.4992951111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 371,
+        "roc_auc": 0.4893734999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 372,
+        "roc_auc": 0.4903021111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 372,
+        "roc_auc": 0.4996724444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 373,
+        "roc_auc": 0.4962412222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 373,
+        "roc_auc": 0.5131265555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 374,
+        "roc_auc": 0.5128539999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 374,
+        "roc_auc": 0.4987332222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 375,
+        "roc_auc": 0.5001733333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 375,
+        "roc_auc": 0.5062341666666668,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 376,
+        "roc_auc": 0.4998828888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 376,
+        "roc_auc": 0.503075,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 377,
+        "roc_auc": 0.5075976666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 377,
+        "roc_auc": 0.508336,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 378,
+        "roc_auc": 0.5032840000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 378,
+        "roc_auc": 0.5147539444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 379,
+        "roc_auc": 0.4955713333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 379,
+        "roc_auc": 0.4950990555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 380,
+        "roc_auc": 0.4897114444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 380,
+        "roc_auc": 0.4909474444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 381,
+        "roc_auc": 0.5005334444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 381,
+        "roc_auc": 0.5104327777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 382,
+        "roc_auc": 0.4974662222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 382,
+        "roc_auc": 0.494403,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 383,
+        "roc_auc": 0.5107553333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 383,
+        "roc_auc": 0.5049561666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 384,
+        "roc_auc": 0.5099824444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 384,
+        "roc_auc": 0.502463388888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 385,
+        "roc_auc": 0.5088933333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 385,
+        "roc_auc": 0.4797667222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 386,
+        "roc_auc": 0.5003237777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 386,
+        "roc_auc": 0.4897525555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 387,
+        "roc_auc": 0.5125396666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 387,
+        "roc_auc": 0.5044082777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 388,
+        "roc_auc": 0.5077993333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 388,
+        "roc_auc": 0.512986,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 389,
+        "roc_auc": 0.5062762222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 389,
+        "roc_auc": 0.4985874444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 390,
+        "roc_auc": 0.5029848888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 390,
+        "roc_auc": 0.5055560555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 391,
+        "roc_auc": 0.4938813333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 391,
+        "roc_auc": 0.5012481666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 392,
+        "roc_auc": 0.4895257777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 392,
+        "roc_auc": 0.4961325,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 393,
+        "roc_auc": 0.4989531111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 393,
+        "roc_auc": 0.5026187777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 394,
+        "roc_auc": 0.5063938888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 394,
+        "roc_auc": 0.493448611111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 395,
+        "roc_auc": 0.494766,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 395,
+        "roc_auc": 0.4980417777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 396,
+        "roc_auc": 0.5067352222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 396,
+        "roc_auc": 0.4969433888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 397,
+        "roc_auc": 0.4985707777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 397,
+        "roc_auc": 0.4976170555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 398,
+        "roc_auc": 0.5011474444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 398,
+        "roc_auc": 0.4991737222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 399,
+        "roc_auc": 0.5055486666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 399,
+        "roc_auc": 0.5065176666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 400,
+        "roc_auc": 0.4991722222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 400,
+        "roc_auc": 0.4866738888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 401,
+        "roc_auc": 0.4944202222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 401,
+        "roc_auc": 0.4938435,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 402,
+        "roc_auc": 0.4946884444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 402,
+        "roc_auc": 0.5005346111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 403,
+        "roc_auc": 0.5010084444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 403,
+        "roc_auc": 0.4882461111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 404,
+        "roc_auc": 0.5029541111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 404,
+        "roc_auc": 0.5102411666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 405,
+        "roc_auc": 0.501486,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 405,
+        "roc_auc": 0.5059619444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 406,
+        "roc_auc": 0.5035191111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 406,
+        "roc_auc": 0.5043502777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 407,
+        "roc_auc": 0.4866636666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 407,
+        "roc_auc": 0.5101703888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 408,
+        "roc_auc": 0.5173798888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 408,
+        "roc_auc": 0.5005945,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 409,
+        "roc_auc": 0.504369111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 409,
+        "roc_auc": 0.5022051111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 410,
+        "roc_auc": 0.4882934444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 410,
+        "roc_auc": 0.5069213333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 411,
+        "roc_auc": 0.4905497777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 411,
+        "roc_auc": 0.4927672222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 412,
+        "roc_auc": 0.4947582222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 412,
+        "roc_auc": 0.4962625555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 413,
+        "roc_auc": 0.5082720000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 413,
+        "roc_auc": 0.5063199444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 414,
+        "roc_auc": 0.4923586666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 414,
+        "roc_auc": 0.5124874444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 415,
+        "roc_auc": 0.5039353333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 415,
+        "roc_auc": 0.499314,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 416,
+        "roc_auc": 0.504793111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 416,
+        "roc_auc": 0.5044181111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 417,
+        "roc_auc": 0.5133456666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 417,
+        "roc_auc": 0.5067624444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 418,
+        "roc_auc": 0.4987528888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 418,
+        "roc_auc": 0.5087729444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 419,
+        "roc_auc": 0.508271,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 419,
+        "roc_auc": 0.5047577777777779,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 420,
+        "roc_auc": 0.4895051111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 420,
+        "roc_auc": 0.4967932777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 421,
+        "roc_auc": 0.5010567777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 421,
+        "roc_auc": 0.4963516111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 422,
+        "roc_auc": 0.4949994444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 422,
+        "roc_auc": 0.4937432777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 423,
+        "roc_auc": 0.4946753333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 423,
+        "roc_auc": 0.4965157222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 424,
+        "roc_auc": 0.4887708888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 424,
+        "roc_auc": 0.5077279444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 425,
+        "roc_auc": 0.5041157777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 425,
+        "roc_auc": 0.4988524444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 426,
+        "roc_auc": 0.5003835555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 426,
+        "roc_auc": 0.4924513333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 427,
+        "roc_auc": 0.4905413333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 427,
+        "roc_auc": 0.4954891666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 428,
+        "roc_auc": 0.4923363333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 428,
+        "roc_auc": 0.5006556666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 429,
+        "roc_auc": 0.5148737777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 429,
+        "roc_auc": 0.5048166666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 430,
+        "roc_auc": 0.5023718888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 430,
+        "roc_auc": 0.4829222777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 431,
+        "roc_auc": 0.4992182222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 431,
+        "roc_auc": 0.4996267777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 432,
+        "roc_auc": 0.4937068888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 432,
+        "roc_auc": 0.5032272222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 433,
+        "roc_auc": 0.4901334444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 433,
+        "roc_auc": 0.4961261666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 434,
+        "roc_auc": 0.510702,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 434,
+        "roc_auc": 0.4864118333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 435,
+        "roc_auc": 0.5044727777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 435,
+        "roc_auc": 0.510740388888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 436,
+        "roc_auc": 0.4998454444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 436,
+        "roc_auc": 0.4845497777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 437,
+        "roc_auc": 0.5054368888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 437,
+        "roc_auc": 0.4977757777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 438,
+        "roc_auc": 0.4975543333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 438,
+        "roc_auc": 0.4936441666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 439,
+        "roc_auc": 0.5062451111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 439,
+        "roc_auc": 0.5116107222222223,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 440,
+        "roc_auc": 0.5008156666666668,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 440,
+        "roc_auc": 0.5032696111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 441,
+        "roc_auc": 0.5019655555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 441,
+        "roc_auc": 0.4898369999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 442,
+        "roc_auc": 0.5197878888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 442,
+        "roc_auc": 0.5006143888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 443,
+        "roc_auc": 0.4979452222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 443,
+        "roc_auc": 0.4891500555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 444,
+        "roc_auc": 0.4949405555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 444,
+        "roc_auc": 0.5073316111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 445,
+        "roc_auc": 0.5057933333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 445,
+        "roc_auc": 0.5055484444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 446,
+        "roc_auc": 0.4925059999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 446,
+        "roc_auc": 0.5114710555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 447,
+        "roc_auc": 0.5117116666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 447,
+        "roc_auc": 0.4952573888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 448,
+        "roc_auc": 0.5022811111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 448,
+        "roc_auc": 0.5133566111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 449,
+        "roc_auc": 0.4908505555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 449,
+        "roc_auc": 0.4875446666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 450,
+        "roc_auc": 0.5073193333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 450,
+        "roc_auc": 0.4928639999999999,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 451,
+        "roc_auc": 0.4989684444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 451,
+        "roc_auc": 0.4942076666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 452,
+        "roc_auc": 0.5012984444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 452,
+        "roc_auc": 0.4925560555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 453,
+        "roc_auc": 0.5007984444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 453,
+        "roc_auc": 0.5078303888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 454,
+        "roc_auc": 0.5049097777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 454,
+        "roc_auc": 0.4993081666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 455,
+        "roc_auc": 0.4905295555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 455,
+        "roc_auc": 0.5075666666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 456,
+        "roc_auc": 0.5058718888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 456,
+        "roc_auc": 0.5023603333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 457,
+        "roc_auc": 0.4950285555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 457,
+        "roc_auc": 0.4963562222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 458,
+        "roc_auc": 0.5031816666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 458,
+        "roc_auc": 0.5053976111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 459,
+        "roc_auc": 0.4944852222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 459,
+        "roc_auc": 0.4927553333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 460,
+        "roc_auc": 0.4941355555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 460,
+        "roc_auc": 0.5130120555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 461,
+        "roc_auc": 0.4967897777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 461,
+        "roc_auc": 0.5015082222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 462,
+        "roc_auc": 0.5043306666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 462,
+        "roc_auc": 0.4952305555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 463,
+        "roc_auc": 0.5048444444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 463,
+        "roc_auc": 0.4957743888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 464,
+        "roc_auc": 0.4970775555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 464,
+        "roc_auc": 0.5100803333333332,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 465,
+        "roc_auc": 0.5026523333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 465,
+        "roc_auc": 0.5040159444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 466,
+        "roc_auc": 0.5027426666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 466,
+        "roc_auc": 0.5080577222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 467,
+        "roc_auc": 0.4963307777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 467,
+        "roc_auc": 0.4922538333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 468,
+        "roc_auc": 0.508232888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 468,
+        "roc_auc": 0.4907741666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 469,
+        "roc_auc": 0.5027773333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 469,
+        "roc_auc": 0.5032877777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 470,
+        "roc_auc": 0.512666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 470,
+        "roc_auc": 0.4933546666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 471,
+        "roc_auc": 0.5128233333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 471,
+        "roc_auc": 0.4993581111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 472,
+        "roc_auc": 0.5044125555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 472,
+        "roc_auc": 0.5062295000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 473,
+        "roc_auc": 0.5066008888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 473,
+        "roc_auc": 0.4951857222222221,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 474,
+        "roc_auc": 0.4942353333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 474,
+        "roc_auc": 0.4993097222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 475,
+        "roc_auc": 0.502904888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 475,
+        "roc_auc": 0.4918226666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 476,
+        "roc_auc": 0.502015,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 476,
+        "roc_auc": 0.4952719444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 477,
+        "roc_auc": 0.4924595555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 477,
+        "roc_auc": 0.5054715555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 478,
+        "roc_auc": 0.4967953333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 478,
+        "roc_auc": 0.4944476666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 479,
+        "roc_auc": 0.509744,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 479,
+        "roc_auc": 0.5029228333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 480,
+        "roc_auc": 0.483911,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 480,
+        "roc_auc": 0.5085485555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 481,
+        "roc_auc": 0.496881,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 481,
+        "roc_auc": 0.5020844444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 482,
+        "roc_auc": 0.4977001111111111,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 482,
+        "roc_auc": 0.5014553333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 483,
+        "roc_auc": 0.5129884444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 483,
+        "roc_auc": 0.5010147777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 484,
+        "roc_auc": 0.4956964444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 484,
+        "roc_auc": 0.5130253888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 485,
+        "roc_auc": 0.4911256666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 485,
+        "roc_auc": 0.4870557222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 486,
+        "roc_auc": 0.5160331111111112,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 486,
+        "roc_auc": 0.5001460555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 487,
+        "roc_auc": 0.4892972222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 487,
+        "roc_auc": 0.4845567777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 488,
+        "roc_auc": 0.4910997777777777,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 488,
+        "roc_auc": 0.5026490555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 489,
+        "roc_auc": 0.4915723333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 489,
+        "roc_auc": 0.4852279444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 490,
+        "roc_auc": 0.5006443333333334,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 490,
+        "roc_auc": 0.5025954444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 491,
+        "roc_auc": 0.5122803333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 491,
+        "roc_auc": 0.5111076666666667,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 492,
+        "roc_auc": 0.5053474444444445,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 492,
+        "roc_auc": 0.5056352222222222,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 493,
+        "roc_auc": 0.4914215555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 493,
+        "roc_auc": 0.4979853888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 494,
+        "roc_auc": 0.4811258888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 494,
+        "roc_auc": 0.4972610555555556,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 495,
+        "roc_auc": 0.5014865555555555,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 495,
+        "roc_auc": 0.5043825000000001,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 496,
+        "roc_auc": 0.4824734444444444,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 496,
+        "roc_auc": 0.4851446666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 497,
+        "roc_auc": 0.5081647777777778,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 497,
+        "roc_auc": 0.5070941666666666,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 498,
+        "roc_auc": 0.4976663333333333,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 498,
+        "roc_auc": 0.5112963888888888,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "logistic",
+        "permutation": 499,
+        "roc_auc": 0.5071648888888889,
+        "scope": "full_source_arm_balanced_sample"
+      },
+      {
+        "model": "hgb",
+        "permutation": 499,
+        "roc_auc": 0.5021118333333333,
+        "scope": "full_source_arm_balanced_sample"
+      }
+    ],
+    "learnability": [
+      {
+        "scope": "whole",
+        "outcome": "visit",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0467616666666666,
+        "positive_rate_validation": 0.04687,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.04687,
+        "log_loss": 0.189194050498442,
+        "brier": 0.0446732148361111
+      },
+      {
+        "scope": "whole",
+        "outcome": "visit",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0467616666666666,
+        "positive_rate_validation": 0.04687,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.9319840860594122,
+        "average_precision": 0.478526099413165,
+        "log_loss": 0.111606675642522,
+        "brier": 0.0314083858510061
+      },
+      {
+        "scope": "whole",
+        "outcome": "visit",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0467616666666666,
+        "positive_rate_validation": 0.04687,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.9441628176534314,
+        "average_precision": 0.5040592593806718,
+        "log_loss": 0.1051479411742948,
+        "brier": 0.0301324876151765
+      },
+      {
+        "scope": "treatment",
+        "outcome": "visit",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.0483786252121525,
+        "positive_rate_validation": 0.0488584984977922,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.0488584984977922,
+        "log_loss": 0.195142838877269,
+        "brier": 0.0464715759007037
+      },
+      {
+        "scope": "treatment",
+        "outcome": "visit",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.0483786252121525,
+        "positive_rate_validation": 0.0488584984977922,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.93217906666517,
+        "average_precision": 0.4879103427497037,
+        "log_loss": 0.1146082909120241,
+        "brier": 0.0323591586065016
+      },
+      {
+        "scope": "treatment",
+        "outcome": "visit",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.0483786252121525,
+        "positive_rate_validation": 0.0488584984977922,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.9439010255214696,
+        "average_precision": 0.5128107931032245,
+        "log_loss": 0.1081009690036437,
+        "brier": 0.0310719131938267
+      },
+      {
+        "scope": "control",
+        "outcome": "visit",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0375693562403904,
+        "positive_rate_validation": 0.0355650633419126,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.0355650633419126,
+        "log_loss": 0.1536404935089391,
+        "brier": 0.0343042068014212
+      },
+      {
+        "scope": "control",
+        "outcome": "visit",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0375693562403904,
+        "positive_rate_validation": 0.0355650633419126,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.928838435377252,
+        "average_precision": 0.4244611980243414,
+        "log_loss": 0.092979462794017,
+        "brier": 0.0255484594597545
+      },
+      {
+        "scope": "control",
+        "outcome": "visit",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0375693562403904,
+        "positive_rate_validation": 0.0355650633419126,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.9448374427907704,
+        "average_precision": 0.4472343463156674,
+        "log_loss": 0.087336701415943,
+        "brier": 0.0244346491973347
+      },
+      {
+        "scope": "whole",
+        "outcome": "conversion",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0028816666666666,
+        "positive_rate_validation": 0.00288,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.00288,
+        "log_loss": 0.0197237484527277,
+        "brier": 0.0028717056027777
+      },
+      {
+        "scope": "whole",
+        "outcome": "conversion",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0028816666666666,
+        "positive_rate_validation": 0.00288,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.9459727173983294,
+        "average_precision": 0.1925923126728092,
+        "log_loss": 0.0126397876344212,
+        "brier": 0.0025774496863507
+      },
+      {
+        "scope": "whole",
+        "outcome": "conversion",
+        "n_train": 600000,
+        "n_validation": 200000,
+        "positive_rate_train": 0.0028816666666666,
+        "positive_rate_validation": 0.00288,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.9509051867990924,
+        "average_precision": 0.2260419116446074,
+        "log_loss": 0.0120539040188533,
+        "brier": 0.002496126427233
+      },
+      {
+        "scope": "treatment",
+        "outcome": "conversion",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.00306714800312,
+        "positive_rate_validation": 0.0030690897973342,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.0030690897973342,
+        "log_loss": 0.0208232780888725,
+        "brier": 0.0030596704889207
+      },
+      {
+        "scope": "treatment",
+        "outcome": "conversion",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.00306714800312,
+        "positive_rate_validation": 0.0030690897973342,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.9481652089582426,
+        "average_precision": 0.2081169389669192,
+        "log_loss": 0.0131068464760351,
+        "brier": 0.0027055180033097
+      },
+      {
+        "scope": "treatment",
+        "outcome": "conversion",
+        "n_train": 510246,
+        "n_validation": 170083,
+        "positive_rate_train": 0.00306714800312,
+        "positive_rate_validation": 0.0030690897973342,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.9538319893058976,
+        "average_precision": 0.2458049896442266,
+        "log_loss": 0.0125412457761294,
+        "brier": 0.0026276607987257
+      },
+      {
+        "scope": "control",
+        "outcome": "conversion",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0018272166143013,
+        "positive_rate_validation": 0.0018049938162248,
+        "model": "dummy",
+        "status": "computed",
+        "roc_auc": 0.5,
+        "average_precision": 0.0018049938162248,
+        "log_loss": 0.0132060033005077,
+        "brier": 0.001801736307401
+      },
+      {
+        "scope": "control",
+        "outcome": "conversion",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0018272166143013,
+        "positive_rate_validation": 0.0018049938162248,
+        "model": "logistic",
+        "status": "computed",
+        "roc_auc": 0.917138884858136,
+        "average_precision": 0.1113918723067001,
+        "log_loss": 0.0099375613403285,
+        "brier": 0.0018099059455046
+      },
+      {
+        "scope": "control",
+        "outcome": "conversion",
+        "n_train": 89754,
+        "n_validation": 29917,
+        "positive_rate_train": 0.0018272166143013,
+        "positive_rate_validation": 0.0018049938162248,
+        "model": "hgb",
+        "status": "computed",
+        "roc_auc": 0.906242519853008,
+        "average_precision": 0.0870480465648145,
+        "log_loss": 0.0100512469753761,
+        "brier": 0.0017667725691598
+      }
+    ]
+  }
 }

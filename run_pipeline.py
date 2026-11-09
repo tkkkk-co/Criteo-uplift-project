@@ -100,7 +100,7 @@ def finalize_run(out, policies, primary_budget, progress=print):
 #     progress：接收进度文字的函数。
 # 输出：
 #     out：完成诊断更新的已有实验目录。
-# 说明：复用实验审计与来源信息，仅重做诊断，不划分或训练正式增量模型。
+# 说明：沿现有入口补齐审计和数值稳定的 ATE 字段，重做诊断；使用已保存行号，不重新划分或训练正式增量模型。
 #-----------------------------------------------------------------------------------------------------------------------
 def update_diagnostics_only(args, *, root=ROOT, progress=print):
     out = safe_output(
@@ -112,16 +112,68 @@ def update_diagnostics_only(args, *, root=ROOT, progress=print):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if args.seed != manifest["seed"]:
         raise ValueError("诊断 seed 必须与当前实验一致")
+    # 缓存缺少审计字段时，prepare_sample 按正常失效规则在同次扫描中重建。
+    saved_sample_report = json.loads((out / "data_preparation/sample_report.json").read_text())
+    prepare_args = argparse.Namespace(**{**vars(args), "sample_size": saved_sample_report["sample_size"]})
+    sample, refreshed_audit, source, scanned = _prepare_sample(prepare_args, root=root, progress=progress)
+    if source["sha256"] != manifest["source"]["sha256"]:
+        raise ValueError("当前数据与已有实验的来源指纹不同")
+    for key in ("n_rows", "n_treatment", "n_control", "duplicate_row_fingerprints"):
+        if refreshed_audit[key] != audit[key]:
+            raise ValueError(f"重新审计与已有实验计数不一致：{key}")
+    audit = refreshed_audit
+    write_result(audit, out / "data_preparation/audit.json")
+    write_result(scanned["sample_report"], out / "data_preparation/sample_report.json")
+
+    # 保留已有 ATE、标准误和区间，只补齐同一 pooled z 检验的稳定尾概率字段。
+    ate_path = out / "diagnostics/ate_full.csv"
+    ate_full = pd.read_csv(ate_path, dtype={"p_value_text": "string"}, float_precision="round_trip")
+    for index, row in ate_full.iterrows():
+        result = aggregate_ate(audit, row["outcome"])
+        for key in ("n", "n_control", "n_treatment", "response_control", "response_treatment", "ate"):
+            if not np.isclose(row[key], result[key], rtol=1e-12, atol=1e-15):
+                raise ValueError(f"已有 ATE 与审计不一致：{row['outcome']} / {key}")
+        for key in ("p_value", "log_p_value", "p_value_text"):
+            ate_full.loc[index, key] = result[key]
+    write_result(ate_full, ate_path)
+
+    # 替换分类器时把已有 HGB 诊断保存在同一个详情文件中，避免丢失历史统计。
+    old_details = json.loads((out / "diagnostics/c2st_details.json").read_text())
+    old_c2st = pd.read_csv(out / "diagnostics/c2st.csv")
+    previous_hgb = old_details.get("previous_hgb_diagnostics")
+    if "hgb" in set(old_c2st["model"]):
+        previous_hgb = {
+            "note": "历史 HGB 配置结果；未按 XGBoost 重算，不参与当前两模型 Holm 校正。",
+            "details": old_details,
+            **{name: pd.read_csv(out / f"diagnostics/{name}.csv").to_dict("records")
+               for name in ("c2st", "c2st_null", "learnability")},
+        }
     update_experiment_diagnostics(
         args.data,
         out / "diagnostics",
         audit=audit,
-        source=manifest["source"],
+        source=source,
         sample_size=args.c2st_sample,
         permutations=args.permutations,
         seed=args.seed,
         progress=progress,
+        scanned=scanned,
     )
+    if previous_hgb is not None:
+        details_path = out / "diagnostics/c2st_details.json"
+        details = json.loads(details_path.read_text())
+        details["previous_hgb_diagnostics"] = previous_hgb
+        write_result(details, details_path)
+    del scanned
+    # 仅重做结果可学习性诊断，精确复用既有 train/validation 行号。
+    indexed_sample = sample.set_index("row_id", drop=False)
+    parts = {
+        name: indexed_sample.loc[pd.read_csv(out / f"data_preparation/{name}_row_ids.csv")["row_id"]].reset_index(drop=True)
+        for name in ("train", "validation")
+    }
+    run_learnability_diagnostics(parts["train"], parts["validation"], out / "diagnostics", seed=args.seed)
+    del sample, indexed_sample, parts
+    manifest["diagnostic_models"] = ["logistic", "xgboost"]
     manifest["arguments"]["permutations"] = args.permutations
     manifest["arguments"]["c2st_sample"] = args.c2st_sample
     write_result(manifest, manifest_path)
@@ -158,9 +210,11 @@ def run(args):
     for directory in (data_out, diagnostics_out, models_out, evaluation_out, out / "figures"):
         directory.mkdir(exist_ok=True)
 
-    # 02. 准备建模样本、全量审计、来源指纹、诊断结果；建模样本划分、重叠性检验
+    # 02. 准备建模样本、全量审计、来源指纹、诊断结果；
     sample, audit, source, scanned = prepare_sample(args)
+    # 建模样本划分、重叠性检验
     parts, split_summary, feature_overlap = split_sample(sample, args.outcome, args.seed)
+    
     # 分布图在运行阶段生成，Notebook 只读取已保存的图片。
     save_sample_feature_plot(sample, out / "figures/sample_features.png")
     del sample
@@ -284,6 +338,7 @@ def run(args):
                 "明确报告代入估计的 AUUC；"
                 "不按完美排序的面积进行归一化"
             ),
+            "diagnostic_models": ["logistic", "xgboost"],
             "primary_outcome": args.outcome,
             "selection": fitted["selection"],
             "models": fitted["model_metadata"],
@@ -397,7 +452,7 @@ def parse_args(argv=None):
     p.add_argument(
         '--diagnostics-only',
         action='store_true',
-        help='仅原位更新已有实验目录的全量诊断和诊断图/报告，不重新划分或训练模型',
+        help='原位补齐审计/ATE尾概率说明，更新全量诊断、结果可学习性及报告；不重新划分或训练正式增量模型',
     )
 
     # 解析终端输入为 Namespace；例如 --sample-size 对应 args.sample_size。

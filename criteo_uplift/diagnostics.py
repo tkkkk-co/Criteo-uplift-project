@@ -26,7 +26,6 @@ import time
 import numpy as np
 import pandas as pd
 from scipy.stats import chisquare, ks_2samp
-from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     average_precision_score,
@@ -302,7 +301,7 @@ def scan_raw_data(
                 for name, rows in (
                     ('Control', sample[sample.treatment == 0]),
                     ('Treatment', sample[sample.treatment == 1]),
-                    ('总体', sample),
+                    ('Total', sample),
                 )
             ],
         }
@@ -335,6 +334,8 @@ def scan_raw_data(
                 row['smd_status'] = 'computed' if np.isfinite(row['smd']) else 'undefined_zero_or_missing_variance'
                 feature_stats.append(row)
         # 已开启全量诊断时，feature_stats 已在上面的逐列诊断中生成，直接复用。
+        # 多余行数 = 总行数 - 不同指纹数；同一内容出现 k 次贡献 k-1 行。
+        duplicate_excess = total - int(np.unique(np.concatenate(hashes)).size)
         #输出完整审计字典
         audit = {
             'n_rows': total, 'n_columns': len(COLUMNS),
@@ -343,8 +344,19 @@ def scan_raw_data(
             'missing_or_nonfinite': 0, 'invalid_binary_labels': 0,
             'control_exposed': control_exposure, 'conversion_without_visit': bad_visit,
             #原始 CSV 的所有全量样本进行重复行检查
-            'duplicate_row_fingerprints': total - int(np.unique(np.concatenate(hashes)).size),
-            'duplicate_method': '64-bit hash of all original float64 fields; diagnostic only; no user ID; not deduplicated',
+            'duplicate_row_fingerprints': duplicate_excess,
+            'duplicate_row_fraction': duplicate_excess / total,
+            'duplicate_fraction_denominator': total,
+            'duplicate_count_definition': (
+                '多余行数 = 全量行数 - 不同完整行指纹数；同一指纹出现 k 次贡献 k-1 行。'
+                '不是出现重复的不同记录种数，也不是所有参与重复的行数；比例分母为全量原始记录数。'
+            ),
+            'duplicate_method': (
+                '对原始 CSV 的全部 16 个字段按 float64 表示，使用 pandas.util.hash_pandas_object'
+                '(index=False) 生成 uint64 指纹，并跨全部分块统计不同指纹数。'
+                '64 位哈希存在碰撞可能，float64 解析也不等于原始文本逐字节相等；仅识别内容重复候选。'
+                '没有可靠用户标识，不能证明同一用户重复出现，不据此自动删除记录。'
+            ),
             'feature_stats': feature_stats,
             'groups': {
                 str(arm): {
@@ -365,7 +377,7 @@ def scan_raw_data(
                 for name, n, positive in (
                     ('Control', counts[0], positives[0, 0]),
                     ('Treatment', counts[1], positives[1, 0]),
-                    ('总体', total, positives[:, 0].sum()),
+                    ('Total', total, positives[:, 0].sum()),
                 )
             ],
         }
@@ -572,10 +584,10 @@ def covariate_balance(df: pd.DataFrame, features: Sequence[str]) -> pd.DataFrame
 #-----------------------------------------------------------------------------------------------------------------------
 # 函数：_model —— 创建分类器。
 # 输入：
-#     name：模型名称，可选 logistic 或 hgb。
+#     name：模型名称，可选 logistic 或 xgboost。
 #     seed：随机种子。
 # 输出：
-#     模型对象：尚未训练的 Logistic 流水线或 HGB 分类器。
+#     模型对象：尚未训练的 Logistic 流水线或 XGBoost 分类器。
 # 说明：按指定名称准备一个新模型，供后续训练和预测使用。
 #-----------------------------------------------------------------------------------------------------------------------
 def _model(name: str, seed: int):
@@ -584,14 +596,25 @@ def _model(name: str, seed: int):
             StandardScaler(),
             LogisticRegression(C=1.0, max_iter=500, random_state=seed),
         )
-    if name == "hgb":
-        return HistGradientBoostingClassifier(
-            max_iter=30,
-            max_leaf_nodes=15,
-            min_samples_leaf=50,
+    if name == "xgboost":
+        # 沿用 30 轮、最多 15 叶的复杂度预算；学习率 0.1、L2=1。
+        # 单线程避免大量置换拟合时过度订阅；配置预先固定，不根据留出 AUC 或 P 值调参。
+        # min_child_weight 是 Hessian 权重阈值，不等同于 HGB 的最少叶样本数。
+        from .runtime import configure_runtime
+        configure_runtime()
+        from xgboost import XGBClassifier
+        return XGBClassifier(
+            n_estimators=30,
+            max_depth=0,
+            max_leaves=15,
+            grow_policy="lossguide",
+            min_child_weight=1.0,
             learning_rate=0.1,
-            l2_regularization=1.0,
-            early_stopping=False,
+            reg_lambda=1.0,
+            objective="binary:logistic",
+            eval_metric="logloss",
+            tree_method="hist",
+            n_jobs=1,
             random_state=seed,
         )
     raise ValueError(f"Unknown model: {name}")
@@ -684,9 +707,9 @@ def c2st(
     # 常数基线：每个留出样本都预测训练集的 Treatment 占比；本次等量样本中为 0.5。
     dummy = _probability_metrics(t_test, np.full(len(t_test), t_train.mean()))
     
-    # 用真实标签分别训练 Logistic 和 HGB，记录留出集的观测指标。
+    # 用真实标签分别训练 Logistic 和 XGBoost，记录留出集的观测指标。
     observed = {}
-    for name in ("logistic", "hgb"):
+    for name in ("logistic", "xgboost"):
         classifier = _model(name, seed)
         classifier.fit(x_train, t_train)
         observed[name] = _probability_metrics(
@@ -697,7 +720,7 @@ def c2st(
     for b in range(permutations):
         shuffled_train = rng.permutation(t_train)
         shuffled_test = rng.permutation(t_test)
-        for name in ("logistic", "hgb"):
+        for name in ("logistic", "xgboost"):
             classifier = _model(name, seed)
             classifier.fit(x_train, shuffled_train)
             null_records.append(
@@ -823,7 +846,7 @@ def learnability(
             "positive_rate_train": float(yt.mean()) if len(yt) else np.nan,
             "positive_rate_validation": float(yv.mean()) if len(yv) else np.nan,
         }
-        for name in ("dummy", "logistic", "hgb"):
+        for name in ("dummy", "logistic", "xgboost"):
             record = {**metadata, "model": name}
             if len(yt) == 0 or len(yv) == 0:
                 records.append({**record, "status": "skipped_empty_scope"})
@@ -919,6 +942,8 @@ def update_experiment_diagnostics(
         "train_n_control": check["train_n"] // 2, "train_n_treatment": check["train_n"] // 2,
         "holdout_n_control": check["test_n"] // 2, "holdout_n_treatment": check["test_n"] // 2,
         "metric": "one-sided ROC AUC", "multiplicity": "Holm across two prespecified classifiers",
+        "models": ["logistic", "xgboost"],
+        "xgboost_parameters": _model("xgboost", seed).get_params(),
         "permutations": permutations, "pvalue_resolution": 1 / (permutations + 1),
         "sample_row_ids_sha256": hashlib.sha256(sample.row_id.to_numpy().tobytes()).hexdigest(),
         "ks_method": metadata["ks_method"], "elapsed_seconds": time.perf_counter() - started,

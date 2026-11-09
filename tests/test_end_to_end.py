@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from criteo_uplift.data import FEATURES, fingerprint
-from run_pipeline import run
+from run_pipeline import run, update_diagnostics_only
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -139,6 +139,42 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(diagnostic['n_treatment'], 500)
             self.assertEqual(diagnostic['n_control'], 500)
             self.assertEqual(fingerprint(path), before)
+
+
+    def test_diagnostics_refresh_preserves_frozen_results_and_saved_ate(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        with TemporaryDirectory() as folder, redirect_stdout(StringIO()):
+            root = Path(folder)
+            rng = np.random.default_rng(28)
+            frame = pd.DataFrame(rng.normal(size=(1000, 12)), columns=FEATURES)
+            frame['treatment'] = rng.binomial(1, .7, len(frame))
+            frame['conversion'] = rng.binomial(1, .2, len(frame))
+            frame['visit'] = np.maximum(frame.conversion, rng.binomial(1, .3, len(frame)))
+            frame['exposure'] = frame.treatment
+            path = root / 'synthetic.csv'
+            frame.to_csv(path, index=False)
+            args = SimpleNamespace(data=path, sample_size=800, seed=28, outcome='conversion',
+                primary_budget=.2, permutations=1, c2st_sample=100, bootstrap=2, trees=2, output=root/'run')
+            with patch('run_pipeline.ROOT', root):
+                out = run(args)
+            protected = {p: p.read_bytes() for p in out.rglob('*') if p.is_file() and (
+                p.parent.name in ('models', 'evaluation') or p.name.endswith('_row_ids.csv') or p.name=='split_summary.csv')}
+            ate_path = out/'diagnostics/ate_full.csv'
+            before = pd.read_csv(ate_path, dtype={'p_value_text':'string'}, float_precision='round_trip')
+            cache = next((root/'artifacts/cache').glob('full_audit_*.json'))
+            old = json.loads(cache.read_text())
+            old['audit'].pop('duplicate_row_fraction')
+            cache.write_text(json.dumps(old))
+            update_diagnostics_only(args, root=root, progress=lambda _: None)
+            after = pd.read_csv(ate_path, dtype={'p_value_text':'string'}, float_precision='round_trip')
+            pd.testing.assert_frame_equal(before, after, check_exact=True)
+            for p, content in protected.items():
+                self.assertEqual(p.read_bytes(), content, str(p))
+            audit = json.loads((out/'data_preparation/audit.json').read_text())
+            self.assertIn('duplicate_row_fraction', audit)
+            self.assertEqual(audit['group_summary'][-1]['group'], 'Total')
+            self.assertEqual(set(pd.read_csv(out/'diagnostics/c2st.csv').model), {'logistic','xgboost'})
 
 
 if __name__ == '__main__':

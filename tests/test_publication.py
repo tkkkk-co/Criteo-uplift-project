@@ -27,14 +27,14 @@ class PublicationTests(unittest.TestCase):
     # 函数：test_presentation_notebooks_do_not_compute_or_write_artifacts —— 防止展示页重新承担计算和写入职责。
     # 输入：仓库内 Notebook 01/02 的代码单元格。
     # 输出：断言通过；不运行 Notebook，不写入结果。
-    # 说明：禁止函数定义、检验/训练/抽样和文件写入入口；允许读取、选列、格式化和显示。
+    # 说明：禁止函数定义、检验/训练/抽样和文件写入入口；允许读取、选列、显示单位转换、绘图与格式化。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_presentation_notebooks_do_not_compute_or_write_artifacts(self):
         root = Path(__file__).resolve().parents[1]
         forbidden = {
             'write_result', 'write_text', 'write_bytes', 'to_csv', 'to_json', 'savefig',
             'fit', 'fit_transform', 'scan_raw_data', 'split_sample', 'prepare_sample',
-            'load_sample', 'hist', 'groupby', 'sum', 'mean', 'std', 'var',
+            'load_sample', 'groupby', 'sum', 'mean', 'std', 'var',
             'c2st', 'aggregate_ate_from_audit', 'build_report', 'open',
         }
         for filename in ('01_data_understanding.ipynb', '02_sanity_and_ate.ipynb'):
