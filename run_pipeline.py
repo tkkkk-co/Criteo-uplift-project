@@ -1,179 +1,139 @@
 #!/usr/bin/env python3
-"""完整实验入口。先读 run() 的编号阶段，再进入对应模块；见 docs/PROJECT_PIPELINE.md。"""
-
-# 在导入数值计算库前配置线程。
-from criteo_uplift.runtime import configure_runtime, log
-
+"""项目主流程：准备 → 诊断 → 训练/冻结 → Test → 稳定性 → 业务规划 → 报告。"""
+from criteo_uplift.config import configure_runtime, log
 configure_runtime()
 
 import argparse
+import json
 from pathlib import Path
 import time
-
 import numpy as np
-import pandas as pd
-
-from criteo_uplift.preparation import DEFAULT_DATA, ROOT, prepare_sample, split_sample
-from criteo_uplift.diagnostic_refresh import update_diagnostics_only
-from criteo_uplift.diagnostics import update_experiment_diagnostics, run_learnability_diagnostics
-from criteo_uplift.evaluation import aggregate_ate_from_audit
-from criteo_uplift.training import fit_and_select_models
-from criteo_uplift.holdout_evaluation import evaluate_test_set
+from criteo_uplift.config import ROOT, DEFAULT_DATA, DEFAULT_SAMPLE_SIZE, DEFAULT_SEED, FEATURES
+from criteo_uplift.preparation import prepare_sample, split_sample
+from criteo_uplift.diagnostics import run_diagnostics
+from criteo_uplift.training_validation import fit_and_select_models
+from criteo_uplift.evaluation import ate_summary_from_audit, evaluate_test_set
+from criteo_uplift.stability import run_stability, DEFAULT_SEEDS, DEFAULT_FRACTIONS
+from criteo_uplift.planning import run_planning
 from criteo_uplift.reporting import finalize_run, save_sample_feature_plot
 from criteo_uplift.pipeline_io import safe_output, write_result
 
 
 def run(args):
-    """依次准备数据、诊断、训练、冻结策略、测试评价和生成报告。"""
-    started_at = time.perf_counter()
+    """组织模块调用；只在新目录中产生结果，不覆盖已有实验。"""
+    started = time.perf_counter()
 
-    # 01. 规划本次实验的输出路径，创建总目录和各阶段子目录。
-    out = safe_output(
-        args.output
-        or ROOT / f"artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}"
-    )
+    # 01. 一次规划全部输出；缓存共享，正式结果按实验隔离。
+    out = safe_output(args.output or ROOT / f'artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}')
     if out.exists() and any(out.iterdir()):
-        raise FileExistsError(
-            f"结果目录已有正式实验：{out}。仅更新诊断请使用 --diagnostics-only。"
-        )
-    manifest_path = out / "manifest.json"  # 实验参数、数据来源与完成状态
-    report_path = out / "report.html"  # 实验总报告
-    data_out = out / "data_preparation"  # 全量审计、抽样与划分记录
-    diagnostics_out = out / "diagnostics"  # 全量 ATE 与各项诊断结果
-    models_out = out / "models"  # 训练好的模型与验证集选型结果
-    evaluation_out = out / "evaluation"  # 测试集预测、评价指标与区间
-    figures_out = out / "figures"  # 报告和 Notebook 展示用图
-    out.mkdir(parents=True, exist_ok=True)
-    for directory in (data_out, diagnostics_out, models_out, evaluation_out, figures_out):
-        directory.mkdir(exist_ok=True)
+        raise FileExistsError(f'结果目录非空：{out}。请用 --output 指定新的实验目录。')
+    manifest_path = out / 'manifest.json'  # 来源、参数、冻结选择和完成状态
+    report_path = out / 'report.html'  # 面试展示用的完整报告
+    data_out = out / 'data_preparation'  # 全量审计、抽样说明、划分行号
+    diagnostics_out = out / 'diagnostics'  # SRM、SMD/KS、C2ST、可学习性
+    models_out = out / 'models'  # 模型、Validation 评价、冻结选择
+    evaluation_out = out / 'evaluation'  # 统一 ATE、Test 预测、指标与区间
+    stability_out = out / 'stability'  # 种子、训练规模和划分方式敏感性
+    business_out = out / 'business'  # 假设参数、A/B 规划、经济情景
+    figures_out = out / 'figures'  # 报告和 Notebook 使用的结果图
+    sample_cache = ROOT / f'artifacts/cache/sample_{args.sample_size}_seed{args.seed}.npz'
+    for directory in (data_out, diagnostics_out, models_out, evaluation_out, stability_out, business_out, figures_out):
+        directory.mkdir(parents=True, exist_ok=True)
+    assumptions = json.loads(args.planning_assumptions.read_text()) if args.planning_assumptions else None
 
-    # 02. 统一扫描原始数据，准备审计、诊断所需数据和建模样本，再划分样本。
+    # 02. 一次流式扫描完成检查、审计与抽样，随后划分 60/20/20。
     sample, audit, source, scanned = prepare_sample(args, root=ROOT, progress=log)
     sample_n = len(sample)
-    parts, split_summary, feature_overlap = split_sample(sample, args.outcome, args.seed)
-    train, validation, test = (parts[name] for name in ("train", "validation", "test"))
-
-    # 03. 保存数据准备记录和样本特征分布图。
+    parts, summary, overlap = split_sample(sample, args.outcome, args.seed)
+    train, validation, test = (parts[name] for name in ('train', 'validation', 'test'))
     for name, frame in parts.items():
-        write_result(frame[["row_id"]], data_out / f"{name}_row_ids.csv")
-    write_result(split_summary, data_out / "split_summary.csv")
-    write_result(feature_overlap, data_out / "feature_overlap.json")
-    write_result(audit, data_out / "audit.json")
-    write_result(scanned["sample_report"], data_out / "sample_report.json")
-    save_sample_feature_plot(sample, figures_out / "sample_features.png")
+        write_result(frame[['row_id']], data_out / f'{name}_row_ids.csv')
+    write_result(summary, data_out / 'split_summary.csv')
+    write_result(overlap, data_out / 'feature_overlap.json')
+    write_result(audit, data_out / 'audit.json')
+    write_result(scanned['sample_report'], data_out / 'sample_report.json')
+    save_sample_feature_plot(sample, figures_out / 'sample_features.png')
     del sample
 
-    # 04. 根据全量审计计数计算并保存 conversion 和 visit 的 ATE。
-    ate_full = pd.DataFrame([
-        aggregate_ate_from_audit(audit, outcome) for outcome in ("conversion", "visit")
-    ])
-    write_result(ate_full, diagnostics_out / "ate_full.csv")
-
-    # 05. 运行 C2ST，和第 02 步算出的 SRM、SMD/KS 一起保存。
-    update_experiment_diagnostics(
-        args.data,
-        diagnostics_out,
-        audit=audit,
-        source=source,
-        sample_size=args.c2st_sample,
-        permutations=args.permutations,
-        seed=args.seed,
-        progress=log,
-        scanned=scanned,
-    )
+    # 03. 复用扫描统计与 C2ST 样本，完成分组诊断和可学习性检查。
+    run_diagnostics(diagnostics_out, audit=audit, source=source, scanned=scanned,
+                    train=train, validation=validation, sample_size=args.c2st_sample,
+                    permutations=args.permutations, seed=args.seed, progress=log)
     del scanned
 
-    # 06. 检查处理前特征能否预测观察到的结果。
-    run_learnability_diagnostics(
-        train, validation, diagnostics_out, seed=args.seed
-    )
+    # 04. 全量 ATE 只用审计计数，后面与 Test ATE 合并保存。
+    full_ate = [{'scope': 'full_dataset', 'outcome': outcome, **ate_summary_from_audit(audit, outcome)}
+                for outcome in ('conversion', 'visit')]
 
-    # 07. 在训练集拟合候选模型，仅用验证集冻结策略选择。
-    assignment_probability = float(train.treatment.mean())
-    fitted = fit_and_select_models(
-        train,
-        validation,
-        outcome=args.outcome,
-        seed=args.seed,
-        trees=args.trees,
-        primary_budget=args.primary_budget,
-        assignment_probability=assignment_probability,
-        out=models_out,
-        progress=log,
-    )
+    # 05. Train 拟合四个候选，Validation 选型并冻结，Test 不参与。
+    e = float(train.treatment.mean())
+    fitted = fit_and_select_models(train, validation, outcome=args.outcome, seed=args.seed,
+                                  trees=args.trees, primary_budget=args.primary_budget,
+                                  assignment_probability=e, out=models_out, progress=log)
+    # 为后续稳定性核验记录当前阶段；正式报告成功后才标记 complete。
+    write_result({'status': 'models_frozen', 'source': source, 'sample_n': sample_n,
+                  'primary_outcome': args.outcome, 'features': FEATURES, 'seed': args.seed,
+                  'selection': fitted['selection']}, manifest_path)
 
-    # 08. 在测试集评价冻结模型并保存测试结果。
-    policies = evaluate_test_set(
-        test,
-        fitted["models"],
-        outcome=args.outcome,
-        assignment_probability=assignment_probability,
-        seed=args.seed,
-        bootstrap=args.bootstrap,
-        primary_budget=args.primary_budget,
-        out=evaluation_out,
-        progress=log,
-    )
+    # 06. 固定模型评价 Test；统一保存两种 scope、两种 outcome 的 ATE。
+    policies = evaluate_test_set(test, fitted['models'], outcome=args.outcome,
+                                 assignment_probability=e, seed=args.seed, bootstrap=args.bootstrap,
+                                 primary_budget=args.primary_budget, out=evaluation_out,
+                                 progress=log, full_ate=full_ate)
+    del train, validation, test, parts
 
-    # 09. 写入 manifest.json，生成 report.html，再标记实验完成。
-    finalize_run(
-        manifest_path=manifest_path,
-        report_path=report_path,
-        args=args,
-        source=source,
-        sample_n=sample_n,
-        assignment_probability=assignment_probability,
-        fitted=fitted,
-        elapsed_seconds=time.perf_counter() - started_at,
-    )
-    log(f"完成：{report_path}")
+    # 07. 排除原 Test，按原设计检查随机种子、训练规模、分组划分。
+    run_stability(sample_cache, out, stability_out, seeds=args.stability_seeds,
+                  fractions=args.stability_fractions, trees=args.trees,
+                  primary_budget=args.primary_budget, outcome=args.outcome)
+
+    # 08. 使用明确的假设做线上 A/B 规划和条件性经济价值测算。
+    run_planning(policies, fitted['selection'], business_out, assumptions=assumptions)
+    write_result({'status': 'not_run', 'reason': '未提供外部 X-only 数据，尚未执行真实新人群打分。',
+                  'entrypoint': 'score_policy.py'}, business_out / 'score_policy_status.json')
+
+    # 09. 汇总已有结果，生成唯一正式 HTML，成功后标记实验完成。
+    finalize_run(manifest_path=manifest_path, report_path=report_path, args=args, source=source,
+                 sample_n=sample_n, assignment_probability=e, fitted=fitted,
+                 elapsed_seconds=time.perf_counter() - started)
+    log(f'完成：{report_path}')
     print(policies[np.isclose(policies.budget, args.primary_budget)].to_string(index=False))
     return out
 
 
 def parse_args(argv=None):
-    """解析并检查命令行配置。"""
-    parser = argparse.ArgumentParser(description="运行完整 Criteo uplift 分析；原始 data 目录只读。")
-    # 数据、抽样与分析对象。
-    parser.add_argument("--data", type=Path, default=DEFAULT_DATA)
-    parser.add_argument("--sample-size", type=int, default=1_000_000, help="0=全量")
-    parser.add_argument("--outcome", choices=["conversion", "visit"], default="conversion")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--primary-budget", type=float, default=0.2)
-    # 诊断、模型与评价规模。
-    parser.add_argument("--permutations", type=int, default=499)
-    parser.add_argument("--c2st-sample", type=int, default=20000)
-    parser.add_argument("--bootstrap", type=int, default=200)
-    parser.add_argument("--trees", type=int, default=150)
-    parser.add_argument("--output", type=Path)
-    parser.add_argument(
-        "--diagnostics-only", action="store_true",
-        help="更新已有实验的审计、ATE 尾概率、诊断和报告；复用划分与正式模型",
-    )
+    """解析终端参数并检查规模边界；业务假设可通过 JSON 显式覆盖。"""
+    parser = argparse.ArgumentParser(description='完整 Criteo uplift 流程；原始 data 只读，输出拒绝覆盖。')
+    parser.add_argument('--data', type=Path, default=DEFAULT_DATA)
+    parser.add_argument('--sample-size', type=int, default=DEFAULT_SAMPLE_SIZE, help='0=全量')
+    parser.add_argument('--outcome', choices=['conversion', 'visit'], default='conversion')
+    parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
+    parser.add_argument('--primary-budget', type=float, default=.2)
+    parser.add_argument('--permutations', type=int, default=499)
+    parser.add_argument('--c2st-sample', type=int, default=20000)
+    parser.add_argument('--bootstrap', type=int, default=200)
+    parser.add_argument('--trees', type=int, default=150)
+    parser.add_argument('--stability-seeds', type=int, nargs='+', default=DEFAULT_SEEDS)
+    parser.add_argument('--stability-fractions', type=float, nargs='+', default=DEFAULT_FRACTIONS)
+    parser.add_argument('--planning-assumptions', type=Path, help='完整假设 JSON；默认沿用 planning.py 中明确标记的原教学情景')
+    parser.add_argument('--output', type=Path)
     args = parser.parse_args(argv)
-    if (
-        args.sample_size < 0
-        or not 0 < args.primary_budget <= 1
-        or args.permutations < 1
-        or args.c2st_sample < 20
-        or args.c2st_sample % 20
-        or args.bootstrap < 2
-        or args.trees < 1
-    ):
-        parser.error(
-            "sample-size>=0, primary-budget in (0,1], permutations>=1, "
-            "c2st-sample>=20 and divisible by 20, bootstrap>=2, trees>=1 required"
-        )
+    if (args.sample_size < 0 or not 0 < args.primary_budget <= 1 or args.permutations < 1
+        or args.c2st_sample < 20 or args.c2st_sample % 20 or args.bootstrap < 2 or args.trees < 1
+        or not 0 <= args.seed < 2**32 - 1):
+        parser.error('sample-size>=0, budget in (0,1], permutations>=1, c2st-sample>=20 and divisible by 20, bootstrap>=2, trees>=1, valid seed required')
+    from criteo_uplift.stability import _validate_seeds, _validate_fractions
+    try:
+        _validate_seeds(args.stability_seeds)
+        _validate_fractions(args.stability_fractions)
+    except ValueError as exc:
+        parser.error(str(exc))
     return args
 
 
 def main(argv=None):
-    args = parse_args(argv)
-    if args.diagnostics_only:
-        update_diagnostics_only(args, root=ROOT, progress=log)
-    else:
-        run(args)
+    return run(parse_args(argv))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

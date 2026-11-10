@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .preparation import FEATURES
+from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 
 _COLORS = {
@@ -35,12 +35,6 @@ _LABELS = {
 }
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：save_sample_feature_plot —— 在运行阶段保存建模样本的特征分布图。
-# 输入：sample：已经抽取的建模样本；path：图片的完整输出路径。
-# 输出：返回保存路径，写入一张 PNG 图片。
-# 说明：直方图分箱在包内完成；Notebook 只读取图片，不加载逐行样本或重新分箱。
-#-----------------------------------------------------------------------------------------------------------------------
 def save_sample_feature_plot(sample, path):
     from matplotlib.figure import Figure
 
@@ -57,12 +51,6 @@ def save_sample_feature_plot(sample, path):
     return path
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：save_c2st_plot —— 根据已保存的诊断结果生成置换分布图。
-# 输入：out：实验结果目录，包含 diagnostics 下的 C2ST 结果。
-# 输出：返回 figures/c2st_null.png 路径，并保存图片。
-# 说明：只将已有置换 AUC 分箱绘图，不重新抽样、训练、置换或计算检验结果。
-#-----------------------------------------------------------------------------------------------------------------------
 def save_c2st_plot(out):
     from matplotlib.figure import Figure
 
@@ -91,40 +79,14 @@ def save_c2st_plot(out):
     return path
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_json —— 读取一个结果 JSON 文件。
-# 输入：
-#     out：当前实验的结果保存目录。
-#     name：需要构造、读取或保存的对象名称。
-# 输出：
-#     数据：从文件恢复的 JSON 对象。
-# 说明：读取一个结果 JSON 文件。
-#-----------------------------------------------------------------------------------------------------------------------
 def _json(out: Path, name: str) -> dict:
     return json.loads((out / name).read_text(encoding="utf-8"))
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_num —— 将数值转换为报告显示文本。
-# 输入：
-#     value：需要格式化或转换的值。
-#     digits：显示数值时保留的小数位数。
-# 输出：
-#     文本：按指定精度格式化的数值或缺失标记。
-# 说明：将数值转换为报告显示文本。
-#-----------------------------------------------------------------------------------------------------------------------
 def _num(value, digits: int = 2) -> str:
     return "—" if value is None or pd.isna(value) else f"{value:,.{digits}f}"
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_p —— 格式化报告中的 p 值。
-# 输入：
-#     value：需要格式化或转换的值。
-# 输出：
-#     文本：适合报告展示的 p 值或缺失标记。
-# 说明：格式化报告中的 p 值。
-#-----------------------------------------------------------------------------------------------------------------------
 def _p(value) -> str:
     if value is None or pd.isna(value):
         return "—"
@@ -133,30 +95,10 @@ def _p(value) -> str:
     return f"{value:.3g}"
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_interval —— 将区间端点转换成报告文本。
-# 输入：
-#     row：包含当前结果字段的一条记录。
-#     low：区间下界或下界字段名。
-#     high：区间上界或上界字段名。
-#     scale：显示数值时使用的缩放比例。
-#     digits：显示数值时保留的小数位数。
-# 输出：
-#     文本：缩放并格式化后的区间。
-# 说明：将区间端点转换成报告文本。
-#-----------------------------------------------------------------------------------------------------------------------
 def _interval(row, low="ci_low", high="ci_high", scale=1, digits=2) -> str:
     return f"[{_num(row[low] * scale, digits)}, {_num(row[high] * scale, digits)}]"
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_table —— 将结果表转换成 HTML 表格。
-# 输入：
-#     frame：本次处理的数据表。
-# 输出：
-#     HTML：可以嵌入报告的表格字符串。
-# 说明：将结果表转换成 HTML 表格。
-#-----------------------------------------------------------------------------------------------------------------------
 def _table(frame: pd.DataFrame) -> str:
     return (
         '<div class="table-wrap">'
@@ -165,16 +107,6 @@ def _table(frame: pd.DataFrame) -> str:
     )
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_image —— 把本地图片和说明组合为报告片段。
-# 输入：
-#     path：需要读取或检查的文件路径。
-#     alt：图片的替代说明文字。
-#     caption：图片下方的说明文字。
-# 输出：
-#     HTML：图片、替代文字和图注组成的网页片段。
-# 说明：把本地图片和说明组合为报告片段。
-#-----------------------------------------------------------------------------------------------------------------------
 def _image(path: Path, alt: str, caption: str) -> str:
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return (
@@ -183,20 +115,6 @@ def _image(path: Path, alt: str, caption: str) -> str:
     )
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_errorbar —— 绘制点估计及区间端点。
-# 输入：
-#     ax：用于绘图的坐标轴对象。
-#     point：需要绘制的点估计数组。
-#     low：区间下界或下界字段名。
-#     high：区间上界或上界字段名。
-#     positions：各点在图中的位置。
-#     horizontal：是否绘制水平方向的区间。
-#     color：绘图使用的颜色。
-# 输出：
-#     返回值：None；在传入的坐标轴上绘图。
-# 说明：绘制点估计及区间端点。
-#-----------------------------------------------------------------------------------------------------------------------
 def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
     valid = np.isfinite(point) & np.isfinite(low) & np.isfinite(high)
     if horizontal:
@@ -207,17 +125,7 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
         ax.scatter(positions, point, c=color, s=35, zorder=3)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：build_report —— 读取实验结果生成图片和网页报告。
-# 输入：
-#     manifest_path：已保存的运行记录，与各阶段结果位于同一实验目录。
-#     report_path：HTML 报告的完整输出路径。
-#     diagnostics_only：是否只更新诊断图和报告。
-# 输出：
-#     report_path：生成的 HTML 报告路径。
-# 说明：根据已保存的结果生成报告；仅更新诊断时保留其他分析图片。
-#-----------------------------------------------------------------------------------------------------------------------
-def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bool = False) -> Path:
+def build_report(manifest_path: Path, report_path: Path) -> Path:
     manifest_path = Path(manifest_path)
     out = safe_output(manifest_path.parent)
     report_path = safe_output(report_path)
@@ -225,19 +133,22 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
     audit = _json(out / "data_preparation", "audit.json")
     selection, srm = _json(out / "models", "selection.json"), _json(out / "diagnostics", "srm.json")
     overlap = _json(out / "data_preparation", "feature_overlap.json")
-    c2st_details, ate_test = _json(out / "diagnostics", "c2st_details.json"), _json(
-        out / "evaluation", "ate_test.json"
-    )
+    c2st_details = _json(out / "diagnostics", "c2st_details.json")
     frames = {
-        name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_full" else None)
+        name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_summary" else None)
         for folder, names in (
-            ("diagnostics", ("ate_full", "balance", "c2st", "learnability")),
+            ("diagnostics", ("balance", "c2st", "learnability")),
             ("models", ("validation_policies",)),
-            ("evaluation", ("test_policies", "test_ranking", "curves")),
+            ("evaluation", ("ate_summary", "test_policies", "test_ranking", "curves")),
             ("data_preparation", ("split_summary",)),
         )
         for name in names
     }
+    frames["ate_full"] = frames["ate_summary"].query("scope == 'full_dataset'")
+    ate_test = frames["ate_summary"].loc[
+        (frames["ate_summary"].scope == "test") &
+        (frames["ate_summary"].outcome == manifest["primary_outcome"])
+    ].iloc[0].to_dict()
     sample_report = _json(out / "data_preparation", "sample_report.json")
     selected = selection["selected_policy"]
     selected_uplift = selection["selected_uplift_model"]
@@ -286,18 +197,8 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         }
     ):
 
-        #-----------------------------------------------------------------------------------------------------------------------
-        # 函数：save —— 保存并关闭当前报告图形。
-        # 输入：
-        #     fig：需要保存的图形对象。
-        #     name：需要构造、读取或保存的对象名称。
-        # 输出：
-        #     返回值：None；将图片保存到报告图片目录。
-        # 说明：保存并关闭当前报告图形。
-        #-----------------------------------------------------------------------------------------------------------------------
         def save(fig, name):
-            if not diagnostics_only or name == "balance":
-                fig.savefig(paths[name], dpi=160, bbox_inches="tight")
+            fig.savefig(paths[name], dpi=160, bbox_inches="tight")
             plt.close(fig)
 
         ate = frames["ate_full"]
@@ -330,8 +231,8 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
             ax.margins(y=0.35)
         save(fig, "ate_full")
 
-#-----------------------------------------------------------
-# 绘制SMD（横向条形图）
+
+
         balance = frames["balance"].sort_values("abs_smd", ascending=True)
         full_balance = balance.get("scope", pd.Series(dtype=str)).eq("full_published_dataset").all() and "scope" in balance
         balance_scope = "Full public data | raw float64" if full_balance else "Training split"
@@ -347,7 +248,6 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
             ax.grid(axis="x")
         fig.suptitle(f"{balance_scope} | n = {n_balance:,}\nMarginal T/C balance; no randomization pass/fail threshold")
         save(fig, "balance")
-#-----------------------------------------------------------
 
 
         curves = frames["curves"]
@@ -653,13 +553,13 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
     sections = [
         f'<header><p class="eyebrow">CRITEO UPLIFT · OFFLINE EXPERIMENT</p><h1>从广告实验到增量定向</h1>'
         f'<p class="subtitle">主结果：{esc(outcome)} · 主预算：{primary_pct} · 验证集冻结选择，测试集独立评估</p></header>',
-        '<section class="lead"><h2>本次结果</h2>'
+        '<section class="lead"><h2>Business Background · 业务问题与本次结果</h2>'
         f'<p class="key">验证集选中的政策是 <strong>{esc(selected)}</strong>。</p><p>{conclusion}</p>'
         f'<div class="cards"><div><span>测试集规模</span><strong>{n_test:,}</strong></div>'
         f'<div><span>{primary_pct} 预算下增量 / 10 万人</span><strong>{_num(selected_row["incremental_per_100k"])}</strong></div>'
         f'<div><span>该增量的 95% CI</span><strong>{_interval(selected_row)}</strong></div></div>'
         '<p>单位均为每 10 万名可触达对象的预期增量结果，比较假设每次触达成本及每个结果价值相同。预算指触达人数比例，未包含真实广告成本、收入或利润，不能解释成线上 ROI。</p></section>',
-        '<section><h2>数据、任务和评估边界</h2>'
+        '<section><h2>Data Preparation · 数据与分析边界</h2>'
         f'<p>源文件 <code>{source_file}</code> 共 {int(audit["n_rows"]):,} 行；本次建模样本 {int(manifest["sample_n"]):,} 行，'
         f'抽样方法：{esc(sample_report["sampling"])}，随机种子 {int(manifest["seed"])}。固定采用 train / validation / test = 60% / 20% / 20%，'
         '按 treatment × 主结果联合分层；模型均只在 train 拟合，没有 train + validation 重拟合。</p>'
@@ -672,7 +572,7 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         f'<p>与训练集匿名特征向量相同的比例：{overlap_text}。该检查基于建模时 float32 表示；相同向量不等于同一用户，也不能排除未知用户依赖。</p>'
         + _table(split_display)
         + '</section>',
-        '<section><h2>总体实验效果</h2><p>以下为源文件全量聚合 ATE，作为实验背景，不参与模型或政策选择。'
+        '<section><h2>ATE / ITT · 总体分配效果</h2><p>以下为源文件全量聚合 ATE，作为实验背景，不参与模型或政策选择。'
         'ATE 是处理组结果率减去对照组结果率；绝对效应用百分点表示，相对增幅以对照率为分母。</p>'
         + _table(ate_display)
         + _image(
@@ -682,7 +582,7 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         )
         + f'<p>独立测试集 {esc(outcome)} 的差均值 ATE 为 {_num(ate_test["ate"] * 100, 4)} 个百分点，'
         f'95% CI {_interval(ate_test, scale=100, digits=4)}。差均值 ATE 与下文固定 e 的 HT 估计是不同有限样本计算，数值不必完全一致。</p></section>',
-        '<section><h2>随机化与可学习性诊断</h2>'
+        '<section><h2>Experiment Diagnostics · 分组与可学习性诊断</h2>'
         f'<p>{srm_text} 当前训练集处理比例 e = {e:.6f} 只作为 HT 评估的 plug-in 分配概率，并非已知实验设计参数。</p>'
         + _image(
             paths["balance"],
@@ -700,7 +600,7 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         + '<p>上表使用 train 拟合、validation 评估，仅显示 whole 范围；按处理组分别训练的结果保存在 learnability.csv。'
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
         '这些指标诊断结果模型，不评估个体因果效应；普通结果预测较弱不能推出不存在效应异质性。</p></section>',
-        '<section><h2>验证集选择与测试集政策价值</h2>'
+        '<section><h2>Training &amp; Validation · 冻结选择</h2>'
         f'<p>事先设定主预算 {primary_pct}，用验证集“每 10 万名可触达对象的 HT 增量”在 random、propensity 及四个 uplift 模型间选择。'
         f'选择已在测试评估前冻结：<strong>{esc(selected)}</strong>。表格中的测试排名不会重新改变这一选择。</p>'
         + _table(val_display)
@@ -715,7 +615,7 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         f'<p>CI 由 {boot} 次组内配对百分位 bootstrap 得到：各处理组人数、训练好的模型、分数与 e 保持固定，'
         '每次重抽样重新选取 top-k；同一重抽样用于全部政策与基线，因此对随机/倾向的差值区间是配对区间。'
         '这些区间不包含重新训练、验证选择、估计 e 或未知用户依赖的额外不确定性；多个政策/预算区间是点对点区间，未作同时覆盖校正。</p></section>',
-        '<section><h2>增量排序与辅助 Qini</h2>'
+        '<section><h2>Test Evaluation · 增量排序与 Qini</h2>'
         + _image(
             paths["ranking"],
             "HT 增量曲线与传统 Qini 曲线",
@@ -739,17 +639,18 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         '包括仅有对照组的零值点。历史基线与稳定性研究的 v1 结果保持原样，未因本次说明修订而按 v2 重算。</p>'
         '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。'
         '</p></div></section>',
-        '<section><h2>CATE 分箱校准</h2>'
+        '<section><h2>Uplift Modeling · S/T/X 与 CATE 校准</h2>'
         f'<p>{calibration_note}</p>'
         + _image(
             paths["calibration"],
             "CATE 分箱校准",
             "只按预测 CATE 从低到高分为等人数箱。橙线为平均预测，蓝点为组间观察差值，蓝线为点对点 Wald 区间。",
         )
+        + '<p>S 用 X 和 T 拟合一个结果模型；T 分组拟合两个结果模型；X 再用两组伪效应拟合回归器，按训练处理比例加权。X 的 CATE 不直接等于两个结果模型预测之差。四个候选与原超参数保持不变，预处理仅在 Train 拟合。</p>'
         + _table(calibration_display)
         + '<p>没有个体真实反事实标签，不能在该数据上直接计算真实 ITE/CATE 的 PEHE。分箱观察差值只是组水平诊断；'
         '该测试结果没有用于重新拟合或校准模型，多个箱的区间也不是同时置信带。</p></section>',
-        '<section><h2>推断口径与下一步</h2>'
+        '<section><h2>Conclusion · 推断边界与下一步</h2>'
         '<p>全量/分箱 ATE 区间使用未合并方差的正态近似；ATE 双侧 p 值使用零假设下合并比例的 z 检验，'
         '因此两者并非严格有限样本对偶，稀疏分箱尤其需要谨慎解释。p 值不表示零假设为真的概率。</p>'
         '<p>C2ST 的 p 值是 AUC 上尾检验：<code>p = (1 + #{AUC_perm ≥ AUC_obs}) / (B + 1)</code>，'
@@ -758,8 +659,8 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         '<p>公开匿名样本的离线 ITT 结论不能直接外推到当前线上人群、曝光效果或盈利效果。实际收益还需要成本、转化价值、'
         '可触达条件及线上随机验证。</p>'
         '<ol><li>在资源允许时扩到 500 万样本或全量，保留独立留出集；本报告没有宣称已完成该规模训练。</li>'
-        '<li>预先定义多随机种子或重复拆分方案，评估训练与选择稳定性；不能反复依据当前测试结果调参。</li>'
-        '<li>对相同匿名特征向量按组拆分作敏感性分析，并比较结果；这不是用户级去重，本次尚未实施。</li>'
+        '<li>本次已按既定多随机种子方案评估训练与选择稳定性；不能反复依据当前测试结果调参。</li>'
+        '<li>对相同匿名特征向量按组拆分作敏感性分析，并比较结果；这不是用户级去重，结果见本报告 Stability Analysis。</li>'
         '<li>补充成本/价值场景与上线门槛，冻结候选政策后开展新的线上随机实验。</li></ol></section>',
         '<section class="provenance"><h2>复现记录</h2>'
         f'<p>来源 SHA256：<code>{esc(source["sha256"])}</code><br>'
@@ -771,6 +672,45 @@ def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bo
         '<p>参考：<a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与版本说明</a>；'
         '<a href="https://arxiv.org/abs/1706.03461">Künzel et al. (2019), Meta-learners</a>。</p></section>',
     ]
+    stability = _json(out / "stability", "report.json")
+    protocol = _json(out / "stability", "protocol.json")
+    aggregate = pd.read_csv(out / "stability/aggregate.csv")
+    frequencies = pd.read_csv(out / "stability/selection_frequency.csv")
+    stability_columns = ["split_method", "training_fraction", "policy",
+                         "incremental_per_100k_mean", "incremental_per_100k_std", "vs_propensity_per_100k_mean"]
+    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+    for name in aggregate.policy.unique():
+        rows = aggregate[(aggregate.policy == name) & (aggregate.split_method == "row_stratified")].sort_values("training_fraction")
+        ax.plot(rows.training_fraction, rows.incremental_per_100k_mean, "o-", label=name)
+    ax.set(xlabel="Fraction of development training partition", ylabel="HT gain per 100k eligible",
+           title="Development stability: mean across configured seeds")
+    ax.legend(fontsize=8); ax.grid(alpha=.2)
+    stability_plot = figures / "stability.png"
+    fig.savefig(stability_plot, dpi=160); plt.close(fig)
+    assumptions = _json(out / "business", "assumptions.json")
+    plans = pd.read_csv(out / "business/hypothetical_ab_plans.csv")
+    scenarios = pd.read_csv(out / "business/hypothetical_cost_scenarios.csv")
+    scoring = _json(out / "business", "score_policy_status.json")
+    extensions = [
+        '<section><h2>Stability Analysis · 开发期敏感性分析</h2>'
+        f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原 Test {int(stability["old_test_n_excluded"]):,} 行。'
+        f'旧 Test 交集为零：{stability["all_old_test_row_overlaps_zero"]}；按特征分组的交集为零：{stability["all_group_split_feature_overlaps_zero"]}。</p>'
+        f'<p>Seeds {esc(str(protocol["seeds"]))}；训练比例 {esc(str(protocol["training_fractions"]))}；比较行分层与特征分组划分。'
+        '均值和标准差描述重复开发实验的波动，不是独立 Test 置信区间。相同匿名特征不代表同一用户；此前已看过历史 Test，排除其行不能抹去分析者已有知识。</p>'
+        + _image(stability_plot, "开发期训练规模敏感性", "所有点来自已保存的 aggregate.csv；没有使用原 Test 重新选型。")
+        + _table(aggregate[stability_columns]) + '<h3>Validation 选择频率</h3>' + _table(frequencies) + '</section>',
+        '<section><h2>Score Policy · 新人群打分接口</h2>'
+        f'<p>{esc(scoring.get("reason", scoring["status"]))}</p>'
+        '<p>独立入口 score_policy.py 只要求 f0–f11，分块读取并使用冻结模型。输出 source_row_id、score、selected；按预算选择 Top-k。'
+        'X-only 数据不能计算已观测 ATE/ATT/ITT，也不代表已经投放广告。</p></section>',
+        '<section><h2>Planning · A/B 规划与假设经济情景</h2>'
+        '<p>以下业务参数全部为假设，沿用原项目教学情景，不是 Criteo 已验证的线上转化率、收入或 ROI。'
+        '价值区间只是在固定成本、固定转化价值、效果可迁移假设下换算离线效果区间。</p>'
+        + '<pre>' + esc(json.dumps(assumptions["parameters"], ensure_ascii=False, indent=2)) + '</pre>'
+        + _table(plans) + _table(scenarios) + '</section>',
+    ]
+    conclusion_index = next(i for i, section in enumerate(sections) if 'Conclusion ·' in section)
+    sections[conclusion_index:conclusion_index] = extensions
     css = """
     :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f4f7fa;color:#263746;font:15px/1.8 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     main{max-width:1200px;margin:auto;padding:44px 28px 60px}header{margin:0 0 30px;padding:0 8px}.eyebrow{font-size:12px;letter-spacing:.16em;color:#2171ad;font-weight:700}h1{font-size:36px;line-height:1.25;margin:12px 0}.subtitle{color:#5e7180}
@@ -831,6 +771,7 @@ def finalize_run(
             "样本行相互独立，满足一致性和个体间无干扰假设",
             "每次转化的价值相同，每次触达的成本相同",
         ],
+        "ate_variance_definition": "Both inputs use Bernoulli sample variance with n-1 correction; pooled-null z test unchanged.",
         "status": "metrics_complete",  # 状态码：指标计算完成
         "source": source,
         "features": FEATURES,

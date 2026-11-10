@@ -1,4 +1,4 @@
-name: tests-and-demo
+name: tests-and-notebook
 on:
   push:
   pull_request:
@@ -23,8 +23,6 @@ jobs:
         run: python -m pip install -e '.[notebooks]'
       - name: Unit and synthetic end-to-end tests
         run: python -m unittest discover -s tests -v
-      - name: Synthetic demonstration
-        run: python scripts/run_demo.py --output artifacts/ci_demo
       - name: Execute public notebooks without raw data
         run: python scripts/execute_notebooks.py
       - name: Validate published snapshot hashes

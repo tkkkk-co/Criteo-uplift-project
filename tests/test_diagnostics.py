@@ -10,16 +10,11 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from criteo_uplift.preparation import COLUMNS, FEATURES, LABELS, fingerprint
+from criteo_uplift.config import COLUMNS, FEATURES, LABELS
+from criteo_uplift.pipeline_io import fingerprint
 
-from criteo_uplift.diagnostics import (
-    c2st,
-    covariate_balance,
-    learnability,
-    srm_summary,
-    scan_raw_data,
-    update_experiment_diagnostics,
-)
+from criteo_uplift.diagnostics import c2st, covariate_balance, learnability, srm_summary, run_diagnostics
+from criteo_uplift.preparation import _scan_raw_data
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -115,13 +110,13 @@ class DiagnosticsTests(unittest.TestCase):
         original = frame.copy(deep=True)
         from criteo_uplift import diagnostics
 
-        factory = diagnostics._model
+        factory = diagnostics._make_c2st_model
         signatures = []
         def record_model(name, seed):
             model = factory(name, seed)
             signatures.append((name, {key: repr(value) for key, value in model.get_params().items()}))
             return model
-        with patch.object(diagnostics, "_model", side_effect=record_model) as wrapped:
+        with patch.object(diagnostics, "_make_c2st_model", side_effect=record_model) as wrapped:
             result = c2st(frame, ["f0"], sample_size=300, permutations=3, seed=7)
         for name in ("logistic", "xgboost"):
             configurations = [params for model_name, params in signatures if model_name == name]
@@ -243,9 +238,9 @@ class PublicDiagnosticsTests(unittest.TestCase):
             original = path.read_bytes()
             raw = pd.read_csv(path, dtype=np.float64)
             expected = covariate_balance(raw, FEATURES)
-            scanned = scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=13, progress=lambda _: None)
+            scanned = _scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=13, progress=lambda _: None)
             first, sample, meta = scanned["balance"], scanned["c2st_sample"], scanned["metadata"]
-            scanned = scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=31, progress=lambda _: None)
+            scanned = _scan_raw_data(path, sample_size=None, per_arm=10, chunk_size=31, progress=lambda _: None)
             second, repeated = scanned["balance"], scanned["c2st_sample"]
             assert_frame_equal(first[expected.columns], expected)
             assert_frame_equal(first, second)
@@ -274,13 +269,13 @@ class PublicDiagnosticsTests(unittest.TestCase):
             frame = self.frame()
             frame.loc[0, "f0"] = np.nan
             frame.to_csv(path, index=False)
-            with self.assertRaisesRegex(ValueError, "Nonfinite"):
-                scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
+            with self.assertRaisesRegex(ValueError, "[Nn]onfinite"):
+                _scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
             frame = self.frame()
             frame.loc[0, "treatment"] = 2
             frame.to_csv(path, index=False)
             with self.assertRaisesRegex(ValueError, "binary"):
-                scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
+                _scan_raw_data(path, sample_size=None, per_arm=10, progress=lambda _: None)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_update_replaces_only_existing_diagnostic_files —— 确认诊断更新只替换对应的诊断产物。
@@ -298,14 +293,15 @@ class PublicDiagnosticsTests(unittest.TestCase):
             raw = directory / 'raw.csv'
             frame = self.frame()
             frame.to_csv(raw, index=False)
-            diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json']
+            diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json', 'learnability.csv']
             for name in diagnostic_names:
                 (directory / 'diagnostics' / name).write_text('old diagnostic')
             protected = (directory / 'evaluation' / 'predictions.npz')
             protected.write_bytes(b'fixed-model-predictions')
             before_names = {str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file()}
-            details = update_experiment_diagnostics(
-                raw, directory / "diagnostics", audit={'n_treatment': 60, 'n_control': 20},
+            details = run_diagnostics(
+                directory / "diagnostics", train=frame, validation=frame,
+                scanned=_scan_raw_data(raw, sample_size=None, per_arm=10, progress=lambda _: None), audit={'n_treatment': 60, 'n_control': 20},
                 source=fingerprint(raw), sample_size=20, permutations=3,
                 progress=lambda _: None,
             )

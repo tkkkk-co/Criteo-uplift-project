@@ -7,17 +7,8 @@ import unittest
 
 import numpy as np
 
-from criteo_uplift.evaluation import (
-    _prefix_values,
-    _normal_pvalue,
-    aggregate_ate_from_audit,
-    ate_summary,
-    calibration_table,
-    evaluate_policies,
-    ranking_metrics,
-    ranking_confidence_intervals,
-    uplift_curve,
-)
+from criteo_uplift.metrics import _prefix_values, ranking_metrics, ranking_confidence_intervals, uplift_curve
+from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate_summary, calibration_table, evaluate_policies
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -59,25 +50,18 @@ class EvaluationTests(unittest.TestCase):
         self.assertLess(result["ci_low"], result["ate"])
         self.assertGreater(result["ci_high"], result["ate"])
 
-    def test_aggregate_ate_uses_plugin_variance_and_handles_singleton_arm(self):
-        """点估计与 pooled 检验一致；全量报告的区间沿用二项 plug-in 方差。"""
-        for y, t in ((self.y, self.t), (np.array([1, 0, 1]), np.array([0, 1, 1]))):
-            audit = {'groups': {
-                str(arm): {'n': int((t == arm).sum()), 'conversion': {'positive': int(y[t == arm].sum())}}
-                for arm in (0, 1)
-            }}
-            actual = aggregate_ate_from_audit(audit, 'conversion')
-            expected = ate_summary(y, t)
-            interval_fields = {'standard_error', 'ci_low', 'ci_high'}
-            for field in actual.keys() - {'outcome', 'p_value_text'} - interval_fields:
-                np.testing.assert_allclose(actual[field], expected[field], equal_nan=True)
-            groups = [y[t == arm] for arm in (0, 1)]
-            se = math.sqrt(sum(group.mean() * (1 - group.mean()) / len(group) for group in groups)) if min(map(len, groups)) > 1 else np.nan
-            np.testing.assert_allclose(
-                [actual['standard_error'], actual['ci_low'], actual['ci_high']],
-                [se, expected['ate'] - 1.95996398454 * se, expected['ate'] + 1.95996398454 * se],
-                equal_nan=True,
-            )
+    def test_ate_row_and_audit_paths_agree_for_every_statistic(self):
+        for y, t in ((self.y, self.t), (np.array([1, 0, 1]), np.array([0, 1, 1])),
+                     (np.zeros(8), self.t), (np.ones(8), self.t)):
+            audit = {"groups": {str(arm): {"n": int((t == arm).sum()),
+                     "conversion": {"positive": int(y[t == arm].sum())}} for arm in (0, 1)}}
+            actual, expected = ate_summary_from_audit(audit, "conversion"), ate_summary(y, t)
+            self.assertEqual(actual.keys(), expected.keys())
+            for key in expected:
+                if isinstance(expected[key], str) or expected[key] is None:
+                    self.assertEqual(actual[key], expected[key])
+                else:
+                    np.testing.assert_allclose(actual[key], expected[key], equal_nan=True, rtol=0, atol=0)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_aggregate_ate_rejects_invalid_counts —— 确认汇总 ATE 拒绝不合法的人数和事件数。
@@ -113,7 +97,7 @@ class EvaluationTests(unittest.TestCase):
             str(arm): {'n': 10000, 'conversion': {'positive': int(y[t == arm].sum())}}
             for arm in (0, 1)
         }}
-        aggregate = aggregate_ate_from_audit(audit, 'conversion')
+        aggregate = ate_summary_from_audit(audit, 'conversion')
         self.assertAlmostEqual(row['ate'], .7)
         self.assertEqual(row['p_value'], 0.0)
         self.assertEqual(aggregate['p_value'], 0.0)
@@ -124,7 +108,7 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(restored.loc[0, 'p_value_text'], row['p_value_text'])
         self.assertTrue(math.isfinite(row['log_p_value']))
         self.assertAlmostEqual(row['standard_error'], math.sqrt(y[t == 1].var(ddof=1)/10000 + y[t == 0].var(ddof=1)/10000))
-        self.assertAlmostEqual(aggregate['standard_error'], math.sqrt(.8*.2/10000 + .1*.9/10000))
+        self.assertAlmostEqual(aggregate['standard_error'], math.sqrt(.8*.2/9999 + .1*.9/9999))
         constant = ate_summary(np.zeros(8), self.t)
         self.assertEqual(constant['log_p_value'], 0.0)
         self.assertTrue(np.isnan(ate_summary(np.r_[1., 0., 1.], np.r_[0, 1, 1])['standard_error']))
@@ -136,7 +120,7 @@ class EvaluationTests(unittest.TestCase):
                 '1': {'n': 3, 'conversion': {'positive': 1}},
             }}
             with self.subTest(n=n, positive=positive), self.assertRaises(ValueError):
-                aggregate_ate_from_audit(audit, 'conversion')
+                ate_summary_from_audit(audit, 'conversion')
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_constant_outcomes_and_missing_control_response —— 核对结果恒定及对照组无正例的边界行为。

@@ -1,213 +1,71 @@
-# 从现有实验导出可发布的聚合结果，移除本机路径，不导出逐行数据或模型。
-
+"""从一个完整实验导出聚合快照；不发布逐行数据、行号、模型或缓存。"""
 from pathlib import Path
 import sys
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from criteo_uplift.runtime import configure_runtime
-
-configure_runtime()
 import argparse
 import hashlib
 import json
-import pandas as pd
-from criteo_uplift.preparation import FEATURES
-from criteo_uplift.pipeline_io import load_sample, safe_output
+from criteo_uplift.pipeline_io import safe_output
 
-BASE = 'conversion_1000000_seed42'
 BASE_FILES = (
-    'data_preparation/audit.json',
-    'data_preparation/sample_report.json',
-    'manifest.json',
-    'models/selection.json',
-    'data_preparation/split_summary.csv',
-    'diagnostics/ate_full.csv',
-    'evaluation/ate_test.json',
-    'diagnostics/balance.csv',
-    'diagnostics/c2st.csv',
-    'diagnostics/c2st_null.csv',
-    'diagnostics/c2st_details.json',
-    'diagnostics/srm.json',
-    'diagnostics/learnability.csv',
-    'data_preparation/feature_overlap.json',
-    'models/validation_policies.csv',
-    'models/validation_ranking.csv',
-    'evaluation/test_policies.csv',
-    'evaluation/test_ranking.csv',
-    'evaluation/curves.csv',
-    'report.html',
-    'evaluation/calibration_s_logistic.csv',
-    'evaluation/calibration_t_logistic.csv',
-    'evaluation/calibration_t_xgboost.csv',
-    'evaluation/calibration_x_xgboost.csv',
+    'manifest.json', 'report.html',
+    'data_preparation/audit.json', 'data_preparation/sample_report.json',
+    'data_preparation/split_summary.csv', 'data_preparation/feature_overlap.json',
+    'diagnostics/balance.csv', 'diagnostics/srm.json', 'diagnostics/c2st.csv',
+    'diagnostics/c2st_null.csv', 'diagnostics/c2st_details.json', 'diagnostics/learnability.csv',
+    'models/selection.json', 'models/validation_policies.csv', 'models/validation_ranking.csv',
+    'evaluation/ate_summary.csv', 'evaluation/test_policies.csv', 'evaluation/test_ranking.csv',
+    'evaluation/curves.csv', 'evaluation/ranking_intervals.csv',
+    'evaluation/calibration_s_logistic.csv', 'evaluation/calibration_t_logistic.csv',
+    'evaluation/calibration_t_xgboost.csv', 'evaluation/calibration_x_xgboost.csv',
+    'stability/protocol.json', 'stability/report.json', 'stability/longmetrics.csv',
+    'stability/split_audit.csv', 'stability/aggregate.csv', 'stability/selection_frequency.csv',
+    'business/assumptions.json', 'business/hypothetical_ab_plans.csv',
+    'business/hypothetical_cost_scenarios.csv', 'business/score_policy_status.json',
 )
-EXPORTS = {
-    BASE: BASE_FILES,
-    'stability_v1': (
-        'protocol.json',
-        'report.json',
-        'aggregate.csv',
-        'longmetrics.csv',
-        'split_audit.csv',
-        'selection_frequency.csv',
-    ),
-    'metrics_v2': (
-        'protocol.json',
-        'report.json',
-        'ranking.csv',
-        'ranking_intervals.csv',
-        'curves_display_only.csv',
-    ),
-    'sql_audit_v1': (
-        'queries.sql',
-        'provenance.json',
-        'cvr.csv',
-        'join_integrity.csv',
-        'score_bins.csv',
-        'policy_values.csv',
-    ),
-    'planning_v1': (
-        'assumptions.json',
-        'hypothetical_ab_plans.csv',
-        'hypothetical_cost_scenarios.csv',
-    ),
-}
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：sanitize_text —— 清理公开文本中的本机路径。
-# 输入：
-#     value：需要格式化或转换的值。
-# 输出：
-#     文本：去除本地环境标识后的字符串。
-# 说明：清理公开文本中的本机路径。
-#-----------------------------------------------------------------------------------------------------------------------
 def sanitize_text(value):
-    return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(
-        '/opt/miniconda3/envs/causalml/bin/python', 'python'
-    )
+    return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(sys.executable, 'python')
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：export —— 导出已有实验的聚合快照。
-# 输入：
-#     output：本次任务的新输出路径。
-# 输出：
-#     output：新生成的聚合快照目录。
-# 说明：导出已有实验的聚合快照。
-#-----------------------------------------------------------------------------------------------------------------------
-def export(output):
-    output = safe_output(output)
+def export(source, output):
+    source, output = Path(source).resolve(), safe_output(output)
     if output.exists():
         raise FileExistsError(f'Use a new snapshot directory: {output}')
-    # 先检查必要的来源文件，再创建输出，避免留下不完整产物。
-    for directory, names in EXPORTS.items():
-        for name in names:
-            base = ROOT / 'artifacts' / directory
-            source = base / name
-            if not source.is_file():
-                raise FileNotFoundError(source)
-    if not (ROOT / 'artifacts' / BASE / 'figures/sample_features.png').is_file():
-        raise FileNotFoundError('Missing pipeline figure: figures/sample_features.png')
-    output.mkdir(parents=True)
+    manifest = json.loads((source / 'manifest.json').read_text())
+    if manifest['status'] != 'complete':
+        raise ValueError('Only complete experiments can be published')
+    paths = [source / name for name in BASE_FILES] + sorted((source / 'figures').glob('*.png'))
+    for path in paths:
+        if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(source):
+            raise ValueError(f'Missing or unsafe export source: {path}')
     records = []
-
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：copy —— 复制并记录一个允许发布的结果文件。
-    # 输入：
-    #     source：输入来源路径或指纹记录，具体类型由本函数的用途决定。
-    #     relative：文件在目标目录中的相对路径。
-    # 输出：
-    #     返回值：None；保存目标文件并登记来源与指纹。
-    # 说明：复制并记录一个允许发布的结果文件。
-    #-----------------------------------------------------------------------------------------------------------------------
-    def copy(source, relative):
-        target = output / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        original = source.read_bytes()
-        if source.suffix in ('.json', '.csv', '.html', '.sql', '.md', '.txt'):
-            target.write_text(sanitize_text(original.decode('utf-8')), encoding='utf-8')
-        else:
-            target.write_bytes(original)
-        records.append(
-            {
-                'source': str(source.relative_to(ROOT)),
-                'published': str(relative),
-                'source_sha256': hashlib.sha256(original).hexdigest(),
-                'published_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
-            }
-        )
-
-    for directory, names in EXPORTS.items():
-        for name in names:
-            base = ROOT / 'artifacts' / directory
-            source = base / name
-            relative = Path(name)
-            copy(source, Path(directory) / relative)
-    for source in sorted((ROOT / 'artifacts' / BASE / 'figures').glob('*.png')):
-        copy(source, Path(BASE) / 'figures' / source.name)
-    for source in sorted((ROOT / 'artifacts/extension_figures').glob('*.png')):
-        copy(source, Path('extension_figures') / source.name)
-    copy(ROOT / 'artifacts/extension_report.html', Path('extension_report.html'))
-
-    # 只导出分组和单变量汇总，不导出逐行记录。
-    sample = load_sample(ROOT / 'artifacts/cache/sample_1000000_seed42.npz')
-    rows = []
-    for treatment, group in sample.groupby('treatment'):
-        for label in ['conversion', 'visit', 'exposure']:
-            rows.append(
-                {
-                    'treatment': int(treatment),
-                    'label': label,
-                    'n': len(group),
-                    'positive': int(group[label].sum()),
-                    'rate': float(group[label].mean()),
-                }
-            )
-    pd.DataFrame(rows).to_csv(output / BASE / 'data_preparation' / 'sample_group_summary.csv', index=False)
-    sample[FEATURES].describe().T.to_csv(
-        output / BASE / 'data_preparation' / 'sample_feature_summary.csv', index_label='feature'
-    )
-    del sample
-    # 图片由主流程生成并在上方复制；导出不依赖 Notebook 的源码或输出。
-    (output / 'README.md').write_text(
-        '# Published aggregate snapshot\n\n'
-        'Computed from the historical Criteo experiment. No raw rows, row-ID lists, individual '
-        'predictions or fitted models are included. Text paths are redacted. Original source artifacts '
-        'stay unchanged. See snapshot_manifest.json for hashes and NOTICE.md for attribution.\n\n'
-        'Historical baseline/stability use Qini v1; metrics_v2 uses the explicitly revised '
-        'control-only-zero-node convention. Main 20% HT values are unchanged.\n',
-        encoding='utf-8',
-    )
-    generated = [
-        'data_preparation/sample_group_summary.csv',
-        'data_preparation/sample_feature_summary.csv',
-    ]
-    for name in generated:
-        p = output / BASE / name
-        records.append(
-            {
-                'source': 'derived from cached sample',
-                'published': str(p.relative_to(output)),
-                'published_sha256': hashlib.sha256(p.read_bytes()).hexdigest(),
-            }
-        )
-    manifest = {
-        'scope': 'aggregate-only public snapshot',
-        'selection_changed': False,
-        'raw_rows_exported': False,
-        'license_for_dataset_derived_outputs': 'CC BY-NC-SA-4.0',
+    for path in paths:
+        relative = Path(source.name) / path.relative_to(source)
+        destination = output / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        data = path.read_bytes()
+        destination.write_bytes(data if path.suffix == '.png' else sanitize_text(data.decode()).encode())
+        records.append({'source': str(path.relative_to(source)), 'published': str(relative),
+                        'source_sha256': hashlib.sha256(data).hexdigest(),
+                        'published_sha256': hashlib.sha256(destination.read_bytes()).hexdigest()})
+    (output / 'snapshot_manifest.json').write_text(json.dumps({
+        'scope': 'aggregate-only public snapshot', 'selection_changed': False,
+        'raw_rows_exported': False, 'license_for_dataset_derived_outputs': 'CC BY-NC-SA-4.0',
         'files': records,
-    }
-    (output / 'snapshot_manifest.json').write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2)
-    )
-    print(f'Exported {len(records)} aggregate evidence files to {output}')
+    }, ensure_ascii=False, indent=2))
+    (output / 'README.md').write_text('# Published aggregate snapshot\n\n'
+        f'正式展示来自 `{source.name}`。不含原始行、行号列表、逐行预测或模型。\n'
+        '唯一 HTML 为该实验的 report.html；来源及文件哈希见 snapshot_manifest.json。\n')
+    print(f'Exported {len(records)} aggregate files to {output}')
     return output
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='从现有实验导出可发布的聚合结果，移除本机路径，不导出逐行数据或模型。')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT / 'reports/published')
-    export(parser.parse_args().output)
+    args = parser.parse_args()
+    export(args.source, args.output)

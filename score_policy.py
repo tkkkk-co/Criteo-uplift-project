@@ -10,7 +10,7 @@ from decimal import Decimal, ROUND_FLOOR
 import json
 from pathlib import Path
 
-from criteo_uplift.runtime import configure_runtime
+from criteo_uplift.config import configure_runtime
 
 configure_runtime()
 
@@ -18,21 +18,15 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.preparation import FEATURES
+from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import safe_output
+from criteo_uplift.input_checks import check_feature_matrix
+from criteo_uplift.training_validation import MODEL_CANDIDATES
 
-UPLIFT_POLICIES = {"s_logistic", "t_logistic", "t_xgboost", "x_xgboost"}
+UPLIFT_POLICIES = {candidate["name"] for candidate in MODEL_CANDIDATES}
 MAX_CHUNK_SIZE = 100_000
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_read_json —— 读取并验证冻结实验的 JSON 对象。
-# 输入：
-#     path：需要读取或检查的文件路径。
-# 输出：
-#     value：解析后的字典。
-# 说明：读取并验证冻结实验的 JSON 对象。
-#-----------------------------------------------------------------------------------------------------------------------
 def _read_json(path):
     if not path.is_file():
         raise FileNotFoundError(f"冻结 run 缺少文件：{path}")
@@ -45,16 +39,6 @@ def _read_json(path):
     return value
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_load_frozen_policy —— 核对并加载冻结策略。
-# 输入：
-#     run：可信的冻结实验目录。
-# 输出：
-#     policy：冻结的策略名称。
-#     seed：实验记录的随机种子。
-#     model：已加载模型；随机策略时为 None。
-# 说明：核对并加载冻结策略。
-#-----------------------------------------------------------------------------------------------------------------------
 def _load_frozen_policy(run):
     run = Path(run).resolve()
     if not run.is_dir():
@@ -104,14 +88,6 @@ def _load_frozen_policy(run):
     return policy, seed, model
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_check_input_header —— 检查打分输入的特征列是否齐全且唯一。
-# 输入：
-#     path：需要读取或检查的文件路径。
-# 输出：
-#     返回值：None；列名不合法时抛出异常。
-# 说明：检查打分输入的特征列是否齐全且唯一。
-#-----------------------------------------------------------------------------------------------------------------------
 def _check_input_header(path):
     if not path.is_file():
         raise FileNotFoundError(f"输入 CSV 不存在：{path}")
@@ -125,18 +101,6 @@ def _check_input_header(path):
         raise ValueError(f"输入 CSV 存在重复特征列：{', '.join(duplicated)}")
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：score_policy —— 使用冻结策略分块打分并执行全局预算排序。
-# 输入：
-#     run：可信的冻结实验目录。
-#     input_path：只读输入文件路径。
-#     output_path：输出文件路径。
-#     budget：本次允许触达的人群比例。
-#     chunk_size：每个数据块的行数上限。
-# 输出：
-#     结果字典：策略、种子、输入行数、预算、选中人数及输出路径。
-# 说明：只使用处理前特征，不重新训练或选择策略；输出原始行号、分数和选择标记。
-#-----------------------------------------------------------------------------------------------------------------------
 def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_SIZE):
     if isinstance(budget, bool):
         raise ValueError("budget 必须在 [0, 1] 内。")
@@ -180,8 +144,7 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
             X = chunk[FEATURES]
             if len(X) == 0:
                 continue
-            if not np.isfinite(X.to_numpy()).all():
-                raise ValueError(f"输入行偏移 {offset} 起包含缺失或非有限前置特征。")
+            check_feature_matrix(X, n_features=len(FEATURES))
             if policy == "random":
                 score = score_rng.random(len(X))
             elif policy == "propensity":
@@ -226,14 +189,6 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
     }
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：main —— 解析命令行并执行离线策略打分。
-# 输入：
-#     argv：命令行参数列表；None 表示读取当前进程的参数。
-# 输出：
-#     result：本次打分结果的概要字典。
-# 说明：解析命令行并执行离线策略打分。
-#-----------------------------------------------------------------------------------------------------------------------
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description='加载可信实验目录中的冻结策略，对输入特征分块打分并按指定预算选择记录。\n只输出原始行号、分数和选择标记；不训练模型、不读取结果标签，不执行真实广告投放。', formatter_class=argparse.RawDescriptionHelpFormatter

@@ -9,17 +9,11 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.preparation import FEATURES, fingerprint
+from criteo_uplift.config import FEATURES
+from criteo_uplift.pipeline_io import fingerprint
 from criteo_uplift.pipeline_io import save_sample, write_result
-from criteo_uplift.models import make_model
-from criteo_uplift.stability import (
-    development_splits,
-    feature_groups,
-    load_development_sample,
-    nested_stratified_indices,
-    row_ids_sha256,
-    run_stability,
-)
+from criteo_uplift.models import make_uplift_model
+from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, row_ids_sha256, run_stability
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -223,8 +217,9 @@ class StabilityTests(unittest.TestCase):
             #     model：带拟合数据记录功能的真实模型。
             # 说明：创建并包装模型以记录拟合数据。
             #-----------------------------------------------------------------------------------------------------------------------
-            def checked_make_model(name, **kwargs):
-                model = make_model(name, **kwargs)
+            def checked_make_model(**kwargs):
+                name = kwargs["learner"] + "_" + kwargs["outcome_model"]
+                model = make_uplift_model(**kwargs)
                 original_fit = model.fit
 
                 #-----------------------------------------------------------------------------------------------------------------------
@@ -248,7 +243,7 @@ class StabilityTests(unittest.TestCase):
                 return model
 
             with patch(
-                "criteo_uplift.stability.make_model", side_effect=checked_make_model
+                "criteo_uplift.stability.make_uplift_model", side_effect=checked_make_model
             ):
                 result = run_stability(
                     cache, base, output, seeds=[17], fractions=[0.5, 1.0], trees=3

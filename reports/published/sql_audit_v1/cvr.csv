@@ -1,2 +1,0 @@
-n,n_treatment,n_control,responses_treatment,responses_control,cvr_treatment,cvr_control,difference_in_means,ate_ht
-200000,170082,29918,522,55,0.003069107842099693,0.001838358179022662,0.0012307496630770312,0.0012307496630770314

@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import pipeline_io, preparation
-from criteo_uplift.diagnostics import scan_raw_data
+from criteo_uplift.preparation import _scan_raw_data
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -78,16 +78,16 @@ class DataTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
         before = preparation.fingerprint(self.source)
-        scanned = scan_raw_data(
+        scanned = _scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=57
         )
         first = scanned["sample"]
         audit = scanned["audit"]
-        scanned = scan_raw_data(
+        scanned = _scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=101
         )
         repeated = scanned["sample"]
-        scanned = scan_raw_data(
+        scanned = _scan_raw_data(
             self.source, sample_size=43, seed=32, chunk_size=57
         )
         different = scanned["sample"]
@@ -117,7 +117,7 @@ class DataTests(unittest.TestCase):
             [self.frame, self.frame.iloc[[7, 7, 210]]], ignore_index=True
         )
         duplicated.to_csv(self.source, index=False)
-        scanned = scan_raw_data(self.source, sample_size=0, chunk_size=61)
+        scanned = _scan_raw_data(self.source, sample_size=0, chunk_size=61)
         sample = scanned["sample"]
         audit = scanned["audit"]
         self.assertEqual(len(sample), len(duplicated))
@@ -146,7 +146,7 @@ class DataTests(unittest.TestCase):
     # 说明：确认目标样本量超过输入时保留全部原始记录。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_sample_larger_than_input_retains_every_original_row(self):
-        scanned = scan_raw_data(self.source, sample_size=1000, chunk_size=37)
+        scanned = _scan_raw_data(self.source, sample_size=1000, chunk_size=37)
         sample = scanned["sample"]
         np.testing.assert_array_equal(sample.row_id, np.arange(len(self.frame)))
 
@@ -197,7 +197,7 @@ class DataTests(unittest.TestCase):
     # 说明：核对建模样本保存和读取后的数据一致性。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_sample_round_trip_uses_an_output_directory(self):
-        scanned = scan_raw_data(
+        scanned = _scan_raw_data(
             self.source, sample_size=33, seed=2, chunk_size=41
         )
         sample = scanned["sample"]
@@ -277,7 +277,7 @@ class DataTests(unittest.TestCase):
         train, holdout = np.arange(1200), np.arange(1200, 2000)
         validation, test = np.arange(1200, 1600), np.arange(1600, 2000)
         cases = [
-            (np.r_[train[:-1], train[0]], validation, test, "train 的 row_id"),
+            (np.r_[train[:-1], train[0]], validation, test, "train.*唯一"),
             (train, np.r_[train[0], validation[1:]], test, "train 与 validation"),
             (train, validation, np.r_[train[0], test[1:]], "train 与 test"),
             (train, validation, np.r_[validation[0], test[1:]], "validation 与 test"),
@@ -291,15 +291,15 @@ class DataTests(unittest.TestCase):
                 preparation.split_sample(frame)
 
     def test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates(self):
-        frame = _synthetic_frame(12)
-        frame.insert(0, 'row_id', np.arange(12))
+        frame = _synthetic_frame(15)
+        frame.insert(0, 'row_id', np.arange(15))
         frame[preparation.FEATURES] = frame[preparation.FEATURES].astype('float32')
         # 不同 row_id 保持原样，只复制特征；重复训练向量不应重复计数。
-        frame.loc[[1, 6, 7, 9], preparation.FEATURES] = frame.loc[0, preparation.FEATURES].to_numpy()
-        frame.loc[10, preparation.FEATURES] = frame.loc[8, preparation.FEATURES].to_numpy()
+        frame.loc[[1, 9, 10, 12], preparation.FEATURES] = frame.loc[0, preparation.FEATURES].to_numpy()
+        frame.loc[13, preparation.FEATURES] = frame.loc[11, preparation.FEATURES].to_numpy()
         with patch.object(preparation, 'train_test_split', side_effect=[
-            (np.arange(6), np.arange(6, 12)),
-            (np.arange(6, 9), np.arange(9, 12)),
+            (np.arange(9), np.arange(9, 15)),
+            (np.arange(9, 12), np.arange(12, 15)),
         ]):
             parts, _, overlap = preparation.split_sample(frame)
         self.assertTrue(all(overlap['row_id_checks'].values()))
@@ -340,11 +340,11 @@ class DataTests(unittest.TestCase):
                 frame.to_csv(self.source, index=False)
                 # 即使非法记录不在目标样本中，全量扫描仍应报错。
                 with self.assertRaises(ValueError):
-                    scan_raw_data(self.source, sample_size=5, chunk_size=73)
+                    _scan_raw_data(self.source, sample_size=5, chunk_size=73)
         with self.assertRaises(ValueError):
-            scan_raw_data(self.source, sample_size=-1)
+            _scan_raw_data(self.source, sample_size=-1)
         with self.assertRaises(ValueError):
-            scan_raw_data(self.source, chunk_size=0)
+            _scan_raw_data(self.source, chunk_size=0)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_split_rejects_unsupported_outcome_and_too_small_strata —— 确认划分拒绝不支持的结果列及过小的分层。
@@ -394,3 +394,38 @@ class DataTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InputChecksTests(unittest.TestCase):
+    def test_checks_do_not_transform_inputs(self):
+        from criteo_uplift.input_checks import check_binary_vector, check_feature_matrix, check_row_ids
+        x = np.array([[1., np.nan], [2., 3.]])
+        before = x.copy()
+        self.assertIsNone(check_feature_matrix(x, allow_nan=True))
+        np.testing.assert_array_equal(x, before)
+        with self.assertRaises(ValueError): check_feature_matrix(x)
+        with self.assertRaises(ValueError): check_feature_matrix([[np.inf]], allow_nan=True)
+        with self.assertRaises(ValueError): check_feature_matrix([["a"]])
+        with self.assertRaises(ValueError): check_feature_matrix(np.ones((2, 2)), n_features=3)
+        for values in ([], [[0, 1]], [0, 2], [0, np.nan]):
+            with self.assertRaises(ValueError): check_binary_vector(values)
+        labels = np.array([False, True]); check_binary_vector(labels, n_rows=2, require_both=True)
+        self.assertEqual(labels.dtype, np.dtype(bool))
+        for ids in ([], [1, 1], [1, None], [[1, 2]]):
+            with self.assertRaises(ValueError): check_row_ids(ids)
+        with self.assertRaises(ValueError): check_row_ids([-1, 2], require_integer=True)
+        check_row_ids(["a", "b"], n_rows=2)
+
+    def test_corrupt_cached_arrays_are_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'corrupt.npz'
+            valid = {'X': np.ones((3, 12)), 'labels': np.zeros((3, 4), dtype=np.int8),
+                     'row_id': np.arange(3)}
+            for changed in ({'row_id': np.array([0, 0, 1])},
+                            {'X': np.ones((3, 11))},
+                            {'X': np.full((3, 12), np.inf)},
+                            {'labels': np.full((3, 4), 2)},
+                            {'labels': np.zeros((2, 4))}):
+                np.savez(path, **{**valid, **changed})
+                with self.assertRaises(ValueError):
+                    pipeline_io.load_sample(path)

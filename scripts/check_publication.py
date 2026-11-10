@@ -24,7 +24,6 @@ TOP_FILES = (
     'pyproject.toml',
     'requirements-tested.txt',
     'run_pipeline.py',
-    'run_stability.py',
     'score_policy.py',
 )
 SUFFIXES = {

@@ -1,0 +1,150 @@
+{
+  "assignment_probability": 0.85041,
+  "probability_source": "使用训练集的处理组比例作为分配概率的代入估计",
+  "ci_method": "在处理组和对照组内分别进行百分位 Bootstrap 重抽样，各策略共用同一次重抽样；固定已训练模型的评分和处理分配概率，每次重抽样后重新选择排名前 k 的样本",
+  "uncertainty_excluded": [
+    "模型训练与模型选择带来的不确定性",
+    "处理分配概率估计带来的不确定性",
+    "无法识别的用户依赖关系"
+  ],
+  "estimand": "公开样本中，按处理分配计算的增量结果（类似 ITT 口径），以所有人均不接受处理为比较基准",
+  "cost_assumption": "假设每次触达成本相同、每个结果事件的价值相同；预算表示触达人群比例，而非货币金额",
+  "ranking_metric_version": "v2：传统 Qini 保留仅含对照组的零值前缀；明确报告代入估计的 AUUC；不按完美排序的面积进行归一化",
+  "diagnostic_models": [
+    "logistic",
+    "xgboost"
+  ],
+  "primary_outcome": "conversion",
+  "selection": {
+    "primary_budget": 0.2,
+    "criterion": "validation HT incremental responses per 100k eligible people",
+    "selected_policy": "propensity",
+    "selected_uplift_model": "s_logistic",
+    "candidates": [
+      "random",
+      "propensity",
+      "s_logistic",
+      "t_logistic",
+      "t_xgboost",
+      "x_xgboost"
+    ],
+    "frozen_before_test": true,
+    "note": "All models remain trained on training split only; no test tuning, no train+validation refit."
+  },
+  "models": {
+    "s_logistic": {
+      "parameters": {
+        "effect_model": null,
+        "effect_params": null,
+        "outcome_model": "logistic",
+        "outcome_params": {
+          "random_state": 42
+        }
+      },
+      "seconds": 0.4598876249510795
+    },
+    "t_logistic": {
+      "parameters": {
+        "effect_model": null,
+        "effect_params": null,
+        "outcome_model": "logistic",
+        "outcome_params": {
+          "random_state": 42
+        }
+      },
+      "seconds": 0.459714625030756
+    },
+    "t_xgboost": {
+      "parameters": {
+        "effect_model": null,
+        "effect_params": null,
+        "outcome_model": "xgboost",
+        "outcome_params": {
+          "random_state": 42,
+          "n_estimators": 150
+        }
+      },
+      "seconds": 0.798661750042811
+    },
+    "x_xgboost": {
+      "parameters": {
+        "effect_model": "xgboost",
+        "effect_params": {
+          "random_state": 42,
+          "n_estimators": 150
+        },
+        "outcome_model": "xgboost",
+        "outcome_params": {
+          "random_state": 42,
+          "n_estimators": 150
+        }
+      },
+      "seconds": 1.4755767090246081
+    }
+  },
+  "assumptions": [
+    "公开样本中，给定特征 X 的处理分配概率近似恒定",
+    "样本行相互独立，满足一致性和个体间无干扰假设",
+    "每次转化的价值相同，每次触达的成本相同"
+  ],
+  "ate_variance_definition": "Both inputs use Bernoulli sample variance with n-1 correction; pooled-null z test unchanged.",
+  "status": "complete",
+  "source": {
+    "path": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+    "size": 3248115221,
+    "mtime_ns": 1790004809431929026,
+    "sha256": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef"
+  },
+  "features": [
+    "f0",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9",
+    "f10",
+    "f11"
+  ],
+  "seed": 42,
+  "sample_n": 1000000,
+  "arguments": {
+    "data": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
+    "sample_size": 1000000,
+    "outcome": "conversion",
+    "seed": 42,
+    "primary_budget": 0.2,
+    "permutations": 499,
+    "c2st_sample": 20000,
+    "bootstrap": 200,
+    "trees": 150,
+    "stability_seeds": [
+      17,
+      29,
+      83
+    ],
+    "stability_fractions": [
+      0.25,
+      0.5,
+      1.0
+    ],
+    "planning_assumptions": null,
+    "output": "artifacts/conversion_1000000_seed42_refactored"
+  },
+  "python": "3.11.16 (main, Aug 27 2026, 14:37:43) [Clang 20.1.8 ]",
+  "platform": "macOS-15.6-arm64-arm-64bit",
+  "versions": {
+    "numpy": "2.4.6",
+    "pandas": "3.0.5",
+    "scipy": "1.17.1",
+    "statsmodels": "0.15.0",
+    "scikit-learn": "1.9.1",
+    "xgboost": "3.2.0",
+    "matplotlib": "3.11.1",
+    "joblib": "1.6.0"
+  },
+  "elapsed_seconds": 96.8128908330109
+}

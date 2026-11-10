@@ -13,75 +13,35 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
-from .preparation import FEATURES, fingerprint
+from .config import FEATURES
+from .pipeline_io import fingerprint
 from .pipeline_io import load_sample, safe_output, write_result
-from .evaluation import RANKING_METRIC_DESCRIPTION, evaluate_policies, ranking_metrics
-from .models import MODEL_NAMES, make_model
+from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
+from .evaluation import evaluate_policies
+from .models import make_uplift_model, predict_policy_scores
+from .training_validation import MODEL_CANDIDATES
+from .input_checks import check_row_ids, check_binary_vector, check_feature_matrix
 
-POLICY_NAMES = ("random", *MODEL_NAMES, "propensity")
+POLICY_NAMES = ("random", *(c["name"] for c in MODEL_CANDIDATES), "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：row_ids_sha256 —— 为原始行号集合计算可复现指纹。
-# 输入：
-#     ids：原始行号数组。
-# 输出：
-#     指纹字符串：排序后的行号字节对应的 SHA256。
-# 说明：为原始行号集合计算可复现指纹。
-#-----------------------------------------------------------------------------------------------------------------------
 def row_ids_sha256(ids):
     return sha256(np.sort(np.asarray(ids, dtype="<i8")).tobytes()).hexdigest()
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_checked_ids —— 检查行号是否为非负且互不重复的整数。
-# 输入：
-#     values：需要检查或处理的数值数组。
-#     label：用于说明数据或错误位置的标签。
-# 输出：
-#     ids：校验后的整数行号数组。
-# 说明：检查行号是否为非负且互不重复的整数。
-#-----------------------------------------------------------------------------------------------------------------------
 def _checked_ids(values, label):
-    ids = np.asarray(values)
-    if ids.ndim != 1 or not len(ids) or ids.dtype.kind not in "iu":
-        raise ValueError(f"{label}: row IDs must be nonempty integer vectors")
-    if np.any(ids < 0) or len(np.unique(ids)) != len(ids):
-        raise ValueError(f"{label}: row IDs must be unique and nonnegative")
-    return ids.astype(np.int64)
+    check_row_ids(values, label, require_integer=True)
+    return np.asarray(values, dtype=np.int64)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_binary_vectors —— 检查处理标签和结果标签。
-# 输入：
-#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
-#     y：每行的二分类结果标签。
-# 输出：
-#     t：校验后的处理标签数组。
-#     y：校验后的结果标签数组。
-# 说明：检查处理标签和结果标签。
-#-----------------------------------------------------------------------------------------------------------------------
 def _binary_vectors(t, y):
-    t, y = np.asarray(t), np.asarray(y)
-    if t.ndim != 1 or y.shape != t.shape or not len(t):
-        raise ValueError("t and y must be nonempty equal-length vectors")
-    if not np.isin(t, [0, 1]).all() or not np.isin(y, [0, 1]).all():
-        raise ValueError("t and y must contain only binary values")
-    if len(np.unique(t)) != 2:
-        raise ValueError("both treatment arms are required")
-    return t.astype(np.int8), y.astype(np.int8)
+    check_binary_vector(t, "t", require_both=True)
+    check_binary_vector(y, "y", len(t))
+    return np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_validate_fractions —— 检查训练比例是否有效且递增。
-# 输入：
-#     fractions：需要比较的嵌套训练样本比例。
-# 输出：
-#     fractions：校验后的浮点比例元组。
-# 说明：检查训练比例是否有效且递增。
-#-----------------------------------------------------------------------------------------------------------------------
 def _validate_fractions(fractions):
     fractions = tuple(float(f) for f in fractions)
     if (
@@ -96,14 +56,6 @@ def _validate_fractions(fractions):
     return fractions
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_validate_seeds —— 检查随机种子是否有效且不重复。
-# 输入：
-#     seeds：需要比较的一组随机种子。
-# 输出：
-#     seeds：校验后的整数种子元组。
-# 说明：检查随机种子是否有效且不重复。
-#-----------------------------------------------------------------------------------------------------------------------
 def _validate_seeds(seeds):
     seeds = tuple(seeds)
     if (
@@ -121,32 +73,12 @@ def _validate_seeds(seeds):
     return tuple(int(s) for s in seeds)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：feature_groups —— 用匿名特征指纹划分敏感性分析的组。
-# 输入：
-#     frame：本次处理的数据表。
-# 输出：
-#     组标识：每行十二个建模特征对应的哈希值。
-# 说明：相同特征用于同组划分，不代表同一用户，也不用于删除重复记录。
-#-----------------------------------------------------------------------------------------------------------------------
 def feature_groups(frame):
     return pd.util.hash_pandas_object(
         frame[FEATURES].astype(np.float32), index=False
     ).to_numpy(dtype=np.uint64)
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：load_development_sample —— 核验缓存来源并排除原测试集。
-# 输入：
-#     cache：已有建模样本缓存路径。
-#     base_run：原始实验目录，提供来源记录及已使用的测试集行号。
-#     outcome：当前结果列名，通常为 conversion 或 visit。
-# 输出：
-#     development：排除原测试集后的开发数据。
-#     old_test_ids：原测试集行号。
-#     provenance：缓存、原实验和行号的来源记录。
-# 说明：核验缓存来源并排除原测试集。
-#-----------------------------------------------------------------------------------------------------------------------
 def load_development_sample(cache, base_run, outcome="conversion"):
     cache, base_run = Path(cache).resolve(), Path(base_run).resolve()
     if outcome not in ("conversion", "visit"):
@@ -156,7 +88,9 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     metadata_path = cache.with_suffix(".json")
     manifest = json.loads(manifest_path.read_text())
     metadata = json.loads(metadata_path.read_text())
-    if manifest.get("status") != "complete":
+    if manifest.get("status") not in ("complete", "models_frozen") or (
+        manifest.get("status") == "models_frozen" and not manifest.get("selection", {}).get("frozen_before_test")
+    ):
         raise ValueError("the base run must have a complete manifest")
     source_sha = manifest.get("source", {}).get("sha256")
     if not source_sha or source_sha != metadata.get("source", {}).get("sha256"):
@@ -184,8 +118,7 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     expected_n = source_rows if requested == 0 else min(requested, source_rows)
     if len(sample) != expected_n:
         raise ValueError("cache row count disagrees with cache metadata")
-    if not np.isfinite(sample[FEATURES].to_numpy()).all():
-        raise ValueError("cached features must be finite for this study")
+    check_feature_matrix(sample[FEATURES], n_features=len(FEATURES))
     _binary_vectors(sample.treatment, sample[outcome])
     development = sample.loc[~sample.row_id.isin(old_test_ids)].reset_index(drop=True)
     _binary_vectors(development.treatment, development[outcome])
@@ -208,17 +141,6 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     return development, old_test_ids, provenance
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：nested_stratified_indices —— 按处理与结果标签分层抽取嵌套样本。
-# 输入：
-#     t：每行的处理组标签，0 为 Control，1 为 Treatment。
-#     y：每行的二分类结果标签。
-#     fractions：需要比较的嵌套训练样本比例。
-#     seed：控制抽样、同分排序或模型拟合的随机种子。
-# 输出：
-#     result：各训练比例对应的位置索引字典。
-# 说明：按处理与结果标签分层抽取嵌套样本。
-#-----------------------------------------------------------------------------------------------------------------------
 def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
     t, y = _binary_vectors(t, y)
     fractions = _validate_fractions(fractions)
@@ -241,16 +163,6 @@ def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
     return result
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：development_splits —— 创建分层划分和特征分组划分。
-# 输入：
-#     frame：本次处理的数据表。
-#     seed：控制抽样、同分排序或模型拟合的随机种子。
-#     outcome：当前结果列名，通常为 conversion 或 visit。
-# 输出：
-#     result：两种划分各自的训练与验证位置索引。
-# 说明：创建分层划分和特征分组划分。
-#-----------------------------------------------------------------------------------------------------------------------
 def development_splits(frame, seed=17, outcome="conversion"):
     _validate_seeds((seed,))
     t, y = _binary_vectors(frame.treatment, frame[outcome])
@@ -286,16 +198,6 @@ def development_splits(frame, seed=17, outcome="conversion"):
     return result
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_counts —— 汇总指定数据集的两组人数和事件数。
-# 输入：
-#     frame：本次处理的数据表。
-#     outcome：当前结果列名，通常为 conversion 或 visit。
-#     prefix：输出统计字段的名称前缀。
-# 输出：
-#     统计字典：带指定前缀的人数及正例数。
-# 说明：汇总指定数据集的两组人数和事件数。
-#-----------------------------------------------------------------------------------------------------------------------
 def _counts(frame, outcome, prefix):
     t, y = frame.treatment.to_numpy(), frame[outcome].to_numpy()
     return {
@@ -307,15 +209,6 @@ def _counts(frame, outcome, prefix):
     }
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_summarize —— 汇总重复开发实验的指标和选择频率。
-# 输入：
-#     longmetrics：各次开发集实验的详细指标表。
-# 输出：
-#     aggregate：各设置下的指标汇总表。
-#     frequencies：策略被选中的频率表。
-# 说明：汇总重复开发实验的指标和选择频率。
-#-----------------------------------------------------------------------------------------------------------------------
 def _summarize(longmetrics):
     dimensions = ["split_method", "training_fraction", "policy"]
     quantities = [
@@ -349,21 +242,6 @@ def _summarize(longmetrics):
     return aggregate, frequencies
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：run_stability —— 执行开发集训练规模与划分敏感性分析。
-# 输入：
-#     cache：已有建模样本缓存路径。
-#     base_run：原始实验目录，提供来源记录及已使用的测试集行号。
-#     output：本次任务的新输出路径。
-#     seeds：需要比较的一组随机种子。
-#     fractions：需要比较的嵌套训练样本比例。
-#     trees：XGBoost 候选模型使用的树数量。
-#     primary_budget：主策略允许触达的人群比例。
-#     outcome：当前结果列名，通常为 conversion 或 visit。
-# 输出：
-#     output：新生成的研究结果目录。
-# 说明：先固定分析配置，再执行各组训练；原测试记录不参与，跨运行离散程度仅作描述。
-#-----------------------------------------------------------------------------------------------------------------------
 def run_stability(
     cache,
     base_run,
@@ -375,7 +253,7 @@ def run_stability(
     primary_budget=0.2,
     outcome="conversion",
 ):
-    from .runtime import configure_runtime
+    from .config import configure_runtime
 
     configure_runtime()
     seeds, fractions = _validate_seeds(seeds), _validate_fractions(fractions)
@@ -387,7 +265,7 @@ def run_stability(
     base_run, cache = Path(base_run).resolve(), Path(cache).resolve()
     if (
         output == base_run
-        or base_run in output.parents
+        or (base_run in output.parents and output != base_run / "stability")
         or output == cache.parent
         or cache.parent in output.parents
     ):
@@ -413,12 +291,12 @@ def run_stability(
         "provenance": provenance,
         "candidates": POLICY_NAMES,
         "model_parameters": {
-            name: make_model(
-                name,
+            candidate["name"]: make_uplift_model(
+                **{k: v for k, v in candidate.items() if k != "name"},
                 random_state=seeds[0],
-                **({"n_estimators": trees} if "xgboost" in name else {}),
+                **({"n_estimators": trees} if candidate["outcome_model"] == "xgboost" else {}),
             ).get_params()
-            for name in MODEL_NAMES
+            for candidate in MODEL_CANDIDATES
         },
         "model_seed": "equal to the current split seed; all other model parameters are fixed",
         "row_split": "75/25 T x Y stratified development split; all configured nested fractions",
@@ -503,22 +381,20 @@ def run_stability(
                     raise AssertionError("feature group leakage detected")
                 audits.append(audit)
                 score_dict, fit_seconds, ranks = {}, {}, {}
-                for name in MODEL_NAMES:
-                    model = make_model(
-                        name,
+                fitted_models = {}
+                for candidate in MODEL_CANDIDATES:
+                    name = candidate["name"]
+                    model = make_uplift_model(
+                        **{k: v for k, v in candidate.items() if k != "name"},
                         random_state=seed,
                         **({"n_estimators": trees} if "xgboost" in name else {}),
                     )
                     fit_started = time.perf_counter()
                     model.fit(train[FEATURES], train.treatment, train[outcome])
                     fit_seconds[name] = time.perf_counter() - fit_started
-                    score_dict[name] = model.predict(validation[FEATURES])
-                    if name == "t_xgboost":
-                        score_dict["propensity"] = model.predict_outcomes(
-                            validation[FEATURES]
-                        )[1]
-                    del model
-                # 显式恢复候选顺序，避免同分选择受到拟合完成顺序影响。
+                    fitted_models[name] = model
+                score_dict = predict_policy_scores(fitted_models, validation[FEATURES])
+                del fitted_models, model
                 score_dict = {
                     name: score_dict[name] for name in POLICY_NAMES if name != "random"
                 }
@@ -526,7 +402,7 @@ def run_stability(
                     ranks[name] = ranking_metrics(
                         validation[outcome], validation.treatment, scores, e, seed
                     )
-                ate = ranks[MODEL_NAMES[0]]["ate_ht"]
+                ate = ranks[MODEL_CANDIDATES[0]["name"]]["ate_ht"]
                 ranks["random"] = {
                     "n": len(validation),
                     "ate_ht": ate,
@@ -616,7 +492,7 @@ def run_stability(
         "protocol_sha256": protocol_sha,
         "elapsed_seconds": time.perf_counter() - started,
         "experiments": len(audits),
-        "fitted_models": len(audits) * len(MODEL_NAMES),
+        "fitted_models": len(audits) * len(MODEL_CANDIDATES),
         "development_n": len(development),
         "old_test_n_excluded": len(old_test_ids),
         "all_old_test_row_overlaps_zero": all(

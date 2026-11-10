@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import diagnostics, preparation
-from criteo_uplift.diagnostics import covariate_balance, update_experiment_diagnostics
+from criteo_uplift.diagnostics import covariate_balance, run_diagnostics
 from criteo_uplift.pipeline_io import load_sample
 
 
@@ -59,7 +59,7 @@ class UnifiedScanTests(unittest.TestCase):
     def scan(self, **kwargs):
         options = dict(sample_size=43, per_arm=10, seed=31, chunk_size=17, progress=lambda _: None)
         options.update(kwargs)
-        return diagnostics.scan_raw_data(self.path, **options)
+        return preparation._scan_raw_data(self.path, **options)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics —— 确认一次 CSV 遍历保留两套抽样结果和全量统计。
@@ -241,7 +241,7 @@ class UnifiedScanTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_source_changes_and_insufficient_arms_fail(self):
         source = preparation.fingerprint(self.path)
-        with patch.object(diagnostics, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
+        with patch.object(preparation, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
             with self.assertRaisesRegex(RuntimeError, 'changed'):
                 self.scan()
         with self.assertRaisesRegex(ValueError, 'Need 41 rows per arm'):
@@ -259,16 +259,16 @@ class UnifiedScanTests(unittest.TestCase):
         scanned = self.scan()
         out = self.root / 'diagnostics'
         out.mkdir()
-        with patch('criteo_uplift.diagnostics.scan_raw_data', side_effect=AssertionError('second scan')):
-            result = update_experiment_diagnostics(
-                self.path, out, audit=scanned['audit'], source=scanned['source'],
+        with patch('criteo_uplift.preparation._scan_raw_data', side_effect=AssertionError('second scan')):
+            result = run_diagnostics(
+                out, train=self.raw, validation=self.raw, audit=scanned['audit'], source=scanned['source'],
                 sample_size=20, permutations=1, seed=31, scanned=scanned, progress=lambda _: None,
             )
             self.assertEqual(result['full_n'], len(self.raw))
             for seed, size in ((32, 20), (31, 40)):
                 with self.assertRaisesRegex(ValueError, '规模或种子'):
-                    update_experiment_diagnostics(
-                        self.path, out, audit=scanned['audit'], source=scanned['source'],
+                    run_diagnostics(
+                        out, train=self.raw, validation=self.raw, audit=scanned['audit'], source=scanned['source'],
                         sample_size=size, permutations=1, seed=seed, scanned=scanned,
                     )
         self.assertEqual(json.loads((out / 'srm.json').read_text())['observed_ratio'], .75)
@@ -351,7 +351,7 @@ class UnifiedScanTests(unittest.TestCase):
                     audit_path.rename(root / 'saved_audit.json')
                 if not reuse_sample:
                     args.sample_size = 57
-                with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
                     sample, audit, _, prepared = preparation.prepare_sample(args, root=root, progress=lambda _: None)
                 self.assertEqual(scan.call_count, 1)
                 self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
@@ -380,7 +380,7 @@ class UnifiedScanTests(unittest.TestCase):
             'source': source, 'sample_size': args.sample_size, 'seed': args.seed,
             'audit': saved_audit,
         }))
-        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
             sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
         self.assertFalse(scan.call_args.kwargs['audit_enabled'])
@@ -396,7 +396,7 @@ class UnifiedScanTests(unittest.TestCase):
         original_fingerprint = preparation.fingerprint(audit_path)
         for size, seed in ((61, 31), (61, 32), (0, 32), (5000, 33)):
             args.sample_size, args.seed = size, seed
-            with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+            with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
                 sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
             self.assertFalse(scan.call_args.kwargs['audit_enabled'])
             self.assertEqual(scan.call_args.kwargs['sample_size'], size)
@@ -413,7 +413,7 @@ class UnifiedScanTests(unittest.TestCase):
             {**valid, 'source': {'sha256': 'another_source'}},
         ):
             audit_path.write_text(json.dumps(invalid))
-            with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+            with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
                 _, audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
             self.assertTrue(scan.call_args.kwargs['audit_enabled'])
             self.assertIsNone(scan.call_args.kwargs['sample_size'])
@@ -449,7 +449,7 @@ class UnifiedScanTests(unittest.TestCase):
         info = json.loads(cache.with_suffix('.json').read_text())
         info['group_summary'][-1]['group'] = '总体'
         cache.with_suffix('.json').write_text(json.dumps(info))
-        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
             reused, audit, _, result = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertTrue(scan.call_args.kwargs['audit_enabled'])
         self.assertIsNone(scan.call_args.kwargs['sample_size'])
@@ -465,7 +465,7 @@ class UnifiedScanTests(unittest.TestCase):
         changed = pd.read_csv(self.path)
         changed.loc[0, 'f2'] += 1
         changed.to_csv(self.path, index=False)
-        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
             _, _, after_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertNotEqual(before_source['sha256'], after_source['sha256'])
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)

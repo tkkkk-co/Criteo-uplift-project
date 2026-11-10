@@ -8,8 +8,8 @@ import json
 import unittest
 import numpy as np
 import pandas as pd
-from criteo_uplift.preparation import FEATURES, fingerprint
-from criteo_uplift.diagnostic_refresh import update_diagnostics_only
+from criteo_uplift.config import FEATURES
+from criteo_uplift.pipeline_io import fingerprint
 from run_pipeline import run
 
 
@@ -58,7 +58,8 @@ class EndToEndTests(unittest.TestCase):
                 c2st_sample=1000,
                 bootstrap=5,
                 trees=5,
-                output=root / 'run',
+                output=root / 'run', planning_assumptions=None, stability_seeds=[17, 29, 83],
+                stability_fractions=[.25, .5, 1.],
             )
             with patch('run_pipeline.ROOT', root), patch(
                 'criteo_uplift.diagnostics.pd.read_csv', wraps=pd.read_csv,
@@ -96,20 +97,14 @@ class EndToEndTests(unittest.TestCase):
                     self.assertEqual(actual.visit_positive, int(rows.visit.sum()))
             self.assertEqual(sorted(all_ids), list(range(len(frame))))
             from criteo_uplift.evaluation import ate_summary
-            ate_full = pd.read_csv(out / 'diagnostics/ate_full.csv')
+            ate_full = pd.read_csv(out / 'evaluation/ate_summary.csv')
             for outcome in ('conversion', 'visit'):
                 expected = ate_summary(frame[outcome], frame.treatment)
-                actual = ate_full[ate_full.outcome == outcome].iloc[0]
+                actual = ate_full[(ate_full.outcome == outcome) & (ate_full.scope == "full_dataset")].iloc[0]
                 for key, value in expected.items():
-                    if key in actual.index and key not in {'standard_error', 'ci_low', 'ci_high'} and isinstance(value, (int, float)):
+                    if key in actual.index and isinstance(value, (int, float)):
                         self.assertAlmostEqual(actual[key], value)
                 # 全量报告用二项 plug-in 方差；ate_summary 用 ddof=1 的样本方差。
-                groups = [frame.loc[frame.treatment == arm, outcome] for arm in (0, 1)]
-                se = np.sqrt(sum(group.mean() * (1 - group.mean()) / len(group) for group in groups))
-                np.testing.assert_allclose(
-                    [actual.standard_error, actual.ci_low, actual.ci_high],
-                    [se, expected['ate'] - 1.95996398454 * se, expected['ate'] + 1.95996398454 * se],
-                )
             self.assertFalse((out / 'splits.csv').exists())
             self.assertFalse((out / 'split_summary.csv').exists())
             manifest = json.loads(((out / 'manifest.json')).read_text())
@@ -138,7 +133,7 @@ class EndToEndTests(unittest.TestCase):
                 policies[policies.budget == 1].incremental_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
-            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 7)
+            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 8)
             balance = pd.read_csv((out / 'diagnostics' / 'balance.csv'))
             self.assertTrue(balance['scope'].eq('full_published_dataset').all())
             self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())
@@ -147,42 +142,30 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(diagnostic['n_treatment'], 500)
             self.assertEqual(diagnostic['n_control'], 500)
             self.assertEqual(fingerprint(path), before)
+            stability = json.loads((out / 'stability/report.json').read_text())
+            self.assertEqual(stability['experiments'], 12)
+            self.assertTrue(stability['all_old_test_row_overlaps_zero'])
+            self.assertTrue(stability['all_group_split_feature_overlaps_zero'])
+            self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
+            self.assertEqual(json.loads((out / 'business/score_policy_status.json').read_text())['status'], 'not_run')
+            html = (out / 'report.html').read_text()
+            for section in ('Business Background', 'Data Preparation', 'Experiment Diagnostics', 'ATE / ITT',
+                            'Uplift Modeling', 'Training &amp; Validation', 'Test Evaluation', 'Stability Analysis',
+                            'Score Policy', 'Planning', 'Conclusion'):
+                self.assertIn(section, html)
+            self.assertFalse((out / 'diagnostics/ate_full.csv').exists())
+            self.assertFalse((out / 'evaluation/ate_test.json').exists())
+            from score_policy import score_policy
+            x_path, score_path = root / 'features_only.csv', root / 'offline_test_scores.csv'
+            frame[FEATURES].iloc[:100].to_csv(x_path, index=False)
+            scored = score_policy(out, x_path, score_path, budget=.2, chunk_size=17)
+            self.assertEqual(scored['selected_n'], 20)
+            self.assertEqual(pd.read_csv(score_path).selected.sum(), 20)
+            self.assertEqual(list(pd.read_csv(score_path).columns), ['source_row_id', 'score', 'selected'])
+            with self.assertRaises(FileExistsError):
+                run(args)
 
 
-    def test_diagnostics_refresh_preserves_frozen_results_and_saved_ate(self):
-        from contextlib import redirect_stdout
-        from io import StringIO
-        with TemporaryDirectory() as folder, redirect_stdout(StringIO()):
-            root = Path(folder)
-            rng = np.random.default_rng(28)
-            frame = pd.DataFrame(rng.normal(size=(1000, 12)), columns=FEATURES)
-            frame['treatment'] = rng.binomial(1, .7, len(frame))
-            frame['conversion'] = rng.binomial(1, .2, len(frame))
-            frame['visit'] = np.maximum(frame.conversion, rng.binomial(1, .3, len(frame)))
-            frame['exposure'] = frame.treatment
-            path = root / 'synthetic.csv'
-            frame.to_csv(path, index=False)
-            args = SimpleNamespace(data=path, sample_size=800, seed=28, outcome='conversion',
-                primary_budget=.2, permutations=1, c2st_sample=100, bootstrap=2, trees=2, output=root/'run')
-            with patch('run_pipeline.ROOT', root):
-                out = run(args)
-            protected = {p: p.read_bytes() for p in out.rglob('*') if p.is_file() and (
-                p.parent.name in ('models', 'evaluation') or p.name.endswith('_row_ids.csv') or p.name=='split_summary.csv')}
-            ate_path = out/'diagnostics/ate_full.csv'
-            before = pd.read_csv(ate_path, dtype={'p_value_text':'string'}, float_precision='round_trip')
-            cache = next((root/'artifacts/cache').glob('full_audit_*.json'))
-            old = json.loads(cache.read_text())
-            old['audit'].pop('duplicate_row_fraction')
-            cache.write_text(json.dumps(old))
-            update_diagnostics_only(args, root=root, progress=lambda _: None)
-            after = pd.read_csv(ate_path, dtype={'p_value_text':'string'}, float_precision='round_trip')
-            pd.testing.assert_frame_equal(before, after, check_exact=True)
-            for p, content in protected.items():
-                self.assertEqual(p.read_bytes(), content, str(p))
-            audit = json.loads((out/'data_preparation/audit.json').read_text())
-            self.assertIn('duplicate_row_fraction', audit)
-            self.assertEqual(audit['group_summary'][-1]['group'], 'Total')
-            self.assertEqual(set(pd.read_csv(out/'diagnostics/c2st.csv').model), {'logistic','xgboost'})
 
 
 if __name__ == '__main__':

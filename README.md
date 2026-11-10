@@ -1,127 +1,112 @@
-# Budget-Constrained Uplift Modeling on Criteo
+# Criteo Uplift Project
 
-**广告增量转化建模与 20% 预算策略评估**。基于公开实验基准，把业务约束、因果识别、S/T/X 建模、离线策略评价和线上验证方案串成一条可复核流程。
+在固定触达预算下，比较响应概率策略与增量模型能否带来更多增量转化。项目围绕公开随机实验数据，完成数据审计、实验诊断、ATE/ITT、S/T/X Learner、冻结策略评价、稳定性分析与业务实验规划。
 
-核心问题：如果只给 20% 的合资格人群分配广告资格，应选择最可能购买的人，还是预测增量最高的人？主结果是 `conversion`，模型仅使用处理前匿名特征 `f0`–`f11`。
+正式展示只有两个入口：
 
-当前主实验已用真实 Criteo 数据完整重跑。验证集选择 response propensity 基线，测试集评价见下表。
+- [完整学习 Notebook](notebooks/criteo_uplift_project.ipynb)：项目逻辑、理论解释、结果阅读和八行指标教学核验。
+- [完整 HTML Report](reports/published/conversion_1000000_seed42_refactored/report.html)：业务背景、模型比较、Test、Stability、打分接口和 Planning。
 
-## 先看结果
+## 当前完成的实验
 
-| 20% 预算策略 | 每 10 万待选人的估计增量转化 | 相对 response 的差值及配对 95% CI |
-|---|---:|---:|
-| 解析随机 | 24.61 | — |
-| **冻结选择：response propensity** | **117.23** | 0 |
-| S-Logistic | 123.32 | +6.10 [−1.77, 14.61] |
-| T-Logistic | 126.33 | +9.10 [-10.33, 24.84] |
-| T-XGBoost | 95.35 | -21.87 [-41.39, -6.15] |
-| X-XGBoost | 110.12 | −7.11 [−31.51, 18.64] |
+原始数据全量审计，建模使用均匀无放回抽取的 1,000,000 行。按 treatment × conversion 联合分层划分 Train / Validation / Test = 60% / 20% / 20%。正式模型和预处理只在 Train 拟合；Validation 在 20% 主预算下选择并冻结策略，Test 只用于评价。
 
-冻结 response 相对随机的差值为 **+92.61**，配对 95% CI **[50.02,132.15]**。分母是全部待选人，而非已触达人；20% 对应每 10 万人选 2 万人。区间条件于训练好的模型、固定 e 和样本臂人数，不包含训练/选型/e 估计及未知重复用户依赖。
+四个候选保持为 S＋Logistic、T＋Logistic、T＋XGBoost、X＋XGBoost。XGBoost 默认 150 轮、depth=4、learning_rate=0.05、min_child_weight=20、subsample=0.8、colsample_bytree=0.9、hist；本项目没有做超参数搜索或 early stopping。诊断中的 XGBoost 有独立配置，不能与正式基模型混淆。
 
-![预算策略与区间](reports/published/conversion_1000000_seed42/figures/policy.png)
+Validation 冻结的最终策略是 **response propensity**，即 P(Y=1 | X,T=1)，不是处理分配倾向分数。Test 上 20% 预算的增量估计为每 10 万名符合条件者约 **117.23** 次转化，95% 条件性 Bootstrap 区间约 **[64.09, 166.21]**。这是假设成立时的离线估计，不是实际广告投放或收入增长。最佳 uplift 候选为 S＋Logistic；不能按 Test 上更高的点估计回头改选。
 
-- **13,979,592 行全量审计**；100 万行等概率抽样建模，按 T×Y 分层为 60/20/20。
-- S-Logistic、T-Logistic、T-XGBoost、X-XGBoost，另有随机和转化概率强基线。
-- 主选型指标：validation 的 20% HT 增量转化。辅助检查 lift/uplift、AUUC/Qini、效应校准和多个预算。
-- 80 万开发行排除旧测试集，3 seeds×3 嵌套训练规模，另 3 个匿名特征组隔离划分：**12 个实验、48 次拟合**。X 在所有配置的主指标点估计均低于 response。
-- SQLite 主外键、1:1 join、条件聚合和窗口排名，在 20 万冻结测试行上核对 Python HT，最大浮点差约 9.52e−13。
-- 同预算线上策略 A/B 设计、样本量规划与显式成本/转化价值场景。
+Stability 包含种子 17/29/83、训练比例 25%/50%/100% 和特征分组划分，共 12 个开发配置、48 次模型拟合，排除原 Test 的 200,000 行。重复开发结果的标准差不是独立 Test 置信区间。
 
-项目执行路径见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)，Notebook 与产物映射、当前结果解释见 [结果导航](docs/RESULTS_GUIDE.md)，数据来源与限制见 [NOTICE](NOTICE.md)。公开数据的隐私抽样限制对原业务总体的外推。[Criteo 官方说明](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)
-
-## 三种使用方式
-
-### 1. 直接阅读，无需下载原始数据
-
-- [Pipeline 导航](docs/PROJECT_PIPELINE.md)：主流程、模块边界、输入输出、入口与复现命令。
-- [结果导航](docs/RESULTS_GUIDE.md)：Notebook 01–06 与计算函数、写入函数、产物文件的对应关系，以及当前结果的解释边界。
-- [指标理论与完整手算](因果推断理论/7.Metrics.md)。
-- [Notebook 01—06](notebooks/)：已有代码、表格和图；没有本地实验时自动读取公开聚合快照。
-- [Notebook 01–06](notebooks/)：按项目业务流程阅读；每页开头提供代码调用和结果文件导航。扩展敏感性结果、SQL 核对与业务假设情景见 Notebook 06。
-- [公开结果目录](reports/published/)：小体积 CSV/JSON/PNG、SQL 和来源哈希。
-- HTML 报告可下载后在浏览器打开；GitHub 通常展示 HTML 源文件，而非直接执行报告页面。
-
-### 2. 本机验证安装和流程，无需原始数据
-
-建议 Python 3.11，在项目根目录运行：
+## 安装与验证
 
 ```bash
-python -m venv .venv
-# macOS / Linux
-source .venv/bin/activate
-# Windows PowerShell 使用 .venv\Scripts\Activate.ps1
 python -m pip install -e '.[notebooks]'
-python -m unittest discover -s tests -v
-python scripts/run_demo.py --output artifacts/demo
+python -m unittest discover -s tests
 python scripts/execute_notebooks.py
+python scripts/check_publication.py
 ```
 
-`run_demo.py` 使用明确标注的**合成随机实验**验证四个真实 learner 接口和策略评价；它的数值不替代上述 Criteo 结果。输出目录需要不存在。Notebook 默认执行公开结果；`--local-results` 可优先读取作者本地实验。
+不下载原始数据也可以执行测试、查看聚合快照和运行 Notebook。测试中的人工数据仅用于核验实现，不作为 Criteo 实验结果。macOS 的 XGBoost 需要可用的 OpenMP 运行库；已有可信库可通过 `CRITEO_OPENMP_LIBRARY` 指定。项目不发布本机运行库二进制。
 
-已有 Conda 环境的用户可先激活兼容环境再执行安装命令。macOS 如果缺少 OpenMP，按 [Pipeline 导航](docs/PROJECT_PIPELINE.md) 中的环境与运行说明配置。项目 `.runtime/` 中的本机二进制不上传。
+## 完整 Pipeline
 
-`pyproject.toml` 定义可安装代码包和依赖范围；`requirements-tested.txt` 记录本次本机验证的直接依赖版本，**不是完整的跨平台 lockfile**。CI 已配置测试/演示/Notebook 检查，远端执行状态需上传后查看，不能把配置存在当作已通过。
-
-### 3. 重新训练真实 Criteo 实验
-
-自行从官方来源获取 v2.1 文件并放到 `data/raw/criteo-uplift-v2.1.csv`。运行代码从不写入 `data/`：
+自行获取 Criteo Uplift v2.1 原始 CSV，默认放在 `data/raw/criteo-uplift-v2.1.csv`。data 目录只读。
 
 ```bash
-python run_pipeline.py --output artifacts/conversion_repeat
-python run_stability.py --output artifacts/stability_repeat
-python scripts/run_metrics_extension.py --output artifacts/metrics_repeat
-python scripts/run_sql_audit.py --output artifacts/sql_repeat
+python run_pipeline.py --output artifacts/conversion_1000000_seed42_repeat
 ```
 
-后面三个入口默认分析当前本地主实验。若分析新 run，查看 `--help` 的 `--base-run` / `--source` / `--cache`。重训、稳定性研究与打分交付需要本地实验产物。完整入口、输出目录与复现命令见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)。
+默认完整执行 C2ST 499 次完整重拟合置换、150 轮 XGBoost、200 次 Bootstrap，以及全部稳定性配置。已有非空输出目录会被拒绝。`--sample-size 0` 表示全量建模，不改变默认的百万行实验。
 
-## 项目结构
+```bash
+python run_pipeline.py --help
+python run_pipeline.py --outcome visit --sample-size 1000000 --seed 42 \
+  --output artifacts/visit_1000000_seed42
+```
+
+`--stability-seeds`、`--stability-fractions` 可显式配置敏感性分析；正式默认设计不变。`--planning-assumptions assumptions.json` 接受完整业务假设对象，字段见 `planning.DEFAULT_PLANNING_ASSUMPTIONS`。未指定时沿用原项目明确标记的教学情景，所有参数都会保存到 `business/assumptions.json`。
+
+## 新用户打分
+
+```bash
+python score_policy.py --run artifacts/conversion_1000000_seed42_refactored \
+  --input /path/to/new_users.csv \
+  --output artifacts/conversion_1000000_seed42_refactored/business/score_policy_scores.csv \
+  --budget 0.2
+```
+
+输入只要求 f0–f11，按块读取。输出 `source_row_id`、`score`、`selected`，不进行训练或真实广告投放。当前没有提供真实新人群数据，报告明确标注未执行。没有 T、Y 就不能计算观测 ATE、ATT 或 ITT。
+
+## 代码与结果结构
 
 ```text
-README.md                    项目入口、结果与运行方式
-pyproject.toml               依赖和可安装代码包
-.gitignore                   排除数据/缓存/模型/本机环境
 criteo_uplift/
-  preparation.py             数据列与路径、文件指纹、抽样和划分
-  diagnostics.py             全量审计、SMD/KS、SRM、C2ST 与可学习性
-  evaluation.py              ATE、Uplift 排序指标、策略评价与区间
-  training.py                结果可学习性检查、候选模型拟合与验证集选型
-  holdout_evaluation.py      冻结模型的测试集评价与预测产物
-  pipeline_io.py             通用 IO、结果路径与实验产物读写
-  models.py                  S/T/X learner 与模型工厂
-  reporting.py               已保存结果的 HTML 报告和图表
-run_pipeline.py              完整实验编排、诊断刷新与报告收尾
-run_stability.py             排除旧 test 的开发敏感性研究
-score_policy.py              加载本地冻结模型生成预算名单
-scripts/                     演示、执行 Notebook、快照与发布检查
-notebooks/                   数据→诊断→模型→策略→手算→稳健性
-reports/published/           可公开的小体积聚合证据
-reports/published/*/queries.sql SQL 审计查询
-tests/                      单元与合成端到端测试（不是 ML test set）
-docs/                        主流程导航、Notebook 与结果文件映射；维护验收记录在 maintenance/
-因果推断理论/                 数学笔记与未来观察研究计划
-.github/workflows/ci.yml      上传后自动检查
+  config.py                 路径、列名、默认参数、运行环境与日志
+  input_checks.py           二元标签、特征矩阵、行号的公共检查
+  pipeline_io.py            指纹、路径保护、结果与缓存读写
+  preparation.py            单次流式扫描、审计、抽样、缓存、划分
+  diagnostics.py            SRM、SMD/KS、C2ST、Learnability
+  models.py                 结果/效应模型工厂与通用 S/T/X
+  training_validation.py    正式候选、Train 拟合、Validation 冻结
+  metrics.py                排序指标、HT、Qini、Bootstrap 公式
+  evaluation.py             ATE、策略值、校准与 Test 评价
+  stability.py              排除 Test 的开发敏感性分析
+  planning.py               假设业务参数、A/B 规划、经济情景
+  reporting.py              读取结果、生成图表与唯一正式报告
+run_pipeline.py             主流程入口
+score_policy.py             X-only 新人群打分入口
+notebooks/criteo_uplift_project.ipynb
+tests/
+docs/
+reports/published/          可发布聚合快照
+artifacts/                  本地缓存与实验结果，不发布
 ```
 
-`data/`、`artifacts/`、`.runtime/` 为本地目录，全部 Git 忽略；不会出现在公开仓库或发布 ZIP 中。原输入数据永久只读。
+每个实验目录下统一为 `data_preparation/`、`diagnostics/`、`models/`、`evaluation/`、`stability/`、`business/`、`figures/`、`manifest.json`、`report.html`。全量和 Test 的 ATE 都保存在 `evaluation/ate_summary.csv`，用 `scope` 与 `outcome` 区分。
 
-## 数学口径
+按最终重构指令，样本 NPZ/metadata 与全量 Audit 缓存均保留在 `artifacts/cache/`；它们只缓存输入准备结果，独立核验来源和版本。模型及实验评价不会写入全局缓存。
 
-$$Z_i=T_iY_i/e-(1-T_i)Y_i/(1-e),\qquad V_{20\%}=\frac{100000}{n}\sum_{i\in top(\lfloor .2n\rfloor)}Z_i.$$
+详细说明见 [项目流程](docs/PROJECT_PIPELINE.md)、[结果阅读指南](docs/RESULTS_GUIDE.md)、[函数迁移与验收清单](docs/maintenance/FINAL_REFACTOR.md)。
 
-e 在主实验中固定为 train 的处理比例估计。response propensity 指 $P(Y=1\mid X,T=1)$，不同于处理 propensity $P(T=1\mid X)$。传统前缀 lift 为两臂转化率差；plug-in gain 为覆盖率乘 lift；传统 Qini 为 $(R_1-R_0N_1/N_0)/n$。各面积使用全前缀，图才降采样，不做 perfect-ranking normalization。
+## 重构兼容边界
 
-当前主实验与 `metrics_v2` 使用 Qini v2，保留仅有对照组的零值前缀，并报告 plug-in 面积与配对区间。开发期稳定性研究按其记录的 Qini v1 口径积分。详见 [指标笔记](因果推断理论/7.Metrics.md)。
+原始数据与旧实验结果保留。旧公开快照已原样归档到本地 `artifacts/archive/published_before_final_refactor/`，当前公开目录只有完整项目的正式报告。旧拆分 Notebook 的有效学习内容已合并并执行检查后清理。
 
-## 现有结论的限制与扩展顺序
+固定组合类已按要求删除，因此旧类名保存的历史 joblib 需要使用原提交版本读取；新流程产生的模型支持当前独立打分入口，不添加隐藏的类名兼容层。旧 CSV/JSON 仍可阅读。经确认，ATE 两条输入路径统一采用原逐行的样本方差口径（n−1 修正），新全量 ATE 的 SE/CI 略有变化；其余模型预测、抽样、划分、策略评价与模型选择保持一致。
 
-没有用户/广告主 ID、时间、成本和贡献毛利；匿名特征组隔离不等于真正用户隔离。正式 SRM 缺少原设计比例而跳过。当前模型不是 K-fold cross-fitted X learner。未运行 500 万/全量训练、未开展线上策略 A/B。
+## 发布聚合快照
 
-后续优先验证扩样是否改善稀疏对照事件下的估计，并预先冻结新划分；无需为项目展示强制跑完所有行的模型。观察研究 IHDP 作为第二阶段方法附录，见 [计划与五份笔记](因果推断理论/补充/观察研究/1.Uber-dataset.md)。目前没有 IHDP 已运行结果，不将它列为已完成模块。
+```bash
+python scripts/export_public_results.py \
+  --source artifacts/conversion_1000000_seed42_refactored \
+  --output reports/new_snapshot
+python scripts/check_publication.py
+```
 
-## 发布、来源与许可证
+导出拒绝覆盖已有快照，只包含明确列出的聚合统计和展示图。原始数据、样本、行号列表、逐行预测、模型和本机绝对路径不进入正式快照。`scripts/build_release.py` 使用发布清单生成 ZIP。
 
-开始阅读代码时，先看 [Pipeline 导航](docs/PROJECT_PIPELINE.md)，再用 [结果导航](docs/RESULTS_GUIDE.md) 从 Notebook 追踪到计算函数和产物文件。`python scripts/check_publication.py` 核对公开快照；`python scripts/build_release.py` 生成小体积 ZIP，明确排除原始数据和个人本机环境。
+## 解释与许可
 
-原创代码采用 MIT。Criteo 数据及本仓库的数据派生输出按其 CC BY-NC-SA 4.0 条款保留归属与限制，见 [NOTICE](NOTICE.md)；MIT 不改变原数据的非商业条款。参考 Criteo AdKDD 2018 与 Künzel 等 meta-learner 研究。
+`treatment` 是分配，`exposure` 是处理后信息，仅作审计，不进入特征或人群筛选。匿名特征不能确认用户身份；保留重复内容候选，不自动去重。公开样本的事后诊断不能证明原始线上随机化，也不能消除未知实体依赖。
+
+代码许可见 [LICENSE](LICENSE)，数据与衍生成果使用边界见 [NOTICE.md](NOTICE.md)。数据来源为 [Criteo AI Lab](https://ailab.criteo.com/criteo-uplift-prediction-dataset/)，Meta Learner 方法参考 [Künzel et al.](https://arxiv.org/abs/1706.03461)。

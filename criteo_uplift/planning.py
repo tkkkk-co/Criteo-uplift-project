@@ -135,3 +135,50 @@ def cost_value_scenario(
         'break_even_contact_cost': benefit / contacts if contacts else None,
         'assumption': 'Hypothetical constant value/cost, fixed effect transport; no actual revenue or ROI claim.',
     }
+
+
+# 沿用原 planning_v1 的教学情景；全部为假设，不是线上业务参数。
+DEFAULT_PLANNING_ASSUMPTIONS = {
+    "p0": 0.003, "absolute_mdes": [0.00015, 0.0003, 0.0006],
+    "allocation_ratio": 1.0, "alpha": 0.05, "power": 0.8,
+    "values_per_conversion": [1.0, 5.0, 10.0],
+    "contact_costs": [0.001, 0.01, 0.05], "eligible_n": 100_000,
+}
+
+
+def run_planning(policies, selection, out, *, assumptions=None):
+    """使用明确假设与冻结策略的离线估计，保存规划和条件性经济情景。"""
+    import pandas as pd
+    import numpy as np
+    from .pipeline_io import safe_output, write_result
+
+    settings = dict(DEFAULT_PLANNING_ASSUMPTIONS if assumptions is None else assumptions)
+    if set(settings) != set(DEFAULT_PLANNING_ASSUMPTIONS):
+        raise ValueError(f"Planning assumptions require exactly {list(DEFAULT_PLANNING_ASSUMPTIONS)}")
+    for key in ('absolute_mdes', 'values_per_conversion', 'contact_costs'):
+        if not isinstance(settings[key], (list, tuple)) or not settings[key]:
+            raise ValueError(f'{key} must be a nonempty list')
+    budget = selection['primary_budget']
+    chosen = policies[(policies.policy == selection['selected_policy']) & np.isclose(policies.budget, budget)]
+    if len(chosen) != 1:
+        raise ValueError('Expected one frozen policy result at the primary budget')
+    row = chosen.iloc[0]
+    plans = pd.DataFrame([
+        plan_policy_ab(settings['p0'], delta, settings['allocation_ratio'], budget,
+                       settings['alpha'], settings['power'])
+        for delta in settings['absolute_mdes']
+    ])
+    scenarios = pd.DataFrame([
+        cost_value_scenario(float(row.incremental_per_100k), budget=budget,
+                            value_per_conversion=value, contact_cost=cost,
+                            eligible_n=settings['eligible_n'], ci_low=float(row.ci_low), ci_high=float(row.ci_high))
+        for value in settings['values_per_conversion'] for cost in settings['contact_costs']
+    ])
+    out = safe_output(out)
+    write_result({"hypothetical": True, "parameters": settings,
+                  "frozen_selected_policy": selection['selected_policy'], "budget": budget,
+                  "effect_source": "../evaluation/test_policies.csv",
+                  "interpretation": "假设固定价值、触达成本与效果可迁移；不是 Criteo 真实线上收入或 ROI。"},
+                 out / 'assumptions.json')
+    write_result(plans, out / 'hypothetical_ab_plans.csv')
+    write_result(scenarios, out / 'hypothetical_cost_scenarios.csv')

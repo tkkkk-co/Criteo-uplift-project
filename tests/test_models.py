@@ -8,14 +8,8 @@ import numpy as np
 from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
 
-from criteo_uplift.models import (
-    SLearnerLogistic,
-    TLearnerLogistic,
-    TLearnerXGBoost,
-    XLearnerXGBoost,
-    _positive_probability,
-    make_model,
-)
+from criteo_uplift.models import SLearner, TLearner, XLearner, _positive_probability, make_uplift_model
+
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -151,7 +145,7 @@ class ModelTests(unittest.TestCase):
     # 说明：核对 Logistic 学习器的接口、序列化和复制。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_logistic_contracts_pickle_and_clone(self):
-        for estimator in (SLearnerLogistic(), TLearnerLogistic()):
+        for estimator in (make_uplift_model("s", "logistic"), make_uplift_model("t", "logistic")):
             with self.subTest(estimator=type(estimator).__name__):
                 self.assertIs(estimator.fit(self.X, self.t, self.y), estimator)
                 mu0, mu1 = estimator.predict_outcomes(self.X[:11])
@@ -172,7 +166,7 @@ class ModelTests(unittest.TestCase):
     # 说明：确认 S 学习器仅添加处理主效应。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_s_learner_has_only_additive_treatment_feature(self):
-        model = SLearnerLogistic().fit(self.X, self.t, self.y)
+        model = make_uplift_model("s", "logistic").fit(self.X, self.t, self.y)
         self.assertEqual(
             model.model_["classifier"].coef_.shape, (1, self.X.shape[1] + 1)
         )
@@ -189,7 +183,7 @@ class ModelTests(unittest.TestCase):
         X = np.array([[0.0], [np.nan], [2.0], [100.0], [np.nan], [104.0]])
         t = np.array([0, 0, 0, 1, 1, 1])
         y = np.array([0, 1, 0, 1, 0, 1])
-        model = TLearnerLogistic().fit(X, t, y)
+        model = make_uplift_model("t", "logistic").fit(X, t, y)
         np.testing.assert_allclose(model.mu0_model_["imputer"].statistics_, [1.0])
         np.testing.assert_allclose(model.mu1_model_["imputer"].statistics_, [102.0])
         control_mean = model.mu0_model_["scaler"].mean_.copy()
@@ -207,14 +201,14 @@ class ModelTests(unittest.TestCase):
     def test_constant_outcome_arms_have_defined_positive_probabilities(self):
         X = np.arange(16, dtype=float).reshape(8, 2)
         t = np.array([0, 0, 0, 0, 1, 1, 1, 1])
-        for estimator in (TLearnerLogistic(), TLearnerXGBoost()):
+        for estimator in (make_uplift_model("t", "logistic"), make_uplift_model("t", "xgboost")):
             estimator.fit(X, t, t)
             mu0, mu1 = estimator.predict_outcomes(X[:2])
             np.testing.assert_array_equal(mu0, [0, 0])
             np.testing.assert_array_equal(mu1, [1, 1])
             np.testing.assert_array_equal(estimator.predict(X[:2]), [1, 1])
         for outcome in (np.zeros(8), np.ones(8)):
-            model = SLearnerLogistic().fit(X, t, outcome)
+            model = make_uplift_model("s", "logistic").fit(X, t, outcome)
             np.testing.assert_array_equal(model.predict(X[:2]), [0, 0])
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -267,7 +261,7 @@ class ModelTests(unittest.TestCase):
         y = np.array([0, 1, 0, 1, 0, 1, 0, 1])
         mu0, mu1 = _FixedProbabilityModel(0.2), _FixedProbabilityModel(0.8)
         tau0, tau1 = _RecordingRegressor(0.3), _RecordingRegressor(0.7)
-        model = XLearnerXGBoost()
+        model = make_uplift_model("x", "xgboost", "xgboost")
         with patch.object(
             model, "_new_classifier", side_effect=[mu0, mu1]
         ), patch.object(model, "_new_regressor", side_effect=[tau0, tau1]):
@@ -292,7 +286,7 @@ class ModelTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_validation_and_unfitted_behavior(self):
         with self.assertRaises(NotFittedError):
-            TLearnerLogistic().predict(self.X)
+            make_uplift_model("t", "logistic").predict(self.X)
         invalid_cases = [
             (self.X, np.zeros(len(self.t)), self.y),
             (self.X, self.t, np.full(len(self.y), 2)),
@@ -302,8 +296,8 @@ class ModelTests(unittest.TestCase):
         ]
         for X, t, y in invalid_cases:
             with self.assertRaises(ValueError):
-                TLearnerLogistic().fit(X, t, y)
-        model = TLearnerLogistic().fit(self.X, self.t, self.y)
+                make_uplift_model("t", "logistic").fit(X, t, y)
+        model = make_uplift_model("t", "logistic").fit(self.X, self.t, self.y)
         with self.assertRaises(ValueError):
             model.predict(self.X[:, :2])
 
@@ -315,19 +309,21 @@ class ModelTests(unittest.TestCase):
     #     返回值：None；通过断言验证预期行为，失败时报告错误。
     # 说明：确认模型创建与配置检查无需提前导入 XGBoost。
     #-----------------------------------------------------------------------------------------------------------------------
-    def test_factory_and_tree_configuration_need_no_xgboost_import(self):
-        for name, estimator_type in (
-            ("s_logistic", SLearnerLogistic),
-            ("t_logistic", TLearnerLogistic),
-            ("t_xgboost", TLearnerXGBoost),
-            ("x_xgboost", XLearnerXGBoost),
-        ):
-            model = make_model(name, random_state=31)
-            self.assertIsInstance(model, estimator_type)
-            self.assertEqual(model.random_state, 31)
+    def test_factory_and_extra_combinations(self):
+        for learner, outcome, effect, cls in [
+            ("s", "logistic", None, SLearner), ("t", "logistic", None, TLearner),
+            ("t", "xgboost", None, TLearner), ("x", "xgboost", "xgboost", XLearner),
+            ("s", "xgboost", None, SLearner), ("x", "logistic", "linear", XLearner),
+        ]:
+            params = {"n_estimators": 3} if outcome == "xgboost" else {}
+            model = make_uplift_model(learner, outcome, effect, random_state=31, **params)
+            self.assertIsInstance(model, cls)
             self.assertEqual(clone(model).get_params(), model.get_params())
-        with self.assertRaises(ValueError):
-            make_model("unknown")
+            model.fit(self.X, self.t, self.y)
+            self.assertTrue(np.isfinite(model.predict(self.X)).all())
+        for args in [("unknown", "logistic"), ("x", "logistic"), ("s", "logistic", "linear")]:
+            with self.assertRaises(ValueError):
+                make_uplift_model(*args)
 
 
 if __name__ == "__main__":

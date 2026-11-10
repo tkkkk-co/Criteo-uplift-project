@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import pipeline_io
-from criteo_uplift.preparation import FEATURES, fingerprint
-from criteo_uplift.evaluation import _rank
+from criteo_uplift.config import FEATURES
+from criteo_uplift.pipeline_io import fingerprint
+from criteo_uplift.metrics import _rank
 from score_policy import score_policy
 
 

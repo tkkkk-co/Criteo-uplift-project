@@ -3,23 +3,36 @@
 # Notebook 与结果文件映射见 docs/RESULTS_GUIDE.md。
 
 from pathlib import Path
+import hashlib
 import json
 import os
 
 import numpy as np
 import pandas as pd
 
-from .preparation import DATA_ROOT, FEATURES, LABELS, ROOT
+from .config import DATA_ROOT, FEATURES, LABELS, ROOT
+from .input_checks import check_binary_vector, check_feature_matrix, check_row_ids
+
+def fingerprint(path):
+    """记录文件的路径、大小、修改时间和分块计算的 SHA256。"""
+    path = Path(path)
+    h = hashlib.sha256()
+
+    with path.open('rb') as f:  # 以二进制只读模式读取文件。
+        for block in iter(
+            lambda: f.read(8*1024*1024),
+            b''):
+            h.update(block)
+
+    return {
+        'path':str(path.resolve()),
+        'size':path.stat().st_size,
+        'mtime_ns':path.stat().st_mtime_ns,
+        'sha256':h.hexdigest()
+    }
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：safe_output() —— 检查结果保存路径，保护原始数据目录。
-# 输入：
-#     path：准备写入结果的文件或目录路径。
-# 输出：
-#     path：解析后的绝对路径对象。
-# 说明：禁止向项目 data 目录及其内部写入结果，符号链接指向该目录时也会被识别。
-#-----------------------------------------------------------------------------------------------------------------------
+
 def safe_output(path):
     path = Path(path).resolve()
     if path == DATA_ROOT.resolve() or DATA_ROOT.resolve() in path.parents:
@@ -27,18 +40,6 @@ def safe_output(path):
     return path
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：write_result() —— 按文件后缀统一保存已经准备好的结果。
-# 输入：
-#     value：JSON 使用字典或列表；CSV 使用 pandas DataFrame。
-#     path：完整目标路径，支持 .json 和 .csv 后缀。
-# 输出：
-#     返回值：None。
-# 保存文件：
-#     path：保存的 JSON 或 CSV 文件；CSV 不保存 DataFrame 索引。
-# 说明：只做类型检查、序列化和保存，不计算统计量、不推断业务目录。
-#       保留原始数据路径保护；后缀或类型不匹配时，在写入前报错。
-#-----------------------------------------------------------------------------------------------------------------------
 def write_result(value, path):
     path = safe_output(path)
     suffix = path.suffix.lower()
@@ -52,15 +53,6 @@ def write_result(value, path):
         return
     if not isinstance(value, (dict, list, tuple)):
         raise TypeError("JSON 结果必须是字典或列表")
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：convert —— 转换 JSON 保存过程中不直接支持的对象。
-    # 输入：
-    #     v：需要转换的对象或其中一个元素。
-    # 输出：
-    #     转换结果：处理后的对象，返回给 write_result() 进行保存。
-    # 说明：递归处理字典和序列，将 NumPy 数组及数值转换为普通 Python 类型，
-    #       将路径转换为字符串，将非有限浮点数转换为 None。
-    #-----------------------------------------------------------------------------------------------------------------------
     def convert(v):
         if isinstance(v, dict): return {str(k): convert(x) for k,x in v.items()}
         if isinstance(v, (tuple,list)): return [convert(x) for x in v]
@@ -74,21 +66,16 @@ def write_result(value, path):
     path.write_text(content, encoding="utf-8")
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：save_sample() —— 将样本保存为压缩缓存。
-# 输入：
-#     sample：包含原始行号、特征和标签的样本数据表。
-#     path：目标缓存路径，通常使用 .npz 后缀。
-# 输出：
-#     返回值：None。
-# 保存文件：压缩 NPZ 文件，各数组如下。
-#     row_id：样本对应的原始 CSV 行号。
-#     X：float32 类型的特征矩阵。
-#     labels：int8 类型的标签矩阵。
-# 说明：检查保存路径并创建父目录，将样本压缩保存，供后续运行直接读取。
-#-----------------------------------------------------------------------------------------------------------------------
 def save_sample(sample, path):
+    """验证样本后序列化为 row_id、float32 特征、int8 标签；不接受非法标签截断。"""
     path = safe_output(path)
+    required = {"row_id", *FEATURES, *LABELS}
+    if not required.issubset(sample.columns):
+        raise ValueError(f"Sample is missing columns: {sorted(required - set(sample.columns))}")
+    check_feature_matrix(sample[FEATURES], n_features=len(FEATURES))
+    check_row_ids(sample.row_id, n_rows=len(sample), require_integer=True)
+    for label in LABELS:
+        check_binary_vector(sample[label], label, len(sample))
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path,
@@ -98,16 +85,14 @@ def save_sample(sample, path):
     )
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：load_sample() —— 读取已有样本缓存。
-# 输入：
-#     path：之前保存的 NPZ 缓存路径。
-# 输出：
-#     frame：恢复后的样本数据表，包含原始行号、特征和标签。
-# 说明：从缓存中读取各个数组，恢复列名并组合成数据表；缓存来源由上层流程负责核对。
-#-----------------------------------------------------------------------------------------------------------------------
 def load_sample(path):
     with np.load(path, allow_pickle=False) as z:
+        check_feature_matrix(z['X'], n_features=len(FEATURES))
+        check_row_ids(z['row_id'], n_rows=len(z['X']), require_integer=True)
+        if z['labels'].shape != (len(z['X']), len(LABELS)):
+            raise ValueError('Cached label shape does not match feature rows and label columns')
+        for j, label in enumerate(LABELS):
+            check_binary_vector(z['labels'][:, j], label, len(z['X']))
         frame = pd.DataFrame(z['X'], columns=FEATURES)
         for j, c in enumerate(LABELS):
             frame[c] = z['labels'][:, j]
@@ -116,15 +101,6 @@ def load_sample(path):
 
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：result_directory —— 选择 Notebook 应读取的结果目录。
-# 输入：
-#     name：需要构造、读取或保存的对象名称。
-#     root：项目根目录，用于定位缓存或结果。
-# 输出：
-#     目录路径：本地实验或已发布快照的位置。
-# 说明：默认优先使用本地实验结果，找不到时读取公开聚合快照；显式快照模式只读取公开结果。
-#-----------------------------------------------------------------------------------------------------------------------
 def result_directory(name, root=ROOT):
     if (
         not isinstance(name, str)

@@ -1,0 +1,29 @@
+{
+  "hypothetical": true,
+  "parameters": {
+    "p0": 0.003,
+    "absolute_mdes": [
+      0.00015,
+      0.0003,
+      0.0006
+    ],
+    "allocation_ratio": 1.0,
+    "alpha": 0.05,
+    "power": 0.8,
+    "values_per_conversion": [
+      1.0,
+      5.0,
+      10.0
+    ],
+    "contact_costs": [
+      0.001,
+      0.01,
+      0.05
+    ],
+    "eligible_n": 100000
+  },
+  "frozen_selected_policy": "propensity",
+  "budget": 0.2,
+  "effect_source": "../evaluation/test_policies.csv",
+  "interpretation": "假设固定价值、触达成本与效果可迁移；不是 Criteo 真实线上收入或 ROI。"
+}

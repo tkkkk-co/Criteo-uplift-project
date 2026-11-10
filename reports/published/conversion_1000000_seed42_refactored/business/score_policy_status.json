@@ -1,0 +1,5 @@
+{
+  "status": "not_run",
+  "reason": "未提供外部 X-only 数据，尚未执行真实新人群打分。",
+  "entrypoint": "score_policy.py"
+}
