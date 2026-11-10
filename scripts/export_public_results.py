@@ -11,9 +11,8 @@ configure_runtime()
 import argparse
 import hashlib
 import json
-import shutil
 import pandas as pd
-from criteo_uplift.data import FEATURES
+from criteo_uplift.preparation import FEATURES
 from criteo_uplift.pipeline_io import load_sample, safe_output
 
 BASE = 'conversion_1000000_seed42'

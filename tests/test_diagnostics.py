@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
-from criteo_uplift.data import COLUMNS, FEATURES, LABELS, fingerprint
+from criteo_uplift.preparation import COLUMNS, FEATURES, LABELS, fingerprint
 
 from criteo_uplift.diagnostics import (
     c2st,

@@ -1,14 +1,13 @@
 # 使用合成随机实验数据演示训练、策略选择和评价，结果不代表真实 Criteo 实验。
 
-from pathlib import Path
-import json
 import time
 import numpy as np
 import pandas as pd
 from scipy.special import expit
-from .data import FEATURES, split_sample
+from .preparation import FEATURES, split_sample
 from .pipeline_io import safe_output, write_result
-from .models import make_model
+from .models import predict_policy_scores
+from .training import fit_and_select_models
 from .evaluation import evaluate_policies, ranking_metrics
 
 
@@ -46,8 +45,6 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
     parts, _, _ = split_sample(frame, seed=seed)
     train, val, test = (parts[k] for k in ['train', 'validation', 'test'])
     e = float(train.treatment.mean())
-    names = ['s_logistic', 't_logistic', 't_xgboost', 'x_xgboost']
-    models, val_scores = {}, {}
     output.mkdir(parents=True)
     for directory in (output / 'models', output / 'evaluation'):
         directory.mkdir()
@@ -63,40 +60,18 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         'purpose': 'Verify installation and exercise the real S/T/X + policy evaluation APIs.',
     }
     write_result(protocol, (output / 'protocol.json'))
-    for name in names:
-        model = make_model(
-            name,
-            random_state=seed,
-            **({'n_estimators': trees} if 'xgboost' in name else {}),
-        )
-        model.fit(train[FEATURES], train.treatment, train.conversion)
-        models[name] = model
-        val_scores[name] = model.predict(val[FEATURES])
-    val_scores['propensity'] = models['t_xgboost'].predict_outcomes(val[FEATURES])[1]
-    validation = evaluate_policies(
-        val.conversion,
-        val.treatment,
-        val_scores,
-        e,
-        budgets=[0.2],
-        bootstrap=0,
+    # 与主实验共用训练和 validation 冻结逻辑，合成数据身份记录在 protocol 中。
+    fitted = fit_and_select_models(
+        train,
+        val,
+        outcome='conversion',
         seed=seed,
+        trees=trees,
+        primary_budget=0.2,
+        assignment_probability=e,
+        out=output / 'models',
     )
-    winner = (
-        validation.sort_values('incremental_per_100k', ascending=False, kind='stable')
-        .iloc[0]
-        .policy
-    )
-    selection = {
-        'selected_policy': winner,
-        'frozen_before_test': True,
-        'criterion': 'validation 20% HT gain',
-        'synthetic': True,
-    }
-    write_result(selection, (output / 'models' / 'selection.json'))
-    write_result(validation, output / 'models' / 'validation_policies.csv')
-    scores = {name: model.predict(test[FEATURES]) for name, model in models.items()}
-    scores['propensity'] = models['t_xgboost'].predict_outcomes(test[FEATURES])[1]
+    scores = predict_policy_scores(fitted['models'], test[FEATURES])
     policies = evaluate_policies(
         test.conversion,
         test.treatment,
@@ -120,7 +95,7 @@ def run_demo(output, n=6000, seed=42, trees=20, bootstrap=30):
         {
             **protocol,
             'status': 'complete',
-            'selection': selection,
+            'selection': fitted['selection'],
             'elapsed_seconds': time.perf_counter() - start,
         },
         (output / 'manifest.json'),

@@ -421,17 +421,6 @@ class _XGBoostConfiguration:
         self.n_jobs = n_jobs
 
     #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：_tree_parameters —— 整理提升树的共用配置。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     参数字典：树规模、采样比例、学习率、线程数和随机种子等设置。
-    # 说明：整理提升树的共用配置。
-    #-----------------------------------------------------------------------------------------------------------------------
-    def _tree_parameters(self):
-        return self.get_params(deep=False)
-
-    #-----------------------------------------------------------------------------------------------------------------------
     # 函数：_xgboost_classes —— 按需加载 XGBoost 类。
     # 输入：
     #     无。
@@ -465,7 +454,7 @@ class _XGBoostConfiguration:
     def _new_classifier(self):
         classifier, _ = self._xgboost_classes()
         return classifier(
-            **self._tree_parameters(),
+            **self.get_params(deep=False),
             objective="binary:logistic",
             eval_metric="logloss",
         )
@@ -481,7 +470,7 @@ class _XGBoostConfiguration:
     def _new_regressor(self):
         _, regressor = self._xgboost_classes()
         return regressor(
-            **self._tree_parameters(), objective="reg:squarederror", eval_metric="rmse"
+            **self.get_params(deep=False), objective="reg:squarederror", eval_metric="rmse"
         )
 
 
@@ -553,6 +542,15 @@ class XLearnerXGBoost(_XGBoostConfiguration, _TwoOutcomeModels):
         return e * tau0 + (1.0 - e) * tau1
 
 
+_MODEL_TYPES = {
+    "s_logistic": SLearnerLogistic,
+    "t_logistic": TLearnerLogistic,
+    "t_xgboost": TLearnerXGBoost,
+    "x_xgboost": XLearnerXGBoost,
+}
+MODEL_NAMES = tuple(_MODEL_TYPES)
+
+
 #-----------------------------------------------------------------------------------------------------------------------
 # 函数：make_model —— 按名称创建正式增量模型。
 # 输入：
@@ -564,17 +562,19 @@ class XLearnerXGBoost(_XGBoostConfiguration, _TwoOutcomeModels):
 # 说明：根据固定名称选择对应学习器，未知名称直接报错；此步骤不训练模型。
 #-----------------------------------------------------------------------------------------------------------------------
 def make_model(name, random_state=42, **kwargs):
-    estimators = {
-        "s_logistic": SLearnerLogistic,
-        "t_logistic": TLearnerLogistic,
-        "t_xgboost": TLearnerXGBoost,
-        "x_xgboost": XLearnerXGBoost,
-    }
-    if name not in estimators:
+    if name not in _MODEL_TYPES:
         raise ValueError(
-            f"Unknown model {name!r}; choose from {', '.join(estimators)}."
+            f"Unknown model {name!r}; choose from {', '.join(MODEL_NAMES)}."
         )
-    return estimators[name](random_state=random_state, **kwargs)
+    return _MODEL_TYPES[name](random_state=random_state, **kwargs)
+
+
+def predict_policy_scores(models, X):
+    """生成各增量模型的分数，复用 T-XGBoost 的处理组模型作为响应概率基线。"""
+    scores = {name: model.predict(X) for name, model in models.items()}
+    # propensity 是 P(Y=1|X,T=1)，不是处理分配概率 P(T=1|X)。
+    scores["propensity"] = models["t_xgboost"].predict_outcomes(X)[1]
+    return scores
 
 
 __all__ = [
@@ -583,4 +583,6 @@ __all__ = [
     "TLearnerXGBoost",
     "XLearnerXGBoost",
     "make_model",
+    "MODEL_NAMES",
+    "predict_policy_scores",
 ]

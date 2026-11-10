@@ -4,7 +4,7 @@
 
 核心问题：如果只给 20% 的合资格人群分配广告资格，应选择最可能购买的人，还是预测增量最高的人？主结果是 `conversion`，模型仅使用处理前匿名特征 `f0`–`f11`。
 
-当前是**已运行的离线研究**。首轮验证集最终选择 response propensity 基线；复杂 X-Learner 没有证明优于该基线。没有线上广告投放或实际收入提升声明。
+当前主实验已用真实 Criteo 数据完整重跑。验证集选择 response propensity 基线，测试集评价见下表。
 
 ## 先看结果
 
@@ -74,7 +74,7 @@ python scripts/run_metrics_extension.py --output artifacts/metrics_repeat
 python scripts/run_sql_audit.py --output artifacts/sql_repeat
 ```
 
-后面三个入口默认分析首轮本地实验；若分析新 run，查看 `--help` 的 `--base-run` / `--source` / `--cache`。公开快照不包含逐行预测、行号列表或 fitted models，所以重训、稳定性研究与打分交付需要自己的本地实验产物。完整入口、输出目录与复现命令见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)。
+后面三个入口默认分析当前本地主实验。若分析新 run，查看 `--help` 的 `--base-run` / `--source` / `--cache`。重训、稳定性研究与打分交付需要本地实验产物。完整入口、输出目录与复现命令见 [Pipeline 导航](docs/PROJECT_PIPELINE.md)。
 
 ## 项目结构
 
@@ -83,8 +83,7 @@ README.md                    项目入口、结果与运行方式
 pyproject.toml               依赖和可安装代码包
 .gitignore                   排除数据/缓存/模型/本机环境
 criteo_uplift/
-  data.py                    数据列、项目路径常量、文件指纹与数据划分
-  preparation.py             缓存校验与单次原始数据扫描的协调
+  preparation.py             数据列与路径、文件指纹、抽样和划分
   diagnostics.py             全量审计、SMD/KS、SRM、C2ST 与可学习性
   evaluation.py              ATE、Uplift 排序指标、策略评价与区间
   training.py                结果可学习性检查、候选模型拟合与验证集选型
@@ -113,7 +112,7 @@ $$Z_i=T_iY_i/e-(1-T_i)Y_i/(1-e),\qquad V_{20\%}=\frac{100000}{n}\sum_{i\in top(\
 
 e 在主实验中固定为 train 的处理比例估计。response propensity 指 $P(Y=1\mid X,T=1)$，不同于处理 propensity $P(T=1\mid X)$。传统前缀 lift 为两臂转化率差；plug-in gain 为覆盖率乘 lift；传统 Qini 为 $(R_1-R_0N_1/N_0)/n$。各面积使用全前缀，图才降采样，不做 perfect-ranking normalization。
 
-历史基线与稳定性研究使用 Qini v1（积分两臂前缀）；`metrics_v2` 保留仅对照前缀的零节点并增加 plug-in 面积和配对区间。主 20% HT 及 HT 面积定义不变。详见 [指标笔记](因果推断理论/7.Metrics.md)。
+当前主实验与 `metrics_v2` 使用 Qini v2，保留仅有对照组的零值前缀，并报告 plug-in 面积与配对区间。开发期稳定性研究按其记录的 Qini v1 口径积分。详见 [指标笔记](因果推断理论/7.Metrics.md)。
 
 ## 现有结论的限制与扩展顺序
 

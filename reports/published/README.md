@@ -1,5 +1,3 @@
 # Published aggregate snapshot
 
-Computed from the historical Criteo experiment. No raw rows, row-ID lists, individual predictions or fitted models are included. Text paths are redacted. Original source artifacts stay unchanged. See snapshot_manifest.json for hashes and NOTICE.md for attribution.
-
-Historical baseline/stability use Qini v1; metrics_v2 uses the explicitly revised control-only-zero-node convention. Main 20% HT values are unchanged.
+The main experiment was rebuilt from the original Criteo v2.1 CSV with the current pipeline. Its ranking metrics use Qini v2. The separate development stability study records its own metric conventions. The snapshot contains aggregated results and figures. See snapshot_manifest.json for hashes and NOTICE.md for attribution.

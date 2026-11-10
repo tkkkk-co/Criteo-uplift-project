@@ -13,12 +13,11 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
-from .data import FEATURES, fingerprint
+from .preparation import FEATURES, fingerprint
 from .pipeline_io import load_sample, safe_output, write_result
 from .evaluation import RANKING_METRIC_DESCRIPTION, evaluate_policies, ranking_metrics
-from .models import make_model
+from .models import MODEL_NAMES, make_model
 
-MODEL_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost")
 POLICY_NAMES = ("random", *MODEL_NAMES, "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)

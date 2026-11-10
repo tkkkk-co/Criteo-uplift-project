@@ -11,7 +11,7 @@ from typing import Mapping
 import numpy as np
 import pandas as pd
 
-from .data import fingerprint
+from .preparation import fingerprint
 from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 

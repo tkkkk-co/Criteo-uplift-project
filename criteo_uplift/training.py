@@ -1,38 +1,16 @@
 # 在训练集拟合模型，在验证集选择策略；不使用测试结果进行选择。
-# Notebook 03 的核心实现：run_learnability_diagnostics → fit_and_select_models。
-# 输出 learnability.csv、validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
+# Notebook 03 的核心实现：fit_and_select_models。
+# 输出 validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
 import time
 
 import joblib
-import numpy as np
 import pandas as pd
 
-from .data import FEATURES
+from .preparation import FEATURES
 from .pipeline_io import safe_output, write_result
-from .diagnostics import learnability
 from .evaluation import evaluate_policies, ranking_metrics
-from .models import make_model
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：run_learnability_diagnostics —— 检查特征对访问和转化的预测信息。
-# 输入：
-#     train：训练集数据表。
-#     validation：验证集数据表，用于评价和策略选择。
-#     out：主流程已创建的诊断结果目录。
-#     seed：控制抽样、同分排序或模型拟合的随机种子。
-# 输出：
-#     返回值：None；保存 learnability.csv。
-# 说明：分别检查特征对访问和转化的预测能力，在验证集评价并保存两组结果。
-#-----------------------------------------------------------------------------------------------------------------------
-def run_learnability_diagnostics(train, validation, out, *, seed):
-    records = [
-        learnability(train, validation, FEATURES, outcome, seed=seed)
-        for outcome in ("visit", "conversion")
-    ]
-    out = safe_output(out)
-    write_result(pd.concat(records), out / 'learnability.csv')
+from .models import MODEL_NAMES, make_model, predict_policy_scores
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -67,12 +45,9 @@ def fit_and_select_models(
 ):
     out = safe_output(out)
     models = {}
-    validation_scores = {}
-    validation_ranking = []
     model_metadata = {}
-    model_names = ["s_logistic", "t_logistic", "t_xgboost", "x_xgboost"]
 
-    for name in model_names:
+    for name in MODEL_NAMES:
         progress("训练 " + name)
         kwargs = {"n_estimators": trees} if "xgboost" in name else {}
         model = make_model(name, random_state=seed, **kwargs)
@@ -82,26 +57,20 @@ def fit_and_select_models(
             "parameters": model.get_params(),
             "seconds": time.perf_counter() - started,
         }
-        validation_scores[name] = model.predict(validation[FEATURES])
         models[name] = model
-        validation_ranking.append(
-            {
-                "policy": name,
-                **ranking_metrics(
-                    validation[outcome],
-                    validation.treatment,
-                    validation_scores[name],
-                    assignment_probability,
-                    seed,
-                ),
-            }
-        )
-        joblib.dump(model, (safe_output(out / f'{name}.joblib')))
+        joblib.dump(model, safe_output(out / f'{name}.joblib'))
 
-    # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
-    validation_scores["propensity"] = models["t_xgboost"].predict_outcomes(
-        validation[FEATURES]
-    )[1]
+    validation_scores = predict_policy_scores(models, validation[FEATURES])
+    validation_ranking = [
+        {
+            "policy": name,
+            **ranking_metrics(
+                validation[outcome], validation.treatment, validation_scores[name],
+                assignment_probability, seed,
+            ),
+        }
+        for name in MODEL_NAMES
+    ]
     validation_policies = evaluate_policies(
         validation[outcome],
         validation.treatment,
@@ -115,25 +84,17 @@ def fit_and_select_models(
     write_result(pd.DataFrame(validation_ranking), out / 'validation_ranking.csv')
 
     # 分别冻结全部可用策略中的最佳策略，以及仅增量模型中的最佳候选。
-    selected_policy = (
-        validation_policies.sort_values(
-            "incremental_per_100k", ascending=False, kind="stable"
-        )
-        .iloc[0]
-        .policy
+    ordered_policies = validation_policies.sort_values(
+        "incremental_per_100k", ascending=False, kind="stable"
     )
-    selected_uplift_model = (
-        validation_policies[validation_policies.policy.isin(model_names)]
-        .sort_values("incremental_per_100k", ascending=False, kind="stable")
-        .iloc[0]
-        .policy
-    )
+    selected_policy = ordered_policies.iloc[0].policy
+    selected_uplift_model = ordered_policies[ordered_policies.policy.isin(MODEL_NAMES)].iloc[0].policy
     selection = {
         "primary_budget": primary_budget,
         "criterion": "validation HT incremental responses per 100k eligible people",
         "selected_policy": selected_policy,
         "selected_uplift_model": selected_uplift_model,
-        "candidates": ["random", "propensity", *model_names],
+        "candidates": ["random", "propensity", *MODEL_NAMES],
         "frozen_before_test": True,
         "note": (
             "All models remain trained on training split only; no test tuning, "

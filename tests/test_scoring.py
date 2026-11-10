@@ -10,8 +10,8 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import data, pipeline_io
-from criteo_uplift.data import FEATURES, fingerprint
+from criteo_uplift import pipeline_io
+from criteo_uplift.preparation import FEATURES, fingerprint
 from criteo_uplift.evaluation import _rank
 from score_policy import score_policy
 

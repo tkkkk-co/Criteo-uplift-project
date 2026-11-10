@@ -8,8 +8,9 @@ import json
 import unittest
 import numpy as np
 import pandas as pd
-from criteo_uplift.data import FEATURES, fingerprint
-from run_pipeline import run, update_diagnostics_only
+from criteo_uplift.preparation import FEATURES, fingerprint
+from criteo_uplift.diagnostic_refresh import update_diagnostics_only
+from run_pipeline import run
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -100,8 +101,15 @@ class EndToEndTests(unittest.TestCase):
                 expected = ate_summary(frame[outcome], frame.treatment)
                 actual = ate_full[ate_full.outcome == outcome].iloc[0]
                 for key, value in expected.items():
-                    if key in actual.index and isinstance(value, (int, float)):
+                    if key in actual.index and key not in {'standard_error', 'ci_low', 'ci_high'} and isinstance(value, (int, float)):
                         self.assertAlmostEqual(actual[key], value)
+                # 全量报告用二项 plug-in 方差；ate_summary 用 ddof=1 的样本方差。
+                groups = [frame.loc[frame.treatment == arm, outcome] for arm in (0, 1)]
+                se = np.sqrt(sum(group.mean() * (1 - group.mean()) / len(group) for group in groups))
+                np.testing.assert_allclose(
+                    [actual.standard_error, actual.ci_low, actual.ci_high],
+                    [se, expected['ate'] - 1.95996398454 * se, expected['ate'] + 1.95996398454 * se],
+                )
             self.assertFalse((out / 'splits.csv').exists())
             self.assertFalse((out / 'split_summary.csv').exists())
             manifest = json.loads(((out / 'manifest.json')).read_text())

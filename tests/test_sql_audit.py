@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from criteo_uplift import data, pipeline_io
+from criteo_uplift import pipeline_io
 from criteo_uplift.sql_audit import SCHEMA_SQL, audit_arrays, run_sql_audit
 
 

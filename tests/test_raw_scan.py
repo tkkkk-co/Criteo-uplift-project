@@ -9,10 +9,9 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import data, diagnostics
+from criteo_uplift import diagnostics, preparation
 from criteo_uplift.diagnostics import covariate_balance, update_experiment_diagnostics
 from criteo_uplift.pipeline_io import load_sample
-from run_pipeline import prepare_sample
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -38,8 +37,8 @@ class UnifiedScanTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.path = self.root / 'raw.csv'
         rng = np.random.default_rng(9)
-        frame = pd.DataFrame(rng.normal(size=(160, 12)), columns=data.FEATURES)
-        for label in data.LABELS:
+        frame = pd.DataFrame(rng.normal(size=(160, 12)), columns=preparation.FEATURES)
+        for label in preparation.LABELS:
             frame[label] = rng.integers(0, 2, len(frame))
         frame['treatment'] = np.r_[np.zeros(40), np.ones(120)]
         frame['f0'] = 1 + np.arange(len(frame)) * 1e-10
@@ -87,11 +86,11 @@ class UnifiedScanTests(unittest.TestCase):
             diagnostic_ids.extend(ids[np.argsort(keys)[:10]])
         np.testing.assert_array_equal(scanned['c2st_sample'].row_id, sorted(diagnostic_ids))
         sample = scanned['c2st_sample']
-        np.testing.assert_array_equal(sample[data.FEATURES], self.raw.iloc[sample.row_id][data.FEATURES])
+        np.testing.assert_array_equal(sample[preparation.FEATURES], self.raw.iloc[sample.row_id][preparation.FEATURES])
         self.assertEqual(sample.f0.dtype, np.dtype('float64'))
         self.assertEqual(scanned['sample'].f0.dtype, np.dtype('float32'))
 
-        expected = covariate_balance(self.raw, data.FEATURES)
+        expected = covariate_balance(self.raw, preparation.FEATURES)
         pd.testing.assert_frame_equal(scanned['balance'][expected.columns], expected)
         audit = scanned['audit']
         self.assertEqual(audit['duplicate_row_fingerprints'], 1)
@@ -161,7 +160,7 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认审计、全量诊断和两套抽样可以独立启用。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_audit_diagnostics_and_two_samples_are_independent(self):
-        expected_balance = covariate_balance(self.raw, data.FEATURES)
+        expected_balance = covariate_balance(self.raw, preparation.FEATURES)
         baseline = self.scan()
         for audit, checks, model_size, per_arm in product((False, True), (False, True), (None, 43), (None, 10)):
             options = dict(
@@ -241,7 +240,7 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认扫描拒绝变化的输入来源和不足的组内人数。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_source_changes_and_insufficient_arms_fail(self):
-        source = data.fingerprint(self.path)
+        source = preparation.fingerprint(self.path)
         with patch.object(diagnostics, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
             with self.assertRaisesRegex(RuntimeError, 'changed'):
                 self.scan()
@@ -284,15 +283,14 @@ class UnifiedScanTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
-                sample, audit, source, prepared = prepare_sample(args)
-            self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
-            with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read, patch.object(
-                diagnostics.pd.util, 'hash_pandas_object', side_effect=AssertionError('repeated audit'),
-            ):
-                cached, cached_audit, cached_source, cached_diagnostics = prepare_sample(args)
-            self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+        with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
+            sample, audit, source, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+        with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read, patch.object(
+            diagnostics.pd.util, 'hash_pandas_object', side_effect=AssertionError('repeated audit'),
+        ):
+            cached, cached_audit, cached_source, cached_diagnostics = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
         pd.testing.assert_frame_equal(sample, cached)
         pd.testing.assert_frame_equal(prepared['c2st_sample'], cached_diagnostics['c2st_sample'])
         self.assertEqual(audit['n_rows'], cached_audit['n_rows'])
@@ -304,29 +302,28 @@ class UnifiedScanTests(unittest.TestCase):
             data=self.path, sample_size=1_000_000, seed=42,
             c2st_sample=20, permutations=1,
         )
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            sample, audit, source, _ = prepare_sample(args)
-            base = self.root / 'artifacts'
-            cache = base / 'cache/sample_1000000_seed42.npz'
-            metadata = cache.with_suffix('.json')
-            info = json.loads(metadata.read_text())
-            self.assertEqual(info['source'], source)
-            self.assertEqual(info['sample_size'], args.sample_size)
-            self.assertEqual(info['seed'], args.seed)
-            self.assertNotIn('audit', info)
-            self.assertEqual(info['sample_n'], len(sample))
-            self.assertEqual(info['source_n'], audit['n_rows'])
+        sample, audit, source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        base = self.root / 'artifacts'
+        cache = base / 'cache/sample_1000000_seed42.npz'
+        metadata = cache.with_suffix('.json')
+        info = json.loads(metadata.read_text())
+        self.assertEqual(info['source'], source)
+        self.assertEqual(info['sample_size'], args.sample_size)
+        self.assertEqual(info['seed'], args.seed)
+        self.assertNotIn('audit', info)
+        self.assertEqual(info['sample_n'], len(sample))
+        self.assertEqual(info['source_n'], audit['n_rows'])
 
-            # 模拟说明缺失的旧缓存；即使旧指纹匹配，也必须重新抽样和审计。
-            metadata.rename(self.root / 'metadata_backup.json')
-            cache.write_bytes(b'old cache must not be loaded')
-            legacy_source = base / 'source_fingerprint.json'
-            legacy_audit = base / 'full_audit.json'
-            legacy_source.write_text(json.dumps(source))
-            legacy_audit.write_text('old audit must not be read')
-            legacy_bytes = [p.read_bytes() for p in (legacy_source, legacy_audit)]
-            with patch('criteo_uplift.preparation.load_sample', side_effect=AssertionError('old cache reused')):
-                rebuilt, rebuilt_audit, rebuilt_source, _ = prepare_sample(args)
+        # 模拟说明缺失的旧缓存；即使旧指纹匹配，也必须重新抽样和审计。
+        metadata.rename(self.root / 'metadata_backup.json')
+        cache.write_bytes(b'old cache must not be loaded')
+        legacy_source = base / 'source_fingerprint.json'
+        legacy_audit = base / 'full_audit.json'
+        legacy_source.write_text(json.dumps(source))
+        legacy_audit.write_text('old audit must not be read')
+        legacy_bytes = [p.read_bytes() for p in (legacy_source, legacy_audit)]
+        with patch('criteo_uplift.pipeline_io.load_sample', side_effect=AssertionError('old cache reused')):
+            rebuilt, rebuilt_audit, rebuilt_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
 
         pd.testing.assert_frame_equal(rebuilt, sample)
         pd.testing.assert_frame_equal(load_sample(cache), sample)
@@ -342,32 +339,31 @@ class UnifiedScanTests(unittest.TestCase):
                 root = self.root / f'combination_{reuse_sample}_{reuse_audit}'
                 root.mkdir()
                 args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-                with patch('run_pipeline.ROOT', root), patch('run_pipeline.log'):
-                    _, expected_audit, _, _ = prepare_sample(args)
-                    audit_path = next((root / 'artifacts/cache').glob('full_audit_*.json'))
-                    sample_path = root / 'artifacts/cache/sample_43_seed31.npz'
-                    metadata_path = sample_path.with_suffix('.json')
-                    cached_files = {
-                        path: data.fingerprint(path)
-                        for path in (audit_path, sample_path, metadata_path)
-                    }
-                    if not reuse_audit:
-                        audit_path.rename(root / 'saved_audit.json')
-                    if not reuse_sample:
-                        args.sample_size = 57
-                    with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                        sample, audit, _, prepared = prepare_sample(args)
-                    self.assertEqual(scan.call_count, 1)
-                    self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
-                    self.assertEqual(scan.call_args.kwargs['audit_enabled'], not reuse_audit)
-                    current_sample = root / f'artifacts/cache/sample_{args.sample_size}_seed31.npz'
-                    self.assertEqual(json.loads(current_sample.with_suffix('.json').read_text()), prepared['sample_report'])
-                    self.assertEqual(json.loads(audit_path.read_text())['audit'], audit)
-                    if reuse_sample:
-                        for path in (sample_path, metadata_path):
-                            self.assertEqual(data.fingerprint(path), cached_files[path])
-                    if reuse_audit:
-                        self.assertEqual(data.fingerprint(audit_path), cached_files[audit_path])
+                _, expected_audit, _, _ = preparation.prepare_sample(args, root=root, progress=lambda _: None)
+                audit_path = next((root / 'artifacts/cache').glob('full_audit_*.json'))
+                sample_path = root / 'artifacts/cache/sample_43_seed31.npz'
+                metadata_path = sample_path.with_suffix('.json')
+                cached_files = {
+                    path: preparation.fingerprint(path)
+                    for path in (audit_path, sample_path, metadata_path)
+                }
+                if not reuse_audit:
+                    audit_path.rename(root / 'saved_audit.json')
+                if not reuse_sample:
+                    args.sample_size = 57
+                with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                    sample, audit, _, prepared = preparation.prepare_sample(args, root=root, progress=lambda _: None)
+                self.assertEqual(scan.call_count, 1)
+                self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
+                self.assertEqual(scan.call_args.kwargs['audit_enabled'], not reuse_audit)
+                current_sample = root / f'artifacts/cache/sample_{args.sample_size}_seed31.npz'
+                self.assertEqual(json.loads(current_sample.with_suffix('.json').read_text()), prepared['sample_report'])
+                self.assertEqual(json.loads(audit_path.read_text())['audit'], audit)
+                if reuse_sample:
+                    for path in (sample_path, metadata_path):
+                        self.assertEqual(preparation.fingerprint(path), cached_files[path])
+                if reuse_audit:
+                    self.assertEqual(preparation.fingerprint(audit_path), cached_files[audit_path])
                 self.assertEqual(audit, expected_audit)
                 self.assertEqual(prepared['sample_report']['sample_n'], len(sample))
                 self.assertNotIn('audit', prepared['sample_report'])
@@ -376,17 +372,16 @@ class UnifiedScanTests(unittest.TestCase):
 
     def test_incomplete_sample_metadata_is_regenerated_by_scan(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            original, original_audit, source, _ = prepare_sample(args)
-            cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
-            metadata = cache.with_suffix('.json')
-            saved_audit = json.loads(next((self.root / 'artifacts/cache').glob('full_audit_*.json')).read_text())['audit']
-            metadata.write_text(json.dumps({
-                'source': source, 'sample_size': args.sample_size, 'seed': args.seed,
-                'audit': saved_audit,
-            }))
-            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                sample, audit, _, prepared = prepare_sample(args)
+        original, original_audit, source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
+        metadata = cache.with_suffix('.json')
+        saved_audit = json.loads(next((self.root / 'artifacts/cache').glob('full_audit_*.json')).read_text())['audit']
+        metadata.write_text(json.dumps({
+            'source': source, 'sample_size': args.sample_size, 'seed': args.seed,
+            'audit': saved_audit,
+        }))
+        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+            sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
         self.assertFalse(scan.call_args.kwargs['audit_enabled'])
         pd.testing.assert_frame_equal(sample, original)
@@ -396,34 +391,33 @@ class UnifiedScanTests(unittest.TestCase):
 
     def test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            _, original_audit, _, _ = prepare_sample(args)
-            audit_path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
-            original_fingerprint = data.fingerprint(audit_path)
-            for size, seed in ((61, 31), (61, 32), (0, 32), (5000, 33)):
-                args.sample_size, args.seed = size, seed
-                with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                    sample, audit, _, prepared = prepare_sample(args)
-                self.assertFalse(scan.call_args.kwargs['audit_enabled'])
-                self.assertEqual(scan.call_args.kwargs['sample_size'], size)
-                self.assertEqual(audit, original_audit)
-                self.assertEqual(data.fingerprint(audit_path), original_fingerprint)
-                report = prepared['sample_report']
-                self.assertEqual(report['seed'], seed)
-                self.assertEqual(report['sample_size'], size)
-                self.assertEqual(report['sample_n'], min(size, len(self.raw)) if size else len(self.raw))
-                self.assertEqual(report['sample_n'], len(sample))
-            valid = json.loads(audit_path.read_text())
-            for invalid in (
-                {**valid, 'audit_cache_version': -1},
-                {**valid, 'source': {'sha256': 'another_source'}},
-            ):
-                audit_path.write_text(json.dumps(invalid))
-                with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                    _, audit, _, _ = prepare_sample(args)
-                self.assertTrue(scan.call_args.kwargs['audit_enabled'])
-                self.assertIsNone(scan.call_args.kwargs['sample_size'])
-                self.assertEqual(audit, original_audit)
+        _, original_audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        audit_path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
+        original_fingerprint = preparation.fingerprint(audit_path)
+        for size, seed in ((61, 31), (61, 32), (0, 32), (5000, 33)):
+            args.sample_size, args.seed = size, seed
+            with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+            self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+            self.assertEqual(scan.call_args.kwargs['sample_size'], size)
+            self.assertEqual(audit, original_audit)
+            self.assertEqual(preparation.fingerprint(audit_path), original_fingerprint)
+            report = prepared['sample_report']
+            self.assertEqual(report['seed'], seed)
+            self.assertEqual(report['sample_size'], size)
+            self.assertEqual(report['sample_n'], min(size, len(self.raw)) if size else len(self.raw))
+            self.assertEqual(report['sample_n'], len(sample))
+        valid = json.loads(audit_path.read_text())
+        for invalid in (
+            {**valid, 'audit_cache_version': -1},
+            {**valid, 'source': {'sha256': 'another_source'}},
+        ):
+            audit_path.write_text(json.dumps(invalid))
+            with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+                _, audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+            self.assertTrue(scan.call_args.kwargs['audit_enabled'])
+            self.assertIsNone(scan.call_args.kwargs['sample_size'])
+            self.assertEqual(audit, original_audit)
 
     def test_duplicate_excess_counts_are_not_unique_duplicate_patterns(self):
         frame = self.raw.copy()
@@ -444,20 +438,19 @@ class UnifiedScanTests(unittest.TestCase):
 
     def test_missing_duplicate_fields_rebuild_audit_without_resampling(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            sample, original, _, _ = prepare_sample(args)
-            path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
-            saved = json.loads(path.read_text())
-            for field in ('duplicate_row_fraction', 'duplicate_fraction_denominator', 'duplicate_count_definition'):
-                saved['audit'].pop(field)
-            path.write_text(json.dumps(saved))
-            cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
-            before = cache.read_bytes()
-            info = json.loads(cache.with_suffix('.json').read_text())
-            info['group_summary'][-1]['group'] = '总体'
-            cache.with_suffix('.json').write_text(json.dumps(info))
-            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                reused, audit, _, result = prepare_sample(args)
+        sample, original, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
+        saved = json.loads(path.read_text())
+        for field in ('duplicate_row_fraction', 'duplicate_fraction_denominator', 'duplicate_count_definition'):
+            saved['audit'].pop(field)
+        path.write_text(json.dumps(saved))
+        cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
+        before = cache.read_bytes()
+        info = json.loads(cache.with_suffix('.json').read_text())
+        info['group_summary'][-1]['group'] = '总体'
+        cache.with_suffix('.json').write_text(json.dumps(info))
+        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+            reused, audit, _, result = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertTrue(scan.call_args.kwargs['audit_enabled'])
         self.assertIsNone(scan.call_args.kwargs['sample_size'])
         self.assertEqual(cache.read_bytes(), before)
@@ -468,13 +461,12 @@ class UnifiedScanTests(unittest.TestCase):
 
     def test_source_change_invalidates_both_caches(self):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch('run_pipeline.ROOT', self.root), patch('run_pipeline.log'):
-            _, _, before_source, _ = prepare_sample(args)
-            changed = pd.read_csv(self.path)
-            changed.loc[0, 'f2'] += 1
-            changed.to_csv(self.path, index=False)
-            with patch('criteo_uplift.preparation.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
-                _, _, after_source, _ = prepare_sample(args)
+        _, _, before_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        changed = pd.read_csv(self.path)
+        changed.loc[0, 'f2'] += 1
+        changed.to_csv(self.path, index=False)
+        with patch('criteo_uplift.diagnostics.scan_raw_data', wraps=diagnostics.scan_raw_data) as scan:
+            _, _, after_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertNotEqual(before_source['sha256'], after_source['sha256'])
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
         self.assertTrue(scan.call_args.kwargs['audit_enabled'])

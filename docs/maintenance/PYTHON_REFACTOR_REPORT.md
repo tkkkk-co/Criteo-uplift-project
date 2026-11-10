@@ -1,5 +1,7 @@
 # Python 职责重构与验收报告
 
+> 历史重构记录。2026-11-10 已进一步精简：删除 run_pipeline.prepare_sample、_tree_parameters、_holm 和 scripts/refresh_metrics.py 转接层；诊断刷新移至 diagnostic_refresh.py，收尾移至 reporting.py，结果可学习性统一归入 diagnostics.py。当前结构以 [PROJECT_PIPELINE.md](../PROJECT_PIPELINE.md) 为准。
+
 ## 1. 基线和执行范围
 
 - 基线提交：`cbb59d4677379094bbc9cd0ba0992e933136f3d9`。

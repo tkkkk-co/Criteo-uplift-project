@@ -1,17 +1,21 @@
-# 读取已保存的实验结果，生成图表和 HTML 报告。
-# 这里只渲染已保存的产物，不重训模型或重新选择策略；结果来源见 docs/RESULTS_GUIDE.md。
+# 保存实验运行记录，读取已有结果生成图表和 HTML 报告。
+# finalize_run 记录复现信息与完成状态；build_report 渲染结果。来源见 docs/RESULTS_GUIDE.md。
 
 from __future__ import annotations
 
 import base64
 import html
+import importlib.metadata
 import json
+import platform
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from .pipeline_io import safe_output
+from .preparation import FEATURES
+from .pipeline_io import safe_output, write_result
 
 _COLORS = {
     "random": "#7b8793",
@@ -39,7 +43,6 @@ _LABELS = {
 #-----------------------------------------------------------------------------------------------------------------------
 def save_sample_feature_plot(sample, path):
     from matplotlib.figure import Figure
-    from .data import FEATURES
 
     path = safe_output(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,15 +210,19 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
 #-----------------------------------------------------------------------------------------------------------------------
 # 函数：build_report —— 读取实验结果生成图片和网页报告。
 # 输入：
-#     out：当前实验的结果保存目录。
+#     manifest_path：已保存的运行记录，与各阶段结果位于同一实验目录。
+#     report_path：HTML 报告的完整输出路径。
 #     diagnostics_only：是否只更新诊断图和报告。
 # 输出：
-#     destination：生成的 report.html 文件路径。
+#     report_path：生成的 HTML 报告路径。
 # 说明：根据已保存的结果生成报告；仅更新诊断时保留其他分析图片。
 #-----------------------------------------------------------------------------------------------------------------------
-def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
-    out = safe_output(out)
-    manifest, audit = _json(out, "manifest.json"), _json(out / "data_preparation", "audit.json")
+def build_report(manifest_path: Path, report_path: Path, *, diagnostics_only: bool = False) -> Path:
+    manifest_path = Path(manifest_path)
+    out = safe_output(manifest_path.parent)
+    report_path = safe_output(report_path)
+    manifest = _json(out, manifest_path.name)
+    audit = _json(out / "data_preparation", "audit.json")
     selection, srm = _json(out / "models", "selection.json"), _json(out / "diagnostics", "srm.json")
     overlap = _json(out / "data_preparation", "feature_overlap.json")
     c2st_details, ate_test = _json(out / "diagnostics", "c2st_details.json"), _json(
@@ -758,7 +765,7 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         f'<p>来源 SHA256：<code>{esc(source["sha256"])}</code><br>'
         f'源文件大小：{int(source["size"]):,} bytes · seed：{int(manifest["seed"])} · '
         f'模型阶段累计耗时：{float(manifest["elapsed_seconds"]):.1f} s</p>'
-        f'<p>{footer_versions}</p><p>详细参数、数据指纹与不确定性边界见 manifest.json；划分行号、CSV 表格、预测和模型保存在同一输出目录。'
+        f'<p>{footer_versions}</p><p>详细参数、数据指纹与不确定性边界见 {esc(manifest_path.name)}；划分行号、CSV 表格、预测和模型保存在同一输出目录。'
         '此 HTML 的图片全部内嵌，无网络依赖；PNG 也单独保存在 figures/。</p>'
         '<p>方法假设：公开样本中近似恒定的处理分配概率，以及行独立、一致性和无干扰。C2ST 不能证明这些假设。</p>'
         '<p>参考：<a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与版本说明</a>；'
@@ -780,6 +787,74 @@ def build_report(out: Path, *, diagnostics_only: bool = False) -> Path:
         + "\n".join(sections)
         + '</main></body></html>'
     )
-    destination = safe_output(out / "report.html")
-    destination.write_text(document, encoding="utf-8")
-    return destination
+    report_path.write_text(document, encoding="utf-8")
+    return report_path
+
+
+def finalize_run(
+    *, manifest_path: Path, report_path: Path, args, source, sample_n,
+    assignment_probability, fitted, elapsed_seconds,
+):
+    """保存复现信息、生成报告；报告成功后才把实验标记为 complete。"""
+    manifest = {
+        "assignment_probability": assignment_probability,
+        "probability_source": "使用训练集的处理组比例作为分配概率的代入估计",
+        "ci_method": (
+            "在处理组和对照组内分别进行百分位 Bootstrap 重抽样，"
+            "各策略共用同一次重抽样；固定已训练模型的评分和处理分配概率，"
+            "每次重抽样后重新选择排名前 k 的样本"
+        ),
+        "uncertainty_excluded": [
+            "模型训练与模型选择带来的不确定性",
+            "处理分配概率估计带来的不确定性",
+            "无法识别的用户依赖关系",
+        ],
+        "estimand": (
+            "公开样本中，按处理分配计算的增量结果"
+            "（类似 ITT 口径），以所有人均不接受处理为比较基准"
+        ),
+        "cost_assumption": (
+            "假设每次触达成本相同、每个结果事件的价值相同；"
+            "预算表示触达人群比例，而非货币金额"
+        ),
+        "ranking_metric_version": (
+            "v2：传统 Qini 保留仅含对照组的零值前缀；"
+            "明确报告代入估计的 AUUC；"
+            "不按完美排序的面积进行归一化"
+        ),
+        "diagnostic_models": ["logistic", "xgboost"],
+        "primary_outcome": args.outcome,
+        "selection": fitted["selection"],
+        "models": fitted["model_metadata"],
+        "assumptions": [
+            "公开样本中，给定特征 X 的处理分配概率近似恒定",
+            "样本行相互独立，满足一致性和个体间无干扰假设",
+            "每次转化的价值相同，每次触达的成本相同",
+        ],
+        "status": "metrics_complete",  # 状态码：指标计算完成
+        "source": source,
+        "features": FEATURES,
+        "seed": args.seed,
+        "sample_n": sample_n,
+        "arguments": vars(args),
+        "python": sys.version,
+        "platform": platform.platform(),
+        "versions": {
+            name: importlib.metadata.version(name)
+            for name in (
+                "numpy",
+                "pandas",
+                "scipy",
+                "statsmodels",
+                "scikit-learn",
+                "xgboost",
+                "matplotlib",
+                "joblib",
+            )
+        },
+        "elapsed_seconds": elapsed_seconds,
+    }
+    write_result(manifest, manifest_path)
+    build_report(manifest_path, report_path)
+    manifest["status"] = "complete"
+    write_result(manifest, manifest_path)

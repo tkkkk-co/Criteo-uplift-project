@@ -202,6 +202,7 @@ def aggregate_ate_from_audit(audit, outcome):
     
     p0, p1 = r0 / n0, r1 / n1
     delta = p1 - p0
+    # 沿用已发布全量报告的二项 plug-in 方差；样本 ATE / 校准另用 ddof=1。
     se = np.sqrt(
         p1 * (1 - p1) / n1 
         + p0 * (1 - p0) / n0 
@@ -258,14 +259,44 @@ def uplift_curve(y, t, scores, e: float, seed: int = 42) -> pd.DataFrame:
     y, t = _binary_inputs(y, t)
     n = len(y)
     scores = _scores(scores, n)
-    z = _ht_outcome(y, t, e)
     order = _rank(scores, seed)
-    sorted_t, sorted_y = t[order], y[order]
+    prefix = _prefix_statistics(y[order], t[order], e)
+    fraction = prefix["n_selected"] / n
+    uplift = prefix["uplift_rate"]
+    lift = uplift / uplift[-1] if uplift[-1] > 1e-12 else np.full(n + 1, np.nan)
+    plugin_gain = fraction * uplift
+    plugin_gain[0] = 0.0
+    result = pd.DataFrame(
+        {
+            "fraction": fraction,
+            "n_selected": prefix["n_selected"],
+            "gain_ht": prefix["gain_ht"],
+            "random_gain_ht": fraction * prefix["gain_ht"][-1],
+            "qini_traditional": prefix["qini_traditional"],
+            "uplift": uplift,  # 兼容旧字段名：累计两组结果率之差。
+            "cumulative_lift": uplift,
+            "uplift_rate": uplift,
+            "gain_plugin": plugin_gain,
+            "lift": lift,  # 兼容旧字段名：相对累计提升。
+            "relative_lift": lift,
+            "n_treatment": prefix["n_treatment"],
+            "n_control": prefix["n_control"],
+            "responses_treatment": prefix["responses_treatment"],
+            "responses_control": prefix["responses_control"],
+        }
+    )
+    result.attrs.update({"assignment_probability": float(e), "tie_break_seed": seed})
+    return result
+
+
+def _prefix_statistics(y, t, e):
+    """计算已排序样本的累计量，供曲线展示和排序指标共用；包含原点。"""
+    n = len(y)
     count = np.arange(n + 1)
-    n1 = np.r_[0, np.cumsum(sorted_t, dtype=np.int64)]
+    n1 = np.r_[0, np.cumsum(t, dtype=np.int64)]
     n0 = count - n1
-    r1 = np.r_[0.0, np.cumsum(sorted_t * sorted_y)]
-    r0 = np.r_[0.0, np.cumsum((1 - sorted_t) * sorted_y)]
+    r1 = np.r_[0.0, np.cumsum(t * y)]
+    r0 = np.r_[0.0, np.cumsum((1 - t) * y)]
     traditional = np.full(n + 1, np.nan)
     has_control = n0 > 0
     traditional[has_control] = (
@@ -274,31 +305,16 @@ def uplift_curve(y, t, scores, e: float, seed: int = 42) -> pd.DataFrame:
     uplift = np.full(n + 1, np.nan)
     has_both = (n1 > 0) & (n0 > 0)
     uplift[has_both] = r1[has_both] / n1[has_both] - r0[has_both] / n0[has_both]
-    lift = uplift / uplift[-1] if uplift[-1] > 1e-12 else np.full(n + 1, np.nan)
-    plugin_gain = count / n * uplift
-    plugin_gain[0] = 0.0
-    gain = np.r_[0.0, np.cumsum(z[order])] / n
-    result = pd.DataFrame(
-        {
-            "fraction": count / n,
-            "n_selected": count,
-            "gain_ht": gain,
-            "random_gain_ht": count / n * gain[-1],
-            "qini_traditional": traditional,
-            "uplift": uplift,  # 兼容旧字段名：累计两组结果率之差。
-            "cumulative_lift": uplift,
-            "uplift_rate": uplift,
-            "gain_plugin": plugin_gain,
-            "lift": lift,  # 兼容旧字段名：相对累计提升。
-            "relative_lift": lift,
-            "n_treatment": n1,
-            "n_control": n0,
-            "responses_treatment": r1,
-            "responses_control": r0,
-        }
-    )
-    result.attrs.update({"assignment_probability": float(e), "tie_break_seed": seed})
-    return result
+    return {
+        "n_selected": count,
+        "n_treatment": n1,
+        "n_control": n0,
+        "responses_treatment": r1,
+        "responses_control": r0,
+        "gain_ht": np.r_[0.0, np.cumsum(_ht_outcome(y, t, e))] / n,
+        "qini_traditional": traditional,
+        "uplift_rate": uplift,
+    }
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -326,23 +342,18 @@ def _area(x, values):
 #-----------------------------------------------------------------------------------------------------------------------
 def _ranking_from_ordered(y, t, e):
     n = len(y)
-    cumulative = np.r_[0.0, np.cumsum(_ht_outcome(y, t, e))] / n
+    prefix = _prefix_statistics(y, t, e)
+    cumulative = prefix["gain_ht"]
     auuc = float(np.sum((cumulative[:-1] + cumulative[1:]) * 0.5) / n)
     ate = float(cumulative[-1])
-    count = np.arange(1, n + 1)
-    n1 = np.cumsum(t, dtype=np.int64)
-    n0 = count - n1
-    r1 = np.cumsum(t * y)
-    r0 = np.cumsum((1 - t) * y)
+    count = prefix["n_selected"]
     # 前缀只有对照组时，传统 Qini 值为零，应保留这些已定义的点。
     # 早期 v1 版本只对同时存在两组的前缀进行积分。
-    control = n0 > 0
+    control = prefix["n_control"] > 0
     q_fraction = np.r_[0.0, count[control] / n]
-    traditional = np.r_[
-        0.0, (r1[control] - r0[control] * n1[control] / n0[control]) / n
-    ]
-    both = (n1 > 0) & control
-    rates = r1[both] / n1[both] - r0[both] / n0[both]
+    traditional = np.r_[0.0, prefix["qini_traditional"][control]]
+    both = (prefix["n_treatment"] > 0) & control
+    rates = prefix["uplift_rate"][both]
     fraction = np.r_[0.0, count[both] / n]
     plugin_gain = np.r_[0.0, count[both] / n * rates]
     plugin_area = _area(fraction, plugin_gain)

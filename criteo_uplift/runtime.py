@@ -3,6 +3,7 @@
 from pathlib import Path
 import ctypes
 import os
+import time
 
 _OPENMP = None
 
@@ -30,3 +31,8 @@ def configure_runtime():
     )
     if library.exists() and _OPENMP is None:
         _OPENMP = ctypes.CDLL(str(library), mode=ctypes.RTLD_GLOBAL)
+
+
+def log(message):
+    """输出带时间的进度信息。"""
+    print(time.strftime("%H:%M:%S"), message, flush=True)

@@ -1,14 +1,19 @@
 {
   "assignment_probability": 0.85041,
-  "probability_source": "training treatment fraction; plug-in estimate",
-  "ci_method": "paired within-arm percentile bootstrap, fixed learned scores and assignment probability; top-k reselected",
+  "probability_source": "使用训练集的处理组比例作为分配概率的代入估计",
+  "ci_method": "在处理组和对照组内分别进行百分位 Bootstrap 重抽样，各策略共用同一次重抽样；固定已训练模型的评分和处理分配概率，每次重抽样后重新选择排名前 k 的样本",
   "uncertainty_excluded": [
-    "model training and selection",
-    "assignment probability estimation",
-    "unidentified user dependence"
+    "模型训练与模型选择带来的不确定性",
+    "处理分配概率估计带来的不确定性",
+    "无法识别的用户依赖关系"
   ],
-  "estimand": "public-sample assignment (ITT-style) incremental outcome relative to treat-none",
-  "cost_assumption": "equal cost/value; budget is contact fraction, not currency",
+  "estimand": "公开样本中，按处理分配计算的增量结果（类似 ITT 口径），以所有人均不接受处理为比较基准",
+  "cost_assumption": "假设每次触达成本相同、每个结果事件的价值相同；预算表示触达人群比例，而非货币金额",
+  "ranking_metric_version": "v2：传统 Qini 保留仅含对照组的零值前缀；明确报告代入估计的 AUUC；不按完美排序的面积进行归一化",
+  "diagnostic_models": [
+    "logistic",
+    "xgboost"
+  ],
   "primary_outcome": "conversion",
   "selection": {
     "primary_budget": 0.2,
@@ -33,7 +38,7 @@
         "max_iter": 500,
         "random_state": 42
       },
-      "seconds": 0.9483599579980364
+      "seconds": 0.4508305829949677
     },
     "t_logistic": {
       "parameters": {
@@ -41,7 +46,7 @@
         "max_iter": 500,
         "random_state": 42
       },
-      "seconds": 0.9294737090021954
+      "seconds": 0.4555896669626236
     },
     "t_xgboost": {
       "parameters": {
@@ -55,7 +60,7 @@
         "subsample": 0.8,
         "tree_method": "hist"
       },
-      "seconds": 1.3203178330004448
+      "seconds": 0.774265541927889
     },
     "x_xgboost": {
       "parameters": {
@@ -69,9 +74,15 @@
         "subsample": 0.8,
         "tree_method": "hist"
       },
-      "seconds": 2.573313375003636
+      "seconds": 1.5013953330926597
     }
   },
+  "assumptions": [
+    "公开样本中，给定特征 X 的处理分配概率近似恒定",
+    "样本行相互独立，满足一致性和个体间无干扰假设",
+    "每次转化的价值相同，每次触达的成本相同"
+  ],
+  "status": "complete",
   "source": {
     "path": "[PROJECT_ROOT]/data/raw/criteo-uplift-v2.1.csv",
     "size": 3248115221,
@@ -104,7 +115,8 @@
     "c2st_sample": 20000,
     "bootstrap": 200,
     "trees": 150,
-    "output": null
+    "output": null,
+    "diagnostics_only": false
   },
   "python": "3.11.16 (main, Aug 27 2026, 14:37:43) [Clang 20.1.8 ]",
   "platform": "macOS-15.6-arm64-arm-64bit",
@@ -112,16 +124,11 @@
     "numpy": "2.4.6",
     "pandas": "3.0.5",
     "scipy": "1.17.1",
+    "statsmodels": "0.15.0",
     "scikit-learn": "1.9.1",
     "xgboost": "3.2.0",
     "matplotlib": "3.11.1",
     "joblib": "1.6.0"
   },
-  "elapsed_seconds": 30.55926487499528,
-  "supplement": "Added traditional Qini score and curves from frozen predictions; model selection unchanged.",
-  "status": "complete",
-  "diagnostic_models": [
-    "logistic",
-    "xgboost"
-  ]
+  "elapsed_seconds": 74.38791133300401
 }

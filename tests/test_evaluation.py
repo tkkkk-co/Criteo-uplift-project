@@ -59,15 +59,8 @@ class EvaluationTests(unittest.TestCase):
         self.assertLess(result["ci_low"], result["ate"])
         self.assertGreater(result["ci_high"], result["ate"])
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_aggregate_ate_matches_row_level_with_singleton_arm —— 确认汇总 ATE 与逐行计算一致并正确处理单条记录的组。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认汇总 ATE 与逐行计算一致并正确处理单条记录的组。
-    #-----------------------------------------------------------------------------------------------------------------------
-    def test_aggregate_ate_matches_row_level_with_singleton_arm(self):
+    def test_aggregate_ate_uses_plugin_variance_and_handles_singleton_arm(self):
+        """点估计与 pooled 检验一致；全量报告的区间沿用二项 plug-in 方差。"""
         for y, t in ((self.y, self.t), (np.array([1, 0, 1]), np.array([0, 1, 1]))):
             audit = {'groups': {
                 str(arm): {'n': int((t == arm).sum()), 'conversion': {'positive': int(y[t == arm].sum())}}
@@ -75,8 +68,16 @@ class EvaluationTests(unittest.TestCase):
             }}
             actual = aggregate_ate_from_audit(audit, 'conversion')
             expected = ate_summary(y, t)
-            for field in actual.keys() - {'outcome', 'p_value_text'}:
+            interval_fields = {'standard_error', 'ci_low', 'ci_high'}
+            for field in actual.keys() - {'outcome', 'p_value_text'} - interval_fields:
                 np.testing.assert_allclose(actual[field], expected[field], equal_nan=True)
+            groups = [y[t == arm] for arm in (0, 1)]
+            se = math.sqrt(sum(group.mean() * (1 - group.mean()) / len(group) for group in groups)) if min(map(len, groups)) > 1 else np.nan
+            np.testing.assert_allclose(
+                [actual['standard_error'], actual['ci_low'], actual['ci_high']],
+                [se, expected['ate'] - 1.95996398454 * se, expected['ate'] + 1.95996398454 * se],
+                equal_nan=True,
+            )
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_aggregate_ate_rejects_invalid_counts —— 确认汇总 ATE 拒绝不合法的人数和事件数。

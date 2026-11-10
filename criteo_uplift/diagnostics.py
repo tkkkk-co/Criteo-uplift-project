@@ -38,7 +38,7 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
-from .data import COLUMNS, FEATURES, LABELS, DEFAULT_DATA, fingerprint
+from .preparation import COLUMNS, FEATURES, LABELS, DEFAULT_DATA, fingerprint
 from .pipeline_io import safe_output, write_result
 
 _PRETREATMENT_FEATURES = frozenset(f"f{i}" for i in range(12))
@@ -757,7 +757,7 @@ def c2st(
             }
         )
     summary = pd.DataFrame.from_records(records)
-    summary["pvalue_holm"] = _holm(summary["pvalue"])
+    summary["pvalue_holm"] = multipletests(summary["pvalue"], method="holm")[1]
     return {
         "summary": summary,
         "null_auc": null_auc,
@@ -773,19 +773,6 @@ def c2st(
             "unknown blocking or multiple experiments may require a different permutation scheme."
         ),
     }
-
-
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_holm —— 校正多个检验的 p 值。
-# 输入：
-#     pvalues：需要一起校正的原始 p 值序列。
-# 输出：
-#     result：校正后的 NumPy 数组，顺序与输入一致。
-# 说明：调用 statsmodels 的 Holm 校正，减少同时做多个检验时出现误报的风险。
-#-----------------------------------------------------------------------------------------------------------------------
-def _holm(pvalues: Sequence[float]) -> np.ndarray:
-    _, result, _, _ = multipletests(pvalues, method="holm")
-    return result
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -864,6 +851,26 @@ def learnability(
                 {**record, "status": "computed", **_probability_metrics(yv, prediction)}
             )
     return pd.DataFrame.from_records(records)
+
+
+#-----------------------------------------------------------------------------------------------------------------------
+# 函数：run_learnability_diagnostics —— 检查特征对访问和转化的预测信息。
+# 输入：
+#     train：训练集数据表。
+#     validation：验证集数据表，用于评价和策略选择。
+#     out：主流程已创建的诊断结果目录。
+#     seed：控制抽样、同分排序或模型拟合的随机种子。
+# 输出：
+#     返回值：None；保存 learnability.csv。
+# 说明：分别检查特征对访问和转化的预测能力，在验证集评价并保存两组结果。
+#-----------------------------------------------------------------------------------------------------------------------
+def run_learnability_diagnostics(train, validation, out, *, seed):
+    records = [
+        learnability(train, validation, FEATURES, outcome, seed=seed)
+        for outcome in ("visit", "conversion")
+    ]
+    out = safe_output(out)
+    write_result(pd.concat(records), out / 'learnability.csv')
 
 
 #-----------------------------------------------------------------------------------------------------------------------

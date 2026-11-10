@@ -12,7 +12,7 @@ import argparse
 import json
 import numpy as np
 import pandas as pd
-from criteo_uplift.data import fingerprint
+from criteo_uplift.preparation import fingerprint
 from criteo_uplift.pipeline_io import safe_output, write_result
 from criteo_uplift.evaluation import (
     uplift_curve,

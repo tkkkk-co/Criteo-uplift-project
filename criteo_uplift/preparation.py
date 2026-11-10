@@ -1,40 +1,47 @@
+"""核验数据来源，准备建模样本，并划分训练集、验证集和测试集。"""
 
-from pathlib import Path
+import hashlib
 import json
+from pathlib import Path
 
-from .data import ROOT, fingerprint
-from .pipeline_io import safe_output, load_sample, save_sample, write_result
-from .diagnostics import SAMPLE_CACHE_VERSION, scan_raw_data
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
+FEATURES = [f'f{i}' for i in range(12)]
+LABELS = ['treatment', 'conversion', 'visit', 'exposure']
+COLUMNS = FEATURES + LABELS
+
+ROOT = Path(__file__).resolve().parents[1]
+DATA_ROOT = ROOT / 'data'
+DEFAULT_DATA = DATA_ROOT / 'raw/criteo-uplift-v2.1.csv'
 AUDIT_CACHE_VERSION = 1
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：prepare_sample —— 核验缓存并准备建模样本和全量诊断。
-# 输入：
-#     args：本次运行的配置对象
-'''
-    - args.data:data的绝对路径
-    - args.sample_size:抽样规模，0=全量
-    - args.seed：控制抽样和模型拟合的随机种子。
-    - args.outcome:选择conversion或visit
-    - args.primary_budget:主策略最多触达的人群比例，默认20%
-    - args.c2st_sample:C2ST 从原始全量来源两组等量抽取的诊断样本规模
-    - args.permutations:C2ST 诊断的置换次数
-    - args.bootstrap:测试集策略评价的 bootstrap 次数
-    - args.trees:XGBoost 模型的树数量
-    - args.output（输出目录）
-'''
-#     root：项目根目录，用于定位缓存或结果。
-#     progress：接收进度文字的函数。
-# 输出：
-#     sample：建模样本表。
-#     audit：全量审计字典。
-#     source：原始文件指纹。
-#     scanned：同一次扫描得到的可复用诊断结果。
-# 说明：抽样缓存与全量审计分别校验和复用；缺失任务在同一次扫描中完成，全量诊断照常准备。
-#-----------------------------------------------------------------------------------------------------------------------
+def fingerprint(path):
+    """记录文件的路径、大小、修改时间和分块计算的 SHA256。"""
+    path = Path(path)
+    h = hashlib.sha256()
+
+    with path.open('rb') as f:  # 以二进制只读模式读取文件。
+        for block in iter(
+            lambda: f.read(8*1024*1024),
+            b''):
+            h.update(block)
+
+    return {
+        'path':str(path.resolve()),
+        'size':path.stat().st_size,
+        'mtime_ns':path.stat().st_mtime_ns,
+        'sha256':h.hexdigest()
+    }
+
+
 def prepare_sample(args, *, root: Path = ROOT, progress=None):
+    """核验并复用缓存，返回建模样本、全量审计、文件指纹和扫描结果。"""
+    # 扫描和缓存模块引用这里的基础定义，在准备样本时再导入。
+    from .diagnostics import SAMPLE_CACHE_VERSION, scan_raw_data
+    from .pipeline_io import load_sample, safe_output, save_sample, write_result
 
     if progress is None:
         progress = lambda message: print(message, flush=True)
@@ -145,3 +152,99 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
     scanned.pop('sample')
     scanned.pop('audit')
     return sample, audit, current, scanned
+
+
+def split_sample(df, outcome='conversion', seed=42):
+    """按处理组和结果分层，返回三个数据集、人数汇总和重叠检查。"""
+    if outcome not in ['conversion', 'visit']:
+        raise ValueError('unknown outcome')
+    # 1. 保留来源行标识；不能用划分后重新编号的 DataFrame 索引代替。
+    if 'row_id' not in df.columns:
+        raise ValueError('划分样本缺少来源行标识：row_id')
+    source_ids = pd.Index(df['row_id'])
+    if source_ids.hasnans or not source_ids.is_unique:
+        raise ValueError('划分前的 row_id 必须非空且唯一')
+
+    # 2. 按 treatment × outcome 分层，划分规则和随机种子保持不变。
+    idx = np.arange(len(df))
+    strata = df.treatment.to_numpy() * 2 + df[outcome].to_numpy()
+    train, holdout = train_test_split(
+        idx,
+        test_size=0.4,
+        stratify=strata,
+        random_state=seed,
+    )
+    val, test = train_test_split(
+        holdout,
+        test_size=0.5,
+        stratify=strata[holdout],
+        random_state=seed + 1,
+    )
+    parts = {
+        name: df.iloc[pos].reset_index(drop=True)
+        for name, pos in [('train', train), ('validation', val), ('test', test)]
+    }
+
+    # 3. 检查本次实际划分：集合内部唯一、集合之间互斥，且完整覆盖输入样本。
+    split_ids = {name: pd.Index(frame['row_id']) for name, frame in parts.items()}
+    names = list(split_ids)
+    for i, name in enumerate(names):
+        identifiers = split_ids[name]
+        if identifiers.hasnans or not identifiers.is_unique: #集合内部缺失 重复
+            raise ValueError(f'{name} 的 row_id 必须非空且唯一')
+        for other in names[i + 1:]:
+            overlap = identifiers.intersection(split_ids[other])
+            if len(overlap):
+                raise ValueError(f'{name} 与 {other} 存在重复来源行：{len(overlap)} 个 row_id')
+
+    combined_ids = split_ids['train'].append([split_ids['validation'], split_ids['test']])
+    if len(combined_ids) != len(source_ids) or not source_ids.isin(combined_ids).all():
+        raise ValueError('划分后的 row_id 未完整覆盖原样本，或混入了其他来源行')
+
+    # 4. 汇总各集合和处理臂的人数及输入中已有结果列的正例数。
+    summary = []
+    for name, frame in parts.items():
+        for arm in (0, 1):
+            rows = frame[frame.treatment == arm]
+            summary.append(
+                {
+                    "split": name,
+                    "treatment": arm,
+                    "n": len(rows),
+                    **{
+                        f"{label}_positive": int(rows[label].sum())
+                        for label in ("conversion", "visit")
+                        if label in df.columns
+                    },
+                }
+            )
+    split_summary = pd.DataFrame(summary)
+
+    # 5. 按传入样本的实际特征精度筛查内容重叠，不改变特征或使用结果标签。
+    #    每条被检查行只计一次，分母是被检查集合的行数；哈希匹配不是用户身份核验。
+    feature_hashes = {
+        name: pd.util.hash_pandas_object(frame[FEATURES], index=False).to_numpy()
+        for name, frame in parts.items()
+    }
+    feature_overlap = {
+        "note": (
+            "基于输入样本的实际特征表示，检查匿名特征向量的哈希匹配；"
+            "分母为被检查集合的行数，特征相同不代表属于同一用户。"
+            "row_id 核验通过仅说明来源行划分有效，不能证明用户级隔离。"
+        ),
+        "features": FEATURES.copy(),
+        "feature_dtypes": {feature: str(df[feature].dtype) for feature in FEATURES},
+        "row_id_checks": {
+            "non_null_unique": True,
+            "pairwise_disjoint": True,
+            "complete_coverage": True,
+        },
+        "fraction_matching_training_features": {
+            name: float(np.isin(feature_hashes[name], feature_hashes['train']).mean())
+            for name in ('validation', 'test')
+        },
+        "fraction_test_matching_validation_features": float(
+            np.isin(feature_hashes['test'], feature_hashes['validation']).mean()
+        ),
+    }
+    return parts, split_summary, feature_overlap

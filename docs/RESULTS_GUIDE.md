@@ -14,8 +14,8 @@
 
 | Notebook | 业务问题 | 主要调用链 / 计算位置 | 关键结果文件 | 阅读时重点 |
 |---|---|---|---|---|
-| 01_data_understanding.ipynb | 数据来源、质量、抽样和 split 是否可复核？ | run_pipeline.py::run → preparation.py::prepare_sample → diagnostics.py::scan_raw_data; data.py::split_sample | audit.json、sample_report.json、split_summary.csv、feature_overlap.json、manifest.json、figures/sample_features.png | 区分全量审计与 100 万行建模样本；特征重叠只代表匿名特征向量重叠，不是识别用户 |
-| 02_sanity_and_ate.ipynb | 公开数据计数、单变量平衡、联合可区分性与结果可学习性如何？ | diagnostics.py::scan_raw_data, srm_summary, covariate_balance, c2st, update_experiment_diagnostics; evaluation.py::aggregate_ate_from_audit; training.py::run_learnability_diagnostics | ate_full.csv、srm.json、balance.csv、c2st.csv、c2st_details.json、c2st_null.csv、learnability.csv | C2ST 用两组等量抽样；不显著不等于联合分布相同，也不能证明随机化 |
+| 01_data_understanding.ipynb | 数据来源、质量、抽样和 split 是否可复核？ | preparation.py::prepare_sample 调用 diagnostics.py::scan_raw_data，随后由 preparation.py::split_sample 划分 | audit.json、sample_report.json、split_summary.csv、feature_overlap.json、manifest.json、figures/sample_features.png | 区分全量审计与 100 万行建模样本；特征重叠只代表匿名特征向量重叠，不是识别用户 |
+| 02_sanity_and_ate.ipynb | 公开数据计数、单变量平衡、联合可区分性与结果可学习性如何？ | diagnostics.py::scan_raw_data, srm_summary, covariate_balance, c2st, update_experiment_diagnostics; evaluation.py::aggregate_ate_from_audit; diagnostics.py::run_learnability_diagnostics | ate_full.csv、srm.json、balance.csv、c2st.csv、c2st_details.json、c2st_null.csv、learnability.csv | C2ST 用两组等量抽样；不显著不等于联合分布相同，也不能证明随机化 |
 | 03_uplift_models.ipynb | 候选模型怎样产生 CATE 分数，validation 如何冻结策略？ | models.py::make_model; training.py::fit_and_select_models; evaluation.py::ranking_metrics | selection.json、validation_policies.csv、validation_ranking.csv、模型 .joblib、calibration_*.csv | 选型只看 validation；不要因为 test 上另一个点估计更高就重新选模型 |
 | 04_policy_evaluation.ipynb | 冻结策略在 test 上的预算价值和不确定性如何？ | holdout_evaluation.py::evaluate_test_set; evaluation.py::evaluate_policies, ranking_confidence_intervals, uplift_curve | test_policies.csv、test_ranking.csv、curves.csv、ranking_intervals.csv、ate_test.json、predictions.npz、figures/policy.png | 主预算为 20%；每十万人增量以全部待选用户为分母；区间有明确条件限制 |
 | 05_metrics_worked_example.ipynb | 指标实现能否在一个小型手算例子中逐项复核？ | evaluation.py::uplift_curve, ranking_metrics；Notebook 内用 Fraction 独立复算梯形面积 | 八行手算数据、精确分数表、artifacts/extension_figures/worked_metrics.png、ht_vs_plugin.png | 这是人为构造的教学/单元核验例子，不是 Criteo 真实结果 |
@@ -39,13 +39,13 @@
 
 | 文件 | 由谁计算/写入 | 用来回答什么 |
 |---|---|---|
-| manifest.json | run_pipeline.py::run 组装运行记录 → pipeline_io.py::write_result，最后由 run_pipeline.py::finalize_run 更新状态 | 参数、seed、来源指纹、依赖版本、选型记录和运行状态 |
+| manifest.json | reporting.py::finalize_run 保存运行记录，生成报告后更新状态 | 参数、seed、来源指纹、依赖版本、选型记录和运行状态 |
 | audit.json | diagnostics.py::scan_raw_data 产生；pipeline_io.py::write_result 保存 | 全量计数、质量审计、特征统计及 group_summary（对照组、处理组、总体的行数、占比、转化数和转化率），不含抽样信息 |
 | sample_report.json | diagnostics.py::scan_raw_data 生成，prepare_sample 管理缓存；run_pipeline.py 保存 | 当前抽样请求规模、实际行数、seed、方法、精度及组别人数；group_summary 保存 Control / Treatment / 总体的行数、占比、转化数和转化率，供 Notebook 直接展示 |
 | ate_full.csv | evaluation.py::aggregate_ate_from_audit 计算；pipeline_io.py::write_result 保存 | 全量公开数据上的描述性差均值估计 |
 | sample_group_summary.csv、sample_feature_summary.csv | 公开快照导出流程 | 仅在没有逐行数据时展示历史聚合样本摘要 |
-| split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | data.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
-| feature_overlap.json | data.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
+| split_summary.csv、train_row_ids.csv、validation_row_ids.csv、test_row_ids.csv | preparation.py::split_sample 生成汇总；run_pipeline.py::run 提取行号；pipeline_io.py::write_result 保存 | split 规模、分组计数和原始行号 |
+| feature_overlap.json | preparation.py::split_sample 核验并计算；pipeline_io.py::write_result 保存 | 来源行唯一、互斥和覆盖检查；validation/test 匹配 train、test 匹配 validation 的特征哈希比例与精度说明；不代表用户身份识别 |
 
 Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分和重叠核验；SMD／KS 统一放在 Notebook 02。两页可以读取结果、选列、排序、转换显示单位、绘图和排版；不重新执行统计检验、不读取逐行原始数据或样本缓存、不保存实验产物。表头与组别为英文（Control / Treatment / Total），正文、注释和结果文件的原有中文说明保留。所有表格隐藏默认索引；共用的范围、样本量和精度在表外说明。
 
@@ -60,7 +60,7 @@ Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分�
 | c2st.csv | diagnostics.py::c2st / update_experiment_diagnostics | Logistic 与 XGBoost 的留出 ROC AUC、原始和 Holm 校正 p 值 |
 | c2st_null.csv | diagnostics.py::c2st / update_experiment_diagnostics | 每个模型每次置换的 AUC 零分布 |
 | c2st_details.json | diagnostics.py::update_experiment_diagnostics | 抽样规模、内部划分、seed、置换次数、p 值分辨率、来源指纹和解释边界 |
-| learnability.csv | training.py::run_learnability_diagnostics 调用 diagnostics.py::learnability | 处理前特征对 visit/conversion 的结果预测能力；不是 CATE 可预测性的证明 |
+| learnability.csv | diagnostics.py::run_learnability_diagnostics 调用 diagnostics.py::learnability | 处理前特征对 visit/conversion 的结果预测能力；不是 CATE 可预测性的证明 |
 
 ### 模型、选型与 test 评价
 
@@ -80,11 +80,11 @@ Notebook 01 依次展示数据范围、质量、全量与抽样构成、划分�
 
 ## 4. 当前快照的结果应怎样解释
 
-以下数字是仓库当前公开快照中已经保存的历史实验结果，不是本次重新运行得到的结果，也不是线上广告实验收益。
+主实验数字来自 2026-11-10 用当前 `run_pipeline.py` 从原始 CSV 完整重跑的离线结果。本地结果和公开聚合快照采用同一主实验，开发期稳定性在 Notebook 06 单独展示。
 
 - **主预算**：20% 触达比例；“每十万人增量”以全部待选人群为分母。这里是“恰好选择 20%”的离线预算约束，不是人民币预算、竞价优化或收入最大化问题；当前假设每次触达成本与每次转化价值相同。
 - **全量审计与抽样**：当前记录的公开来源为 13,979,592 行、16 个原始字段；全字段重复行指纹的多余行数为 1,259,545（约 9.01%），全量有限数值检查未发现非有限值。指纹重复不等于重复用户，也不应据此自动删除。首轮建模使用 seed=42 的 1,000,000 行等概率无放回样本，按 treatment × conversion 分层为 60/20/20；这与全量审计不是同一个样本范围。
-- **冻结策略**：当前首轮 validation 选出的最终策略是 response propensity。公开快照中其 20% 预算增量点估计约为每 10 万待选人 117.23；相对解析随机策略的差值约为 92.61，配对 95% CI 约为 [50.02, 132.15]。
+- **冻结策略**：当前主实验的 validation 选出 response propensity。在测试集的 20% 预算下，增量点估计约为每 10 万待选人 117.23。相对解析随机策略的差值约为 92.61，配对 95% CI 约为 [50.02, 132.15]。
 - **模型比较与事件稀疏**：S/T/X learner 均已实现，但当前实验没有证明复杂 X-Learner 优于强 response 基线。首轮 100 万样本的 600k 训练集里，control 约 89,754 行、conversion 事件仅 164 个；test control 的 conversion 事件为 55 个。开发期 3 个 seed 的完整训练规模平均主指标约为 response 127.51、S-Logistic 126.67、X-Learner 99.03（每十万待选人）；对应跨 seed 样本标准差约 4.54、5.09、5.93，标准差不是置信区间。事件稀疏提示估计可能不稳定，但不能据此断言扩样一定有效或无效。
 - **ATE**：ate_full.csv 来自公开数据的全量汇总，是描述性差均值，不等于真实线上广告的增量收益。
 - **SRM**：85% 是数据集公开资料提供的外部参考比例。本检查比较发布数据计数与参考比例，不能证明原始线上实验通过 SRM。

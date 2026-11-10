@@ -5,8 +5,9 @@
 import numpy as np
 import pandas as pd
 
-from .data import FEATURES
+from .preparation import FEATURES
 from .pipeline_io import safe_output, write_result
+from .models import predict_policy_scores
 from .evaluation import (
     ate_summary,
     calibration_table,
@@ -46,13 +47,7 @@ def evaluate_test_set(
     progress=print,
 ):
     out = safe_output(out)
-    test_scores = {
-        name: model.predict(test[FEATURES])
-        for name, model in models.items()
-    }
-    test_scores["propensity"] = models["t_xgboost"].predict_outcomes(
-        test[FEATURES]
-    )[1]
+    test_scores = predict_policy_scores(models, test[FEATURES])
 
     rankings = []
     curves = []

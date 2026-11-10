@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from .data import DATA_ROOT, FEATURES, LABELS, ROOT
+from .preparation import DATA_ROOT, FEATURES, LABELS, ROOT
 
 
 #-----------------------------------------------------------------------------------------------------------------------

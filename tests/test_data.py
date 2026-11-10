@@ -9,7 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import data, pipeline_io
+from criteo_uplift import pipeline_io, preparation
 from criteo_uplift.diagnostics import scan_raw_data
 
 
@@ -24,13 +24,13 @@ from criteo_uplift.diagnostics import scan_raw_data
 def _synthetic_frame(n=400):
     row = np.arange(n)
     frame = pd.DataFrame(
-        {feature: row * (j + 1.0) + j / 8.0 for j, feature in enumerate(data.FEATURES)}
+        {feature: row * (j + 1.0) + j / 8.0 for j, feature in enumerate(preparation.FEATURES)}
     )
     frame["treatment"] = row % 2
     frame["conversion"] = (row // 2) % 2
     frame["visit"] = np.maximum(frame.conversion, row % 5 == 0).astype(int)
     frame["exposure"] = frame.treatment * (row % 3 != 0)
-    return frame[data.COLUMNS]
+    return frame[preparation.COLUMNS]
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -77,7 +77,7 @@ class DataTests(unittest.TestCase):
     # 说明：确认抽样读取全量文件且可复现、不受分块影响。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
-        before = data.fingerprint(self.source)
+        before = preparation.fingerprint(self.source)
         scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=57
         )
@@ -102,7 +102,7 @@ class DataTests(unittest.TestCase):
         self.assertNotIn("sample_n", audit)
         self.assertEqual(audit["n_treatment"], 200)
         self.assertEqual(audit["groups"]["0"]["conversion"]["positive"], 100)
-        self.assertEqual(data.fingerprint(self.source), before)
+        self.assertEqual(preparation.fingerprint(self.source), before)
 
     #-----------------------------------------------------------------------------------------------------------------------
     # 函数：test_full_data_audit_counts_duplicates_without_removing_rows —— 确认全量审计统计重复行但不删除记录。
@@ -217,8 +217,8 @@ class DataTests(unittest.TestCase):
     def test_split_is_disjoint_reproducible_and_preserves_joint_strata(self):
         frame = _synthetic_frame(2000)
         frame.insert(0, "row_id", np.arange(len(frame)) * 3 + 100)
-        parts, summary, overlap = data.split_sample(frame, outcome="conversion", seed=42)
-        repeated, repeated_summary, repeated_overlap = data.split_sample(frame, outcome="conversion", seed=42)
+        parts, summary, overlap = preparation.split_sample(frame, outcome="conversion", seed=42)
+        repeated, repeated_summary, repeated_overlap = preparation.split_sample(frame, outcome="conversion", seed=42)
         pd.testing.assert_frame_equal(summary, repeated_summary)
         self.assertEqual(overlap, repeated_overlap)
         self.assertTrue(all(overlap['row_id_checks'].values()))
@@ -239,7 +239,7 @@ class DataTests(unittest.TestCase):
         self.assertFalse(identifiers[0] & identifiers[2])
         self.assertFalse(identifiers[1] & identifiers[2])
         self.assertEqual(set.union(*identifiers), set(frame.row_id))
-        visit_parts, visit_summary, _ = data.split_sample(frame, outcome="visit", seed=42)
+        visit_parts, visit_summary, _ = preparation.split_sample(frame, outcome="visit", seed=42)
         self.assertEqual(sum(map(len, visit_parts.values())), len(frame))
         for splits, table in ((parts, summary), (visit_parts, visit_summary)):
             self.assertEqual(list(table.columns), [
@@ -255,7 +255,7 @@ class DataTests(unittest.TestCase):
                     self.assertEqual(actual.conversion_positive, int(rows.conversion.sum()))
                     self.assertEqual(actual.visit_positive, int(rows.visit.sum()))
 
-        _, conversion_only, _ = data.split_sample(frame.drop(columns="visit"), seed=42)
+        _, conversion_only, _ = preparation.split_sample(frame.drop(columns="visit"), seed=42)
         self.assertNotIn("visit_positive", conversion_only.columns)
         self.assertEqual(conversion_only.conversion_positive.sum(), frame.conversion.sum())
 
@@ -269,7 +269,7 @@ class DataTests(unittest.TestCase):
         duplicated.loc[1, "row_id"] = duplicated.loc[0, "row_id"]
         for invalid in (missing, null, duplicated):
             with self.subTest(columns=invalid.columns.tolist()), self.assertRaisesRegex(ValueError, "row_id"):
-                data.split_sample(invalid)
+                preparation.split_sample(invalid)
 
     def test_split_detects_corrupted_partition_membership(self):
         frame = _synthetic_frame(2000)
@@ -285,29 +285,29 @@ class DataTests(unittest.TestCase):
         ]
         for train_ids, validation_ids, test_ids, error in cases:
             with self.subTest(error=error), patch.object(
-                data, "train_test_split",
+                preparation, "train_test_split",
                 side_effect=[(train_ids, holdout), (validation_ids, test_ids)],
             ), self.assertRaisesRegex(ValueError, error):
-                data.split_sample(frame)
+                preparation.split_sample(frame)
 
     def test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates(self):
         frame = _synthetic_frame(12)
         frame.insert(0, 'row_id', np.arange(12))
-        frame[data.FEATURES] = frame[data.FEATURES].astype('float32')
+        frame[preparation.FEATURES] = frame[preparation.FEATURES].astype('float32')
         # 不同 row_id 保持原样，只复制特征；重复训练向量不应重复计数。
-        frame.loc[[1, 6, 7, 9], data.FEATURES] = frame.loc[0, data.FEATURES].to_numpy()
-        frame.loc[10, data.FEATURES] = frame.loc[8, data.FEATURES].to_numpy()
-        with patch.object(data, 'train_test_split', side_effect=[
+        frame.loc[[1, 6, 7, 9], preparation.FEATURES] = frame.loc[0, preparation.FEATURES].to_numpy()
+        frame.loc[10, preparation.FEATURES] = frame.loc[8, preparation.FEATURES].to_numpy()
+        with patch.object(preparation, 'train_test_split', side_effect=[
             (np.arange(6), np.arange(6, 12)),
             (np.arange(6, 9), np.arange(9, 12)),
         ]):
-            parts, _, overlap = data.split_sample(frame)
+            parts, _, overlap = preparation.split_sample(frame)
         self.assertTrue(all(overlap['row_id_checks'].values()))
         self.assertEqual(overlap['fraction_matching_training_features'], {
             'validation': 2 / 3, 'test': 1 / 3,
         })
         self.assertEqual(overlap['fraction_test_matching_validation_features'], 2 / 3)
-        self.assertEqual(overlap['features'], data.FEATURES)
+        self.assertEqual(overlap['features'], preparation.FEATURES)
         self.assertEqual(set(overlap['feature_dtypes'].values()), {'float32'})
         self.assertEqual(sum(map(len, parts.values())), len(frame))
 
@@ -330,7 +330,7 @@ class DataTests(unittest.TestCase):
         missing = self.frame.copy()
         missing.loc[350, "f2"] = np.nan
         invalid_frames.append(missing)
-        for label in data.LABELS:
+        for label in preparation.LABELS:
             invalid = self.frame.copy()
             invalid.loc[350, label] = 2
             invalid_frames.append(invalid)
@@ -356,10 +356,10 @@ class DataTests(unittest.TestCase):
     #-----------------------------------------------------------------------------------------------------------------------
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         with self.assertRaises(ValueError):
-            data.split_sample(self.frame, outcome="exposure")
+            preparation.split_sample(self.frame, outcome="exposure")
         tiny = self.frame.iloc[:4].assign(row_id=np.arange(4))
         with self.assertRaises(ValueError):
-            data.split_sample(tiny, outcome="conversion")
+            preparation.split_sample(tiny, outcome="conversion")
 
 
     def test_write_result_preserves_json_values_and_csv_columns(self):

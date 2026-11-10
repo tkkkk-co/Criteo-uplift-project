@@ -8,7 +8,7 @@ configure_runtime()
 import argparse
 from pathlib import Path
 
-from criteo_uplift.data import ROOT
+from criteo_uplift.preparation import ROOT
 from criteo_uplift.stability import DEFAULT_FRACTIONS, DEFAULT_SEEDS, run_stability
 
 

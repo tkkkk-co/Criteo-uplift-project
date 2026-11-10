@@ -18,7 +18,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.data import FEATURES
+from criteo_uplift.preparation import FEATURES
 from criteo_uplift.pipeline_io import safe_output
 
 UPLIFT_POLICIES = {"s_logistic", "t_logistic", "t_xgboost", "x_xgboost"}

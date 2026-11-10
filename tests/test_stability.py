@@ -9,7 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from criteo_uplift.data import FEATURES, fingerprint
+from criteo_uplift.preparation import FEATURES, fingerprint
 from criteo_uplift.pipeline_io import save_sample, write_result
 from criteo_uplift.models import make_model
 from criteo_uplift.stability import (
