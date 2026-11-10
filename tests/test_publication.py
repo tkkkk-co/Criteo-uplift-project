@@ -15,6 +15,14 @@ configure_runtime()
 
 class PublicationTests(unittest.TestCase):
     def test_learning_notebook_uses_project_functions_and_does_not_train(self):
+    """
+    函数名：PublicationTests.test_learning_notebook_uses_project_functions_and_does_not_train
+    功能：验证学习 Notebook 调用项目正式函数读取结果，不在 Notebook 中重复训练模型。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         root = Path(__file__).resolve().parents[1]
         notebooks = list((root / 'notebooks').glob('*.ipynb'))
         self.assertEqual([p.name for p in notebooks], ['criteo_uplift_project.ipynb'])
@@ -33,6 +41,14 @@ class PublicationTests(unittest.TestCase):
             self.assertIn(section, text)
 
     def test_local_priority_and_explicit_snapshot_mode(self):
+    """
+    函数名：PublicationTests.test_local_priority_and_explicit_snapshot_mode
+    功能：验证结果目录自动模式优先读取本地 artifacts，且 published 模式只读取公开快照。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         with TemporaryDirectory() as d:
             root = Path(d)
             local, public = root / 'artifacts/run', root / 'reports/published/run'
@@ -45,6 +61,14 @@ class PublicationTests(unittest.TestCase):
                 self.assertEqual(result_directory('run', root), public)
 
     def test_invalid_paths_and_modes(self):
+    """
+    函数名：PublicationTests.test_invalid_paths_and_modes
+    功能：验证结果目录定位拒绝路径穿越、绝对路径和不支持的结果模式。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         for name in ['', '..', '../data', '/tmp/test', 'a/b']:
             with self.assertRaises(ValueError):
                 result_directory(name)

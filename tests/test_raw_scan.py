@@ -32,6 +32,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：准备当前测试使用的数据和临时环境。
     #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
+    """
+    函数名：UnifiedScanTests.setUp
+    功能：创建临时原始 CSV，包含指定处理比例、近常量特征和重复行，用于统一扫描测试。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；初始化或清理测试实例状态。
+    """
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
@@ -57,6 +65,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：按测试配置调用统一扫描。
     #-----------------------------------------------------------------------------------------------------------------------
     def scan(self, **kwargs):
+    """
+    函数名：UnifiedScanTests.scan
+    功能：使用统一测试默认参数调用 _scan_raw_data，并允许单项参数覆盖。
+    输入参数：
+        - **kwargs：需要覆盖默认扫描设置的关键字参数。
+    输出参数：
+        - 一次流式扫描返回的样本、审计和诊断结果字典。
+    """
         options = dict(sample_size=43, per_arm=10, seed=31, chunk_size=17, progress=lambda _: None)
         options.update(kwargs)
         return preparation._scan_raw_data(self.path, **options)
@@ -70,6 +86,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认一次 CSV 遍历保留两套抽样结果和全量统计。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics(self):
+    """
+    函数名：UnifiedScanTests.test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics
+    功能：验证单次 CSV 扫描同时保留建模抽样、C2ST 两臂抽样和全量统计结果。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         before = self.path.read_bytes()
         with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
             scanned = self.scan()
@@ -114,6 +138,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：核对近常量特征在不同扫描模式下的方差和 SMD。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_audit_only_variance_matches_full_diagnostics_for_near_constant_features(self):
+    """
+    函数名：UnifiedScanTests.test_audit_only_variance_matches_full_diagnostics_for_near_constant_features
+    功能：验证关闭完整诊断时，流式累计的近常量特征方差与完整诊断结果一致。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         expected = self.scan()['audit']['feature_stats']
         for chunk_size in (13, 31, len(self.raw)):
             actual = self.scan(diagnostics_enabled=False, chunk_size=chunk_size)['audit']['feature_stats']
@@ -131,6 +163,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认诊断抽样不受建模样本规模和分块大小影响。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_diagnostic_sample_independent_of_model_size_and_chunk_size(self):
+    """
+    函数名：UnifiedScanTests.test_diagnostic_sample_independent_of_model_size_and_chunk_size
+    功能：验证 C2ST 诊断抽样不受建模样本规模和 CSV 分块大小影响。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         baseline = self.scan()
         for size in (None, 0, 200):
             with self.subTest(sample_size=size):
@@ -160,6 +200,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认审计、全量诊断和两套抽样可以独立启用。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_audit_diagnostics_and_two_samples_are_independent(self):
+    """
+    函数名：UnifiedScanTests.test_audit_diagnostics_and_two_samples_are_independent
+    功能：验证全量审计、平衡诊断、建模样本和 C2ST 样本使用独立的计算/抽样路径。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         expected_balance = covariate_balance(self.raw, preparation.FEATURES)
         baseline = self.scan()
         for audit, checks, model_size, per_arm in product((False, True), (False, True), (None, 43), (None, 10)):
@@ -240,6 +288,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认扫描拒绝变化的输入来源和不足的组内人数。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_source_changes_and_insufficient_arms_fail(self):
+    """
+    函数名：UnifiedScanTests.test_source_changes_and_insufficient_arms_fail
+    功能：验证扫描期间原始文件变化或某处理臂样本不足时会明确失败。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         source = preparation.fingerprint(self.path)
         with patch.object(preparation, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
             with self.assertRaisesRegex(RuntimeError, 'changed'):
@@ -256,6 +312,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认诊断更新复用扫描并拒绝不一致的配置。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_update_reuses_scan_and_rejects_mismatched_settings(self):
+    """
+    函数名：UnifiedScanTests.test_update_reuses_scan_and_rejects_mismatched_settings
+    功能：验证诊断复用已有扫描结果，并拒绝与原始扫描配置不匹配的设置。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         scanned = self.scan()
         out = self.root / 'diagnostics'
         out.mkdir()
@@ -282,6 +346,14 @@ class UnifiedScanTests(unittest.TestCase):
     # 说明：确认首次准备和缓存复用都只分块解析一次 CSV。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once(self):
+    """
+    函数名：UnifiedScanTests.test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once
+    功能：验证新建缓存和复用缓存两条 Preparation 路径都只进行一次完整 CSV 分块解析。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
             sample, audit, source, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
@@ -298,6 +370,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertNotIn('sample', prepared)  # 不让后续诊断持有百万行建模表。
 
     def test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files(self):
+    """
+    函数名：UnifiedScanTests.test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files
+    功能：验证缺少或不完整的 Sample Metadata 时，即使存在旧缓存文件也会重新构建样本。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(
             data=self.path, sample_size=1_000_000, seed=42,
             c2st_sample=20, permutations=1,
@@ -334,6 +414,14 @@ class UnifiedScanTests(unittest.TestCase):
 
 
     def test_sample_and_audit_caches_are_reused_independently(self):
+    """
+    函数名：UnifiedScanTests.test_sample_and_audit_caches_are_reused_independently
+    功能：验证 Sample Cache 与 Audit Cache 可独立命中、失效和重新生成。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         for reuse_sample, reuse_audit in product((False, True), repeat=2):
             with self.subTest(reuse_sample=reuse_sample, reuse_audit=reuse_audit):
                 root = self.root / f'combination_{reuse_sample}_{reuse_audit}'
@@ -371,6 +459,14 @@ class UnifiedScanTests(unittest.TestCase):
                     self.assertNotIn(key, audit)
 
     def test_incomplete_sample_metadata_is_regenerated_by_scan(self):
+    """
+    函数名：UnifiedScanTests.test_incomplete_sample_metadata_is_regenerated_by_scan
+    功能：验证 Sample Metadata 字段不完整时会通过重新扫描重新生成，而不误用旧说明。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         original, original_audit, source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
@@ -390,6 +486,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertNotIn('audit', prepared['sample_report'])
 
     def test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version(self):
+    """
+    函数名：UnifiedScanTests.test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version
+    功能：验证 Audit Cache 不因抽样规模或 seed 改变而失效，但会因数据来源或审计版本变化而失效。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         _, original_audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         audit_path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
@@ -420,6 +524,14 @@ class UnifiedScanTests(unittest.TestCase):
             self.assertEqual(audit, original_audit)
 
     def test_duplicate_excess_counts_are_not_unique_duplicate_patterns(self):
+    """
+    函数名：UnifiedScanTests.test_duplicate_excess_counts_are_not_unique_duplicate_patterns
+    功能：验证重复行多余计数采用总行数减不同指纹数，而不是重复模式种数。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         frame = self.raw.copy()
         frame.iloc[-3:] = frame.iloc[0].to_numpy()
         frame.iloc[-5:-3] = frame.iloc[1].to_numpy()
@@ -437,6 +549,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertIn('index=False', audit['duplicate_method'])
 
     def test_missing_duplicate_fields_rebuild_audit_without_resampling(self):
+    """
+    函数名：UnifiedScanTests.test_missing_duplicate_fields_rebuild_audit_without_resampling
+    功能：验证 Audit Cache 缺少重复行统计字段时会重建审计，但复用有效建模样本缓存。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         sample, original, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
@@ -460,6 +580,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(json.loads(cache.with_suffix('.json').read_text())['group_summary'][-1]['group'], 'Total')
 
     def test_source_change_invalidates_both_caches(self):
+    """
+    函数名：UnifiedScanTests.test_source_change_invalidates_both_caches
+    功能：验证原始 CSV 内容指纹变化时 Sample Cache 和 Audit Cache 均失效。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         _, _, before_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         changed = pd.read_csv(self.path)

@@ -50,6 +50,14 @@ SUFFIXES = {
 # 说明：枚举允许发布的项目文件。
 #-----------------------------------------------------------------------------------------------------------------------
 def publication_files(root=ROOT):
+    """
+    函数名：publication_files
+    功能：按允许发布的目录、顶层文件和扩展名枚举项目文件，并拒绝符号链接、越界文件和异常大文件。
+    输入参数：
+        - root：项目根目录。
+    输出参数：
+        - 排序后的可发布文件 pathlib.Path 列表。
+    """
     root = Path(root).resolve()
     candidates = [root / name for name in TOP_FILES]
     for directory in DIRECTORIES:
@@ -87,6 +95,14 @@ def publication_files(root=ROOT):
 # 说明：核验公开快照和发布文件范围。
 #-----------------------------------------------------------------------------------------------------------------------
 def check(root=ROOT):
+    """
+    函数名：check
+    功能：校验公开聚合快照文件哈希、排除个体级/模型产物，并检查发布白名单范围。
+    输入参数：
+        - root：项目根目录。
+    输出参数：
+        - 发布核验摘要字典，包含快照文件数、发布文件数、总大小及数据范围标记。
+    """
     root = Path(root).resolve()
     public = root / 'reports/published'
     manifest = json.loads((public / 'snapshot_manifest.json').read_text())

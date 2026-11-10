@@ -28,6 +28,15 @@ from .pipeline_io import safe_output, write_result
 _PRETREATMENT_FEATURES = frozenset(FEATURES)
 
 def _features(df: pd.DataFrame, features: Sequence[str]) -> np.ndarray:
+    """
+    函数名：_features
+    功能：校验特征列名并按指定顺序提取处理前特征矩阵。
+    输入参数：
+        - df：包含待检查特征列的 DataFrame。
+        - features：要提取的处理前特征列名序列。
+    输出参数：
+        - 特征矩阵：按 features 顺序排列的 float64 NumPy 二维数组。
+    """
     names = list(features)
     if not names or len(names) != len(set(names)):
         raise ValueError("features must be a nonempty sequence without duplicates")
@@ -48,6 +57,16 @@ def srm_summary(
     n0: int,
     expected_ratio: float = 0.85,
 ) -> dict:
+    """
+    函数名：srm_summary
+    功能：将处理组和对照组人数与指定的处理组参考比例进行 SRM 卡方检验。
+    输入参数：
+        - n1：Treatment 组实际人数。
+        - n0：Control 组实际人数。
+        - expected_ratio：预期 Treatment 人数占总人数的比例，默认 0.85。
+    输出参数：
+        - SRM 摘要字典：包含组人数、实际/参考比例、卡方统计量、p 值和解释。
+    """
     if any(
         isinstance(n, bool) or not isinstance(n, (int, np.integer)) or n < 0 # 布尔值属于整数子类，需要显式排除。
         for n in (n1, n0)
@@ -93,6 +112,15 @@ def srm_summary(
 
 
 def covariate_balance(df: pd.DataFrame, features: Sequence[str]) -> pd.DataFrame:
+    """
+    函数名：covariate_balance
+    功能：逐个特征计算处理组与对照组的均值、SMD 和双样本 KS 统计量。
+    输入参数：
+        - df：包含 treatment 和待检查特征的 DataFrame。
+        - features：需要检查的处理前特征列名序列。
+    输出参数：
+        - 平衡诊断表：每个特征一行，包含两组统计量、SMD 和 KS 结果。
+    """
     x = _features(df, features)
     check_binary_vector(df["treatment"], "treatment", len(x))
     treatment = df["treatment"].to_numpy(dtype=np.int8)
@@ -130,6 +158,15 @@ def covariate_balance(df: pd.DataFrame, features: Sequence[str]) -> pd.DataFrame
 
 
 def _make_c2st_model(name: str, seed: int):
+    """
+    函数名：_make_c2st_model
+    功能：根据模型名称创建 C2ST 使用的 Logistic 或 XGBoost 分类器。
+    输入参数：
+        - name：分类器类型，支持 logistic 或 xgboost。
+        - seed：模型随机种子。
+    输出参数：
+        - 未拟合的 scikit-learn 兼容分类器。
+    """
     if name == "logistic":
         return make_pipeline(
             StandardScaler(),
@@ -160,6 +197,15 @@ def _make_c2st_model(name: str, seed: int):
 
 
 def _probability_metrics(y: np.ndarray, prediction: np.ndarray) -> dict:
+    """
+    函数名：_probability_metrics
+    功能：根据真实二元标签和正类预测概率计算概率分类评价指标。
+    输入参数：
+        - y：真实的 0/1 标签向量。
+        - prediction：每行预测为正类的概率向量。
+    输出参数：
+        - 指标字典：包含 ROC AUC、Average Precision、LogLoss 和 Brier score。
+    """
     # y：真实的二分类标签。
     # prediction：每一行预测为 1 的概率。
 
@@ -181,6 +227,18 @@ def c2st(
     permutations: int = 99,
     seed: int = 42,
 ) -> dict:
+    """
+    函数名：c2st
+    功能：执行处理组/对照组可区分性检验，并通过重复置换标签、完整重拟合模型构造 AUC 零分布。
+    输入参数：
+        - df：包含 treatment 和特征列的候选诊断样本。
+        - features：用于区分处理组的处理前特征列名。
+        - sample_size：本次 C2ST 最多使用的样本行数。
+        - permutations：标签置换并重新拟合模型的次数。
+        - seed：抽样、数据划分和模型的随机种子。
+    输出参数：
+        - 结果字典：包含观测 summary、置换 null_auc、样本规模、随机种子及解释说明。
+    """
     if (
         isinstance(sample_size, bool)
         or not isinstance(sample_size, (int, np.integer))
@@ -292,6 +350,19 @@ def learnability(
     by_arm: bool = True,
     seed: int = 42,
 ) -> pd.DataFrame:
+    """
+    函数名：learnability
+    功能：使用训练集拟合 Dummy、Logistic 和 XGBoost 结果模型，并在验证集评估整体或分处理臂的结果可预测性。
+    输入参数：
+        - train：用于拟合结果模型的训练集。
+        - val：用于评价结果模型的验证集。
+        - features：模型使用的处理前特征列名。
+        - outcome：要预测的二元结果列名，支持 conversion 或 visit。
+        - by_arm：是否额外按 Treatment 和 Control 分别拟合、评价。
+        - seed：Logistic/XGBoost 模型随机种子。
+    输出参数：
+        - Learnability 结果表：按分析范围和模型记录样本量及概率预测指标。
+    """
     if outcome not in {"conversion", "visit"}:
         raise ValueError("outcome must be conversion or visit")
     x_train, x_val = _features(train, features), _features(val, features)
@@ -344,6 +415,23 @@ def run_diagnostics(
     out, *, audit, source, scanned, train, validation, sample_size=20_000, permutations=499,
     seed=42, progress=print,
 ):
+    """
+    函数名：run_diagnostics
+    功能：组织全量数据的 SRM、协变量平衡、C2ST 置换检验和结果可学习性诊断，并保存诊断产物。
+    输入参数：
+        - out：本次实验的 diagnostics 输出目录。
+        - audit：Preparation 生成的全量审计字典。
+        - source：本次原始数据文件的指纹信息。
+        - scanned：流式扫描生成的平衡统计、C2ST 样本和 metadata。
+        - train：建模样本的训练集。
+        - validation：建模样本的验证集。
+        - sample_size：C2ST 诊断样本总行数。
+        - permutations：C2ST 完整重拟合置换次数。
+        - seed：诊断抽样和模型随机种子。
+        - progress：接收进度文本的回调函数。
+    输出参数：
+        - 诊断详情字典；同时在 out 目录写入 SRM、平衡、C2ST 和 Learnability 结果。
+    """
     if sample_size < 20 or sample_size % 20:
         raise ValueError("C2ST sample_size must be >=20 and divisible by 20")
     if permutations < 1:

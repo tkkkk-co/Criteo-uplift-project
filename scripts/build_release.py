@@ -20,6 +20,14 @@ from criteo_uplift.pipeline_io import safe_output
 # 说明：按发布清单打包项目。
 #-----------------------------------------------------------------------------------------------------------------------
 def build(output):
+    """
+    函数名：build
+    功能：按发布白名单核验项目文件并生成不包含原始数据和模型缓存的 ZIP 发布包。
+    输入参数：
+        - output：新 ZIP 发布包的目标路径，必须不存在。
+    输出参数：
+        - 生成的 ZIP 文件 pathlib.Path。
+    """
     output = safe_output(output)
     if output.exists():
         raise FileExistsError(output)

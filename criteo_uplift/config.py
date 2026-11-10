@@ -18,6 +18,14 @@ _OPENMP = None
 
 
 def configure_runtime():
+    """
+    函数名：configure_runtime
+    功能：设置项目运行所需的线程环境变量、绘图缓存目录，并按需加载 OpenMP 运行库。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；修改当前 Python 进程的运行环境设置。
+    """
     global _OPENMP
     root = ROOT
     os.environ.setdefault('OMP_NUM_THREADS', '4')
@@ -35,5 +43,12 @@ def configure_runtime():
 
 
 def log(message):
-    """输出带时间的进度信息。"""
+    """
+    函数名：log
+    功能：为一条进度消息添加时间戳并立即输出。
+    输入参数：
+        - message：需要输出的进度或状态文本。
+    输出参数：
+        - 无；将消息写入终端。
+    """
     print(time.strftime("%H:%M:%S"), message, flush=True)

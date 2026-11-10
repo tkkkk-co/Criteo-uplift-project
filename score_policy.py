@@ -28,6 +28,14 @@ MAX_CHUNK_SIZE = 100_000
 
 
 def _read_json(path):
+    """
+    函数名：_read_json
+    功能：读取冻结实验目录中的 JSON 文件，并检查文件存在、JSON 格式正确且顶层为对象。
+    输入参数：
+        - path：待读取的 JSON 文件路径。
+    输出参数：
+        - 解析后的 JSON 字典。
+    """
     if not path.is_file():
         raise FileNotFoundError(f"冻结 run 缺少文件：{path}")
     try:
@@ -40,6 +48,14 @@ def _read_json(path):
 
 
 def _load_frozen_policy(run):
+    """
+    函数名：_load_frozen_policy
+    功能：核验实验 manifest 与 selection 的冻结状态、特征顺序和模型接口，并加载所选策略所需模型。
+    输入参数：
+        - run：包含 manifest、selection 和模型文件的可信实验目录。
+    输出参数：
+        - 三元组：(冻结策略名称、训练随机种子、已加载模型；random 策略的模型为 None)。
+    """
     run = Path(run).resolve()
     if not run.is_dir():
         raise FileNotFoundError(f"run 目录不存在：{run}")
@@ -89,6 +105,14 @@ def _load_frozen_policy(run):
 
 
 def _check_input_header(path):
+    """
+    函数名：_check_input_header
+    功能：检查新人群 CSV 存在且包含唯一的 f0–f11 前置特征列。
+    输入参数：
+        - path：待打分的新人群特征 CSV 路径。
+    输出参数：
+        - 无；校验通过正常返回，缺列或重复列时抛出异常。
+    """
     if not path.is_file():
         raise FileNotFoundError(f"输入 CSV 不存在：{path}")
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -102,6 +126,18 @@ def _check_input_header(path):
 
 
 def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_SIZE):
+    """
+    函数名：score_policy
+    功能：加载冻结策略，对只含 f0–f11 的新人群 CSV 分块打分，并按预算选出 Top-k 记录写入新 CSV。
+    输入参数：
+        - run：包含冻结模型及选择记录的实验目录。
+        - input_path：只读的新人群特征 CSV 路径。
+        - output_path：新的打分结果 CSV 路径，拒绝覆盖。
+        - budget：需要选择的人群比例，范围为 [0,1]。
+        - chunk_size：每批读取的行数，上限为 MAX_CHUNK_SIZE。
+    输出参数：
+        - 打分摘要字典：包含冻结策略、seed、总行数、预算、选中人数和输出路径。
+    """
     if isinstance(budget, bool):
         raise ValueError("budget 必须在 [0, 1] 内。")
     try:
@@ -190,6 +226,14 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
 
 
 def main(argv=None):
+    """
+    函数名：main
+    功能：解析新人群打分命令行参数，调用 score_policy 并输出打分摘要。
+    输入参数：
+        - argv：可选的命令行参数字符串列表；None 表示读取终端参数。
+    输出参数：
+        - score_policy 返回的打分摘要字典。
+    """
     parser = argparse.ArgumentParser(
         description='加载可信实验目录中的冻结策略，对输入特征分块打分并按指定预算选择记录。\n只输出原始行号、分数和选择标记；不训练模型、不读取结果标签，不执行真实广告投放。', formatter_class=argparse.RawDescriptionHelpFormatter
     )

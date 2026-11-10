@@ -23,6 +23,19 @@ _NORMAL = NormalDist()
 def plan_policy_ab(
     p0, absolute_mde, allocation_ratio=1.0, budget=0.2, alpha=0.05, power=0.8
 ):
+    """
+    函数名：plan_policy_ab
+    功能：根据基线转化率、绝对 MDE、分配比例、显著性水平和功效估算策略 A/B 实验样本量。
+    输入参数：
+        - p0：假设的基线策略总体转化率。
+        - absolute_mde：需要检测的绝对转化率差异。
+        - allocation_ratio：策略 A 与策略 B 的样本分配比例。
+        - budget：假设的触达比例。
+        - alpha：双侧检验显著性水平。
+        - power：目标统计功效。
+    输出参数：
+        - 规划结果字典：包含两组样本量、总样本量、触达人数及近似实际功效。
+    """
     values = (p0, absolute_mde, allocation_ratio, budget, alpha, power)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
         raise ValueError('Inputs must be finite numeric scalars')
@@ -94,6 +107,20 @@ def cost_value_scenario(
     ci_low=None,
     ci_high=None,
 ):
+    """
+    函数名：cost_value_scenario
+    功能：将每十万名符合条件人群的增量结果换算为假设收益、触达成本、净价值和条件性区间。
+    输入参数：
+        - incremental_per_100k：每十万名符合条件人群的增量结果数。
+        - budget：假设的触达比例。
+        - value_per_conversion：每次增量转化的假设贡献价值。
+        - contact_cost：每次触达的假设单位成本。
+        - eligible_n：符合触达条件的总人数。
+        - ci_low：可选的增量效果置信区间下界。
+        - ci_high：可选的增量效果置信区间上界。
+    输出参数：
+        - 经济情景字典：包含增量转化、收益、成本、净值、条件性区间及盈亏平衡触达成本。
+    """
     values = (incremental_per_100k, budget, value_per_conversion, contact_cost)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
         raise ValueError('Inputs must be finite numeric scalars')
@@ -147,7 +174,17 @@ DEFAULT_PLANNING_ASSUMPTIONS = {
 
 
 def run_planning(policies, selection, out, *, assumptions=None):
-    """使用明确假设与冻结策略的离线估计，保存规划和条件性经济情景。"""
+    """
+    函数名：run_planning
+    功能：读取冻结策略在主预算下的 Test 结果，按明确的业务假设生成 A/B 样本量规划和经济情景文件。
+    输入参数：
+        - policies：Test 阶段生成的各策略、各预算 Policy Evaluation 表。
+        - selection：Validation 阶段冻结的策略名称和主预算。
+        - out：本次实验的 business 输出目录。
+        - assumptions：可选的业务假设字典；未提供时使用 planning.py 中的教学情景。
+    输出参数：
+        - 无；保存 assumptions.json、hypothetical_ab_plans.csv 和 hypothetical_cost_scenarios.csv。
+    """
     import pandas as pd
     import numpy as np
     from .pipeline_io import safe_output, write_result

@@ -4,7 +4,17 @@ import pandas as pd
 
 
 def check_binary_vector(values, name="values", n_rows=None, *, require_both=False):
-    """验证非空一维 0/1 标签，可要求长度匹配及两组均存在。"""
+    """
+    函数名：check_binary_vector
+    功能：验证输入是一维、非空且只包含 0/1 的二元向量，并按需检查长度和两类是否齐全。
+    输入参数：
+        - values：待检查的标签或处理分配向量。
+        - name：用于错误提示的变量名称。
+        - n_rows：可选的预期行数。
+        - require_both：是否要求 0 和 1 两类都出现。
+    输出参数：
+        - 无；校验通过正常返回，失败时抛出 ValueError。
+    """
     array = np.asarray(values)
     if array.ndim != 1 or not len(array) or (n_rows is not None and len(array) != n_rows):
         raise ValueError(f"{name} must be a nonempty one-dimensional vector of matching length")
@@ -15,7 +25,16 @@ def check_binary_vector(values, name="values", n_rows=None, *, require_both=Fals
 
 
 def check_feature_matrix(X, *, allow_nan=False, n_features=None):
-    """验证二维数值特征；允许显式开启 NaN，始终拒绝 Inf。"""
+    """
+    函数名：check_feature_matrix
+    功能：验证特征输入为非空二维数值矩阵，并检查 NaN、Inf 和特征数量约束。
+    输入参数：
+        - X：待检查的特征矩阵或 DataFrame。
+        - allow_nan：是否允许 NaN；Inf 始终不允许。
+        - n_features：可选的预期特征列数。
+    输出参数：
+        - 无；校验通过正常返回，失败时抛出 ValueError。
+    """
     array = np.asarray(X)
     if array.ndim != 2 or not all(array.shape):
         raise ValueError("X must be a non-empty two-dimensional feature matrix")
@@ -28,7 +47,17 @@ def check_feature_matrix(X, *, allow_nan=False, n_features=None):
 
 
 def check_row_ids(values, name="row_id", n_rows=None, *, require_integer=False):
-    """验证来源行号非空、无缺失且唯一；原始位置行号另要求非负整数。"""
+    """
+    函数名：check_row_ids
+    功能：验证来源行号是一维、非空、无缺失且唯一的向量，并可要求其为非负整数。
+    输入参数：
+        - values：待检查的来源 row_id 向量。
+        - name：用于错误提示的标识名称。
+        - n_rows：可选的预期行数。
+        - require_integer：是否要求非负整数行号。
+    输出参数：
+        - 无；校验通过正常返回，失败时抛出 ValueError。
+    """
     array = np.asarray(values)
     if array.ndim != 1 or not len(array) or (n_rows is not None and len(array) != n_rows):
         raise ValueError(f"{name}: row IDs must be nonempty vectors of matching length")

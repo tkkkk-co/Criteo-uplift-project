@@ -19,6 +19,22 @@ def _scan_raw_data(
     *, per_arm=None, audit_enabled=True, diagnostics_enabled=True,
     progress=print, source=None,
 ):
+    """
+    函数名：_scan_raw_data
+    功能：通过一次 CSV 分块扫描完成原始数据入口校验、全量审计、建模抽样、C2ST 抽样及全量协变量诊断数据准备。
+    输入参数：
+        - path：原始 Criteo CSV 文件路径。
+        - sample_size：建模抽样目标行数；None 表示不生成建模样本，0 表示保留全量。
+        - seed：建模和诊断抽样随机种子。
+        - chunk_size：每次从 CSV 读取的行数。
+        - per_arm：C2ST 从每个处理臂分别抽取的行数；None 表示不生成 C2ST 样本。
+        - audit_enabled：是否计算全量审计统计。
+        - diagnostics_enabled：是否准备全量 SMD/KS 和 SRM 诊断数据。
+        - progress：接收扫描进度文本的回调函数。
+        - source：可选的原始文件指纹；未提供时在扫描前计算。
+    输出参数：
+        - 扫描结果字典：包含建模样本、抽样报告、全量审计、平衡表、C2ST 样本、SRM、metadata 和 source。
+    """
     # 1. 检查参数、文件来源和列名，确定本次需要执行哪些任务。
     path = Path(path)
     if sample_size is not None and (
@@ -351,7 +367,16 @@ def _scan_raw_data(
     }
 
 def prepare_sample(args, *, root: Path = ROOT, progress=None):
-    """核验并复用缓存，返回建模样本、全量审计、文件指纹和扫描结果。"""
+    """
+    函数名：prepare_sample
+    功能：核验 Sample/Audit 缓存有效性，执行必要的统一流式扫描，并返回样本、审计和诊断数据。
+    输入参数：
+        - args：主 Pipeline 解析得到的运行参数对象。
+        - root：项目根目录。
+        - progress：接收数据准备进度文本的回调函数。
+    输出参数：
+        - 四元组：(建模样本 DataFrame、全量 Audit 字典、当前原始文件指纹、其余扫描诊断结果字典)。
+    """
     # 扫描和缓存模块引用这里的基础定义，在准备样本时再导入。
 
     if progress is None:
@@ -469,7 +494,16 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
 #-------------------------------------------------------------------------
 
 def split_sample(df, outcome='conversion', seed=42):
-    """按处理组和结果分层，返回三个数据集、人数汇总和重叠检查。"""
+    """
+    函数名：split_sample
+    功能：按 treatment × outcome 分层将建模样本划分为 Train、Validation、Test，并检查 row_id 互斥及特征重叠。
+    输入参数：
+        - df：包含 row_id、特征、处理分配和结果标签的建模样本。
+        - outcome：用于分层的二元结果列名，支持 conversion 或 visit。
+        - seed：数据划分随机种子。
+    输出参数：
+        - 三元组：(train/validation/test DataFrame 字典、分组人数汇总表、row_id 与匿名特征重叠检查字典)。
+    """
     if outcome not in ['conversion', 'visit']:
         raise ValueError('unknown outcome')
     # 1. 保留来源行标识；不能用划分后重新编号的 DataFrame 索引代替。

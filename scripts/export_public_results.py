@@ -27,10 +27,27 @@ BASE_FILES = (
 
 
 def sanitize_text(value):
+    """
+    函数名：sanitize_text
+    功能：从待发布文本中替换本机项目绝对路径和 Python 解释器路径，避免泄露本地环境信息。
+    输入参数：
+        - value：需要清理本机路径信息的文本内容。
+    输出参数：
+        - 完成路径脱敏后的文本字符串。
+    """
     return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(sys.executable, 'python')
 
 
 def export(source, output):
+    """
+    函数名：export
+    功能：从完整实验目录复制明确允许的聚合结果和图像，生成带 SHA256 清单的公开快照。
+    输入参数：
+        - source：状态为 complete 的实验输出目录。
+        - output：新公开快照的目标目录，必须不存在。
+    输出参数：
+        - 生成的公开快照目录 pathlib.Path。
+    """
     source, output = Path(source).resolve(), safe_output(output)
     if output.exists():
         raise FileExistsError(f'Use a new snapshot directory: {output}')

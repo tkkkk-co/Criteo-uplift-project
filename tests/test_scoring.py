@@ -39,6 +39,15 @@ class _FeatureOnlyModel:
     # 说明：保存模型或测试对象的初始化配置。
     #-----------------------------------------------------------------------------------------------------------------------
     def __init__(self, constant=False, max_rows=7):
+    """
+    函数名：_FeatureOnlyModel.__init__
+    功能：设置测试模型的常数分数模式和单次 predict 最大行数。
+    输入参数：
+        - constant：是否让 predict 返回相同分数。
+        - max_rows：单次预测允许的最大输入行数。
+    输出参数：
+        - 无；保存测试模型配置。
+    """
         self.constant = constant
         self.max_rows = max_rows
 
@@ -52,6 +61,14 @@ class _FeatureOnlyModel:
     # 说明：检查测试模型收到的特征结构和分块规模。
     #-----------------------------------------------------------------------------------------------------------------------
     def _check_features(self, X):
+    """
+    函数名：_FeatureOnlyModel._check_features
+    功能：检查输入 DataFrame 仅包含按顺序排列的 f0–f11，并且分块行数未超限。
+    输入参数：
+        - X：当前批次的特征 DataFrame。
+    输出参数：
+        - 无；不符合测试约束时抛出 AssertionError。
+    """
         if list(X.columns) != FEATURES or len(X) > self.max_rows:
             raise AssertionError(
                 "Only ordered pre-treatment features in bounded chunks are allowed."
@@ -67,6 +84,14 @@ class _FeatureOnlyModel:
     # 说明：按测试配置返回常数或第一列特征。
     #-----------------------------------------------------------------------------------------------------------------------
     def predict(self, X):
+    """
+    函数名：_FeatureOnlyModel.predict
+    功能：按测试设置返回常数分数或第一列特征值作为 CATE 分数。
+    输入参数：
+        - X：当前批次的 f0–f11 特征 DataFrame。
+    输出参数：
+        - 与输入行顺序一致的策略分数数组。
+    """
         self._check_features(X)
         return np.ones(len(X)) if self.constant else X.f0.to_numpy()
 
@@ -81,6 +106,14 @@ class _FeatureOnlyModel:
     # 说明：生成用于区分打分路径的测试输出。
     #-----------------------------------------------------------------------------------------------------------------------
     def predict_outcomes(self, X):
+    """
+    函数名：_FeatureOnlyModel.predict_outcomes
+    功能：返回两个刻意不同的潜在结果分数，用于核验 propensity 路径选择了 mu1。
+    输入参数：
+        - X：当前批次的 f0–f11 特征 DataFrame。
+    输出参数：
+        - 二元组：(测试用 mu0 分数数组, 测试用 mu1 分数数组)。
+    """
         self._check_features(X)
         # 构造相反排序，以区分是否使用了 mu1、增量分数或 mu0。
         score = X.f0.to_numpy() / 100.0
@@ -105,6 +138,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：准备当前测试使用的数据和临时环境。
     #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
+    """
+    函数名：ScoringTests.setUp
+    功能：创建临时 run、模型文件和只含前置特征的新人群 CSV，供 Score Policy 测试复用。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；初始化或清理测试实例状态。
+    """
         self.directory = tempfile.TemporaryDirectory(prefix="criteo_scoring_test_")
         self.root = Path(self.directory.name)
         self.run = self.root / "run"
@@ -129,6 +170,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：清理当前测试的临时资源。
     #-----------------------------------------------------------------------------------------------------------------------
     def tearDown(self):
+    """
+    函数名：ScoringTests.tearDown
+    功能：清理 Score Policy 测试使用的临时目录。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；初始化或清理测试实例状态。
+    """
         self.directory.cleanup()
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -142,6 +191,15 @@ class ScoringTests(unittest.TestCase):
     # 说明：保存供打分测试读取的模拟冻结实验。
     #-----------------------------------------------------------------------------------------------------------------------
     def _save_run(self, policy, model=None):
+    """
+    函数名：ScoringTests._save_run
+    功能：构造包含冻结 selection、manifest 和可选测试模型的最小实验目录。
+    输入参数：
+        - policy：测试用的冻结策略名称。
+        - model：可选的测试模型实例；未提供时不保存模型文件。
+    输出参数：
+        - 保存模型与冻结元数据后的实验目录 pathlib.Path。
+    """
         selection = {"selected_policy": policy, "frozen_before_test": True}
         manifest = {"features": FEATURES, "seed": 42, "selection": selection}
         (self.run / "models").mkdir(exist_ok=True)
@@ -161,6 +219,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：使用当前临时目录执行打分测试。
     #-----------------------------------------------------------------------------------------------------------------------
     def _score(self, **kwargs):
+    """
+    函数名：ScoringTests._score
+    功能：使用测试输入和小分块大小调用 score_policy，并允许覆盖指定参数。
+    输入参数：
+        - **kwargs：传递给 score_policy 的额外关键字参数。
+    输出参数：
+        - score_policy 返回的打分摘要字典。
+    """
         return score_policy(self.run, self.source, self.output, chunk_size=7, **kwargs)
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -172,6 +238,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认分块打分只读取特征、准确执行预算且保留输入。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_feature_only_chunks_exact_budget_and_input_unchanged(self):
+    """
+    函数名：ScoringTests.test_feature_only_chunks_exact_budget_and_input_unchanged
+    功能：验证 Score Policy 只读取前置特征、分块处理、精确选择预算人数且不修改输入文件。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         before = fingerprint(self.source)
         result = self._score(budget=0.2)
         output = pd.read_csv(self.output)
@@ -193,6 +267,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认响应概率基线使用处理状态下的结果概率。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_propensity_uses_treated_response_probability(self):
+    """
+    函数名：ScoringTests.test_propensity_uses_treated_response_probability
+    功能：验证 propensity 策略使用 P(Y=1|X,T=1)，而不是处理分配概率或 Control 潜在结果。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         self._save_run("propensity")
         self._score(budget=0.2)
         output = pd.read_csv(self.output)
@@ -210,6 +292,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认随机策略和同分排序不受分块大小影响。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_random_scores_and_tie_breaking_are_chunk_independent(self):
+    """
+    函数名：ScoringTests.test_random_scores_and_tie_breaking_are_chunk_independent
+    功能：验证随机策略分数和同分打破方式不受 CSV 分块大小影响。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         for policy, model in (
             ("random", None),
             ("t_logistic", _FeatureOnlyModel(constant=True)),
@@ -237,6 +327,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：核对预算边界及十进制预算取整。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_budget_boundaries_and_decimal_floor(self):
+    """
+    函数名：ScoringTests.test_budget_boundaries_and_decimal_floor
+    功能：验证 0%、100% 和小数预算边界按 Decimal 向下取整得到正确 Top-k 人数。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         self._save_run("random")
         frame = pd.DataFrame({feature: np.arange(100) for feature in FEATURES})
         frame.to_csv(self.source, index=False)
@@ -260,6 +358,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认离线打分和评价对相同输入的同分选择一致。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_tied_score_selection_matches_evaluation_for_same_row_order(self):
+    """
+    函数名：ScoringTests.test_tied_score_selection_matches_evaluation_for_same_row_order
+    功能：验证相同输入行顺序和 seed 下，Score Policy 的同分选择与 Evaluation 排序规则一致。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         self._save_run("t_logistic", _FeatureOnlyModel(constant=True))
         result = self._score(budget=0.2)
         output = pd.read_csv(self.output)
@@ -276,6 +382,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：核对只读输入、数据目录链接及已有输出的保护。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_readonly_input_data_symlink_and_existing_output_guards(self):
+    """
+    函数名：ScoringTests.test_readonly_input_data_symlink_and_existing_output_guards
+    功能：验证新人群输入只读、符号链接路径保护和拒绝覆盖已有输出文件。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         before = fingerprint(self.source)
         with self.assertRaises(ValueError):
             score_policy(self.run, self.source, self.source)
@@ -304,6 +418,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认缺少实验、模型、特征或冻结记录时明确报错。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_missing_run_model_features_and_unfrozen_selection_have_clear_errors(self):
+    """
+    函数名：ScoringTests.test_missing_run_model_features_and_unfrozen_selection_have_clear_errors
+    功能：验证缺失 run/模型/特征或未冻结策略时，打分入口返回明确错误。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         with self.assertRaisesRegex(FileNotFoundError, "run"):
             score_policy(self.root / "missing", self.source, self.output)
         (self.run / "models" / "t_logistic.joblib").unlink()
@@ -337,6 +459,14 @@ class ScoringTests(unittest.TestCase):
     # 说明：确认非法特征及过大分块在写出结果前被拒绝。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_features_and_excessive_chunk_size_fail_before_output(self):
+    """
+    函数名：ScoringTests.test_invalid_features_and_excessive_chunk_size_fail_before_output
+    功能：验证非法特征值或超出上限的 chunk_size 会在创建输出文件前失败。
+    输入参数：
+        - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    输出参数：
+        - 无；通过断言验证预期行为，失败时由测试框架报告。
+    """
         self._save_run("random")
         frame = pd.read_csv(self.source)
         frame.loc[10, "f0"] = np.nan
