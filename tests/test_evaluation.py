@@ -20,14 +20,6 @@ from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate
 # 说明：验证效果估计和策略评价。
 #-----------------------------------------------------------------------------------------------------------------------
 class EvaluationTests(unittest.TestCase):
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：setUp —— 准备当前测试使用的数据和临时环境。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；测试数据保存在当前测试对象中。
-    # 说明：准备当前测试使用的数据和临时环境。
-    #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
         """
         函数名：EvaluationTests.setUp
@@ -41,14 +33,6 @@ class EvaluationTests(unittest.TestCase):
         self.t = np.array([1, 1, 0, 0, 1, 1, 0, 0])
         self.scores = np.array([8, 7, 6, 5, 4, 3, 2, 1], dtype=float)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_difference_in_means_and_pooled_null —— 核对平均效果估计及零假设下的检验。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对平均效果估计及零假设下的检验。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_difference_in_means_and_pooled_null(self):
         """
         函数名：EvaluationTests.test_difference_in_means_and_pooled_null
@@ -87,14 +71,6 @@ class EvaluationTests(unittest.TestCase):
                 else:
                     np.testing.assert_allclose(actual[key], expected[key], equal_nan=True, rtol=0, atol=0)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_aggregate_ate_rejects_invalid_counts —— 确认汇总 ATE 拒绝不合法的人数和事件数。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认汇总 ATE 拒绝不合法的人数和事件数。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range(self):
         """
         函数名：EvaluationTests.test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range
@@ -170,14 +146,6 @@ class EvaluationTests(unittest.TestCase):
             with self.subTest(n=n, positive=positive), self.assertRaises(ValueError):
                 ate_summary_from_audit(audit, 'conversion')
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_constant_outcomes_and_missing_control_response —— 核对结果恒定及对照组无正例的边界行为。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对结果恒定及对照组无正例的边界行为。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_constant_outcomes_and_missing_control_response(self):
         """
         函数名：EvaluationTests.test_constant_outcomes_and_missing_control_response
@@ -192,14 +160,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(result["standard_error"], 0.0)
         self.assertTrue(np.isnan(result["relative_uplift"]))
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_ht_curve_preserves_fixed_assignment_probability —— 确认 HT 曲线使用固定的处理分配概率。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认 HT 曲线使用固定的处理分配概率。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_ht_curve_preserves_fixed_assignment_probability(self):
         """
         函数名：EvaluationTests.test_ht_curve_preserves_fixed_assignment_probability
@@ -221,14 +181,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(curve.lift.iloc[-1], 1)
         self.assertTrue(np.isnan(curve.uplift.iloc[2]))
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_area_uses_full_curve_and_centering —— 核对完整曲线面积及随机基线扣除。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对完整曲线面积及随机基线扣除。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_area_uses_full_curve_and_centering(self):
         """
         函数名：EvaluationTests.test_area_uses_full_curve_and_centering
@@ -246,14 +198,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["auuc_ht"], expected)
         self.assertAlmostEqual(metrics["qini_ht"], expected - metrics["ate_ht"] / 2)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_traditional_qini_bridges_initial_undefined_prefix —— 核对传统 Qini 对开头未定义区间的处理。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对传统 Qini 对开头未定义区间的处理。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_traditional_qini_bridges_initial_undefined_prefix(self):
         """
         函数名：EvaluationTests.test_traditional_qini_bridges_initial_undefined_prefix
@@ -273,14 +217,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(curve.qini_traditional.iloc[-1], 0)
         self.assertEqual(metrics["qini_score_traditional"], 1 / 8)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_traditional_qini_centers_its_own_full_coverage_endpoint —— 确认传统 Qini 使用自身终点构造随机基线。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认传统 Qini 使用自身终点构造随机基线。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_traditional_qini_centers_its_own_full_coverage_endpoint(self):
         """
         函数名：EvaluationTests.test_traditional_qini_centers_its_own_full_coverage_endpoint
@@ -300,14 +236,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(metrics["qini_score_traditional"], 1 / 32)
         self.assertNotEqual(metrics["qini_score_traditional"], metrics["qini_ht"])
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_traditional_score_is_not_changed_by_ht_assignment_probability —— 确认传统 Qini 不受 HT 分配概率影响。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认传统 Qini 不受 HT 分配概率影响。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_traditional_score_is_not_changed_by_ht_assignment_probability(self):
         """
         函数名：EvaluationTests.test_traditional_score_is_not_changed_by_ht_assignment_probability
@@ -321,14 +249,6 @@ class EvaluationTests(unittest.TestCase):
         b = ranking_metrics(self.y, self.t, self.scores, e=0.8)
         self.assertEqual(a["qini_score_traditional"], b["qini_score_traditional"])
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_tie_break_is_seeded_and_does_not_use_row_order —— 确认同分排序可复现且不直接使用原始行序。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认同分排序可复现且不直接使用原始行序。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_tie_break_is_seeded_and_does_not_use_row_order(self):
         """
         函数名：EvaluationTests.test_tie_break_is_seeded_and_does_not_use_row_order
@@ -348,14 +268,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertFalse(np.array_equal(a.gain_ht, c.gain_ht))
         self.assertGreater(a.n_control.iloc[10], 0)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_weighted_prefix_reselects_boundary —— 核对重抽样后预算边界的重新选择。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对重抽样后预算边界的重新选择。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_weighted_prefix_reselects_boundary(self):
         """
         函数名：EvaluationTests.test_weighted_prefix_reselects_boundary
@@ -372,14 +284,6 @@ class EvaluationTests(unittest.TestCase):
         expected = np.r_[0, np.cumsum(np.repeat(z, counts))][k]
         np.testing.assert_array_equal(_prefix_values(z, counts, k), expected)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_same_score_paired_difference_is_exactly_zero —— 确认相同分数的配对差异及区间为零。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认相同分数的配对差异及区间为零。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_same_score_paired_difference_is_exactly_zero(self):
         """
         函数名：EvaluationTests.test_same_score_paired_difference_is_exactly_zero
@@ -408,14 +312,6 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(full.vs_random_ci_low, 0, atol=1e-10)
         np.testing.assert_allclose(full.vs_random_ci_high, 0, atol=1e-10)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_bootstrap_is_reproducible_and_point_estimates_unchanged —— 确认重抽样可复现且不改变点估计。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认重抽样可复现且不改变点估计。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_bootstrap_is_reproducible_and_point_estimates_unchanged(self):
         """
         函数名：EvaluationTests.test_bootstrap_is_reproducible_and_point_estimates_unchanged
@@ -444,14 +340,6 @@ class EvaluationTests(unittest.TestCase):
         self.assertTrue(point.ci_low.isna().all())
         self.assertTrue(point.vs_propensity_per_100k.isna().all())
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_budget_rounding_and_analytic_random —— 核对预算取整及解析随机策略收益。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对预算取整及解析随机策略收益。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_budget_rounding_and_analytic_random(self):
         """
         函数名：EvaluationTests.test_budget_rounding_and_analytic_random
@@ -469,14 +357,6 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_array_equal(random.selected_fraction, [0, 0.25])
         np.testing.assert_array_equal(random.incremental_per_100k, [0, 12_500])
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_paired_difference_matches_direct_resampling —— 用显式重抽样核对配对差异区间。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：用显式重抽样核对配对差异区间。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_paired_difference_matches_direct_resampling(self):
         """
         函数名：EvaluationTests.test_paired_difference_matches_direct_resampling
@@ -515,14 +395,6 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(selected.vs_random_ci_low, expected[0])
         np.testing.assert_allclose(selected.vs_random_ci_high, expected[1])
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_calibration_bins_cover_data_and_missing_arms_are_nan —— 核对校准分箱覆盖及缺少组别时的缺失结果。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对校准分箱覆盖及缺少组别时的缺失结果。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_calibration_bins_cover_data_and_missing_arms_are_nan(self):
         """
         函数名：EvaluationTests.test_calibration_bins_cover_data_and_missing_arms_are_nan
@@ -539,14 +411,6 @@ class EvaluationTests(unittest.TestCase):
         single = calibration_table(self.y, self.t, self.scores, n_bins=1)
         self.assertEqual(single.observed_ate.iloc[0], 0.5)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_invalid_inputs_fail_explicitly —— 确认评价函数明确拒绝非法输入。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认评价函数明确拒绝非法输入。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_inputs_fail_explicitly(self):
         """
         函数名：EvaluationTests.test_invalid_inputs_fail_explicitly
@@ -581,14 +445,6 @@ class EvaluationTests(unittest.TestCase):
 # 说明：验证效果估计和策略评价。
 #-----------------------------------------------------------------------------------------------------------------------
 class ExtendedMetricTests(unittest.TestCase):
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：setUp —— 准备当前测试使用的数据和临时环境。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；测试数据保存在当前测试对象中。
-    # 说明：准备当前测试使用的数据和临时环境。
-    #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
         """
         函数名：ExtendedMetricTests.setUp
@@ -602,14 +458,6 @@ class ExtendedMetricTests(unittest.TestCase):
         self.y = np.array([1, 0, 1, 0, 0, 1, 1, 0])
         self.s = np.arange(8, 0, -1)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_full_eight_row_hand_example —— 用八行手算样例核对各排序指标。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：用八行手算样例核对各排序指标。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_full_eight_row_hand_example(self):
         """
         函数名：ExtendedMetricTests.test_full_eight_row_hand_example
@@ -640,14 +488,6 @@ class ExtendedMetricTests(unittest.TestCase):
         }.items():
             self.assertAlmostEqual(m[name], expected)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_qini_keeps_defined_control_only_zero_nodes —— 确认 Qini 保留仅有对照组时的零值前缀。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认 Qini 保留仅有对照组时的零值前缀。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_qini_keeps_defined_control_only_zero_nodes(self):
         """
         函数名：ExtendedMetricTests.test_qini_keeps_defined_control_only_zero_nodes
@@ -688,14 +528,6 @@ class ExtendedMetricTests(unittest.TestCase):
         self.assertEqual(v1, -1 / 16)
         self.assertEqual(ranking_metrics(y, t, scores, 0.5)['qini_score_traditional'], v2)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_relative_lift_undefined_for_nonpositive_total_effect —— 确认总体效果非正时相对提升保持未定义。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认总体效果非正时相对提升保持未定义。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_relative_lift_undefined_for_nonpositive_total_effect(self):
         """
         函数名：ExtendedMetricTests.test_relative_lift_undefined_for_nonpositive_total_effect
@@ -710,14 +542,6 @@ class ExtendedMetricTests(unittest.TestCase):
             self.assertTrue(c.relative_lift.isna().all())
             self.assertTrue(np.isfinite(c.gain_plugin.iloc[-1]))
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_paired_ranking_intervals_same_score_zero_difference —— 确认相同排序的配对指标区间为零。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认相同排序的配对指标区间为零。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_paired_ranking_intervals_same_score_zero_difference(self):
         """
         函数名：ExtendedMetricTests.test_paired_ranking_intervals_same_score_zero_difference
@@ -735,14 +559,6 @@ class ExtendedMetricTests(unittest.TestCase):
         np.testing.assert_array_equal(same.vs_propensity_ci_low, 0)
         np.testing.assert_array_equal(same.vs_propensity_ci_high, 0)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_ranking_bootstrap_matches_independent_expanded_sample —— 用独立展开的重抽样记录核对排序区间。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：用独立展开的重抽样记录核对排序区间。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_ranking_bootstrap_matches_independent_expanded_sample(self):
         """
         函数名：ExtendedMetricTests.test_ranking_bootstrap_matches_independent_expanded_sample
@@ -776,14 +592,6 @@ class ExtendedMetricTests(unittest.TestCase):
             np.quantile(expected, [0.025, 0.975]),
         )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_no_draws_and_invalid_bootstrap —— 核对关闭重抽样及非法重抽样次数的行为。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对关闭重抽样及非法重抽样次数的行为。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_no_draws_and_invalid_bootstrap(self):
         """
         函数名：ExtendedMetricTests.test_no_draws_and_invalid_bootstrap

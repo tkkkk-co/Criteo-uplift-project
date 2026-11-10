@@ -28,16 +28,6 @@ from score_policy import score_policy
 class _FeatureOnlyModel:
     n_features_in_ = 12
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：__init__ —— 保存模型或测试对象的初始化配置。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     constant：是否让测试模型输出相同分数。
-    #     max_rows：测试模型允许的每批最大行数。
-    # 输出：
-    #     返回值：None；参数保存在当前对象中。
-    # 说明：保存模型或测试对象的初始化配置。
-    #-----------------------------------------------------------------------------------------------------------------------
     def __init__(self, constant=False, max_rows=7):
         """
         函数名：_FeatureOnlyModel.__init__
@@ -51,15 +41,6 @@ class _FeatureOnlyModel:
         self.constant = constant
         self.max_rows = max_rows
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：_check_features —— 检查测试模型收到的特征结构和分块规模。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     X：处理前特征矩阵，行对应样本，列对应特征。
-    # 输出：
-    #     返回值：None；不符合约定时触发断言。
-    # 说明：检查测试模型收到的特征结构和分块规模。
-    #-----------------------------------------------------------------------------------------------------------------------
     def _check_features(self, X):
         """
         函数名：_FeatureOnlyModel._check_features
@@ -74,15 +55,6 @@ class _FeatureOnlyModel:
                 "Only ordered pre-treatment features in bounded chunks are allowed."
             )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：predict —— 按测试配置返回常数或第一列特征。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     X：处理前特征矩阵，行对应样本，列对应特征。
-    # 输出：
-    #     分数数组：与输入行顺序一致的测试分数。
-    # 说明：按测试配置返回常数或第一列特征。
-    #-----------------------------------------------------------------------------------------------------------------------
     def predict(self, X):
         """
         函数名：_FeatureOnlyModel.predict
@@ -95,16 +67,6 @@ class _FeatureOnlyModel:
         self._check_features(X)
         return np.ones(len(X)) if self.constant else X.f0.to_numpy()
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：predict_outcomes —— 生成用于区分打分路径的测试输出。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     X：处理前特征矩阵，行对应样本，列对应特征。
-    # 输出：
-    #     mu0：第一列测试分数的两倍。
-    #     mu1：第一列测试分数。
-    # 说明：生成用于区分打分路径的测试输出。
-    #-----------------------------------------------------------------------------------------------------------------------
     def predict_outcomes(self, X):
         """
         函数名：_FeatureOnlyModel.predict_outcomes
@@ -129,14 +91,6 @@ class _FeatureOnlyModel:
 # 说明：验证冻结策略离线打分。
 #-----------------------------------------------------------------------------------------------------------------------
 class ScoringTests(unittest.TestCase):
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：setUp —— 准备当前测试使用的数据和临时环境。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；测试数据保存在当前测试对象中。
-    # 说明：准备当前测试使用的数据和临时环境。
-    #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
         """
         函数名：ScoringTests.setUp
@@ -161,14 +115,6 @@ class ScoringTests(unittest.TestCase):
         self.output = self.root / "results" / "scores.csv"
         self._save_run("t_logistic")
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：tearDown —— 清理当前测试的临时资源。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；删除测试创建的临时目录。
-    # 说明：清理当前测试的临时资源。
-    #-----------------------------------------------------------------------------------------------------------------------
     def tearDown(self):
         """
         函数名：ScoringTests.tearDown
@@ -180,16 +126,6 @@ class ScoringTests(unittest.TestCase):
         """
         self.directory.cleanup()
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：_save_run —— 保存供打分测试读取的模拟冻结实验。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     policy：需要使用的策略名称。
-    #     model：已经构造或拟合的模型对象。
-    # 输出：
-    #     返回值：None；写入选择记录、来源记录和可选模型。
-    # 说明：保存供打分测试读取的模拟冻结实验。
-    #-----------------------------------------------------------------------------------------------------------------------
     def _save_run(self, policy, model=None):
         """
         函数名：ScoringTests._save_run
@@ -209,15 +145,6 @@ class ScoringTests(unittest.TestCase):
             name = "t_xgboost" if policy == "propensity" else policy
             joblib.dump(model or _FeatureOnlyModel(), self.run / "models" / f"{name}.joblib")
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：_score —— 使用当前临时目录执行打分测试。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    #     **kwargs：传递给被调用函数的额外命名参数。
-    # 输出：
-    #     result：离线打分返回的概要字典。
-    # 说明：使用当前临时目录执行打分测试。
-    #-----------------------------------------------------------------------------------------------------------------------
     def _score(self, **kwargs):
         """
         函数名：ScoringTests._score
@@ -229,14 +156,6 @@ class ScoringTests(unittest.TestCase):
         """
         return score_policy(self.run, self.source, self.output, chunk_size=7, **kwargs)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_feature_only_chunks_exact_budget_and_input_unchanged —— 确认分块打分只读取特征、准确执行预算且保留输入。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认分块打分只读取特征、准确执行预算且保留输入。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_feature_only_chunks_exact_budget_and_input_unchanged(self):
         """
         函数名：ScoringTests.test_feature_only_chunks_exact_budget_and_input_unchanged
@@ -258,14 +177,6 @@ class ScoringTests(unittest.TestCase):
         )
         self.assertEqual(fingerprint(self.source), before)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_propensity_uses_treated_response_probability —— 确认响应概率基线使用处理状态下的结果概率。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认响应概率基线使用处理状态下的结果概率。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_propensity_uses_treated_response_probability(self):
         """
         函数名：ScoringTests.test_propensity_uses_treated_response_probability
@@ -283,14 +194,6 @@ class ScoringTests(unittest.TestCase):
             output.loc[output.selected == 1, "source_row_id"], [19, 20, 21, 22]
         )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_random_scores_and_tie_breaking_are_chunk_independent —— 确认随机策略和同分排序不受分块大小影响。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认随机策略和同分排序不受分块大小影响。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_random_scores_and_tie_breaking_are_chunk_independent(self):
         """
         函数名：ScoringTests.test_random_scores_and_tie_breaking_are_chunk_independent
@@ -318,14 +221,6 @@ class ScoringTests(unittest.TestCase):
                     list(range(11)),
                 )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_budget_boundaries_and_decimal_floor —— 核对预算边界及十进制预算取整。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对预算边界及十进制预算取整。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_budget_boundaries_and_decimal_floor(self):
         """
         函数名：ScoringTests.test_budget_boundaries_and_decimal_floor
@@ -349,14 +244,6 @@ class ScoringTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self._score(budget=budget)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_tied_score_selection_matches_evaluation_for_same_row_order —— 确认离线打分和评价对相同输入的同分选择一致。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认离线打分和评价对相同输入的同分选择一致。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_tied_score_selection_matches_evaluation_for_same_row_order(self):
         """
         函数名：ScoringTests.test_tied_score_selection_matches_evaluation_for_same_row_order
@@ -373,14 +260,6 @@ class ScoringTests(unittest.TestCase):
         expected[_rank(output.score.to_numpy(), seed=42)[: result["selected_n"]]] = 1
         np.testing.assert_array_equal(output.selected, expected)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_readonly_input_data_symlink_and_existing_output_guards —— 核对只读输入、数据目录链接及已有输出的保护。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对只读输入、数据目录链接及已有输出的保护。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_readonly_input_data_symlink_and_existing_output_guards(self):
         """
         函数名：ScoringTests.test_readonly_input_data_symlink_and_existing_output_guards
@@ -409,14 +288,6 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(fingerprint(self.source), before)
         self.assertFalse((protected / "out.csv").exists())
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_missing_run_model_features_and_unfrozen_selection_have_clear_errors —— 确认缺少实验、模型、特征或冻结记录时明确报错。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认缺少实验、模型、特征或冻结记录时明确报错。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_missing_run_model_features_and_unfrozen_selection_have_clear_errors(self):
         """
         函数名：ScoringTests.test_missing_run_model_features_and_unfrozen_selection_have_clear_errors
@@ -450,14 +321,6 @@ class ScoringTests(unittest.TestCase):
             self._score()
         self.assertFalse(self.output.exists())
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_invalid_features_and_excessive_chunk_size_fail_before_output —— 确认非法特征及过大分块在写出结果前被拒绝。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认非法特征及过大分块在写出结果前被拒绝。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_features_and_excessive_chunk_size_fail_before_output(self):
         """
         函数名：ScoringTests.test_invalid_features_and_excessive_chunk_size_fail_before_output

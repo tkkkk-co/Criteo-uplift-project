@@ -13,14 +13,6 @@ from criteo_uplift.planning import plan_policy_ab, cost_value_scenario
 # 说明：验证样本量与成本收益规划。
 #-----------------------------------------------------------------------------------------------------------------------
 class PlanningTests(unittest.TestCase):
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_equal_arm_textbook_formula_and_power —— 核对等规模两组的样本量公式和功效。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对等规模两组的样本量公式和功效。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_equal_arm_textbook_formula_and_power(self):
         """
         函数名：PlanningTests.test_equal_arm_textbook_formula_and_power
@@ -45,14 +37,6 @@ class PlanningTests(unittest.TestCase):
         self.assertGreaterEqual(r['approximate_achieved_power'], 0.8)
         self.assertLess(r['approximate_achieved_power'], 0.801)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_mde_and_allocation_and_budget_semantics —— 核对效应差、分组比例和预算的含义。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对效应差、分组比例和预算的含义。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_mde_and_allocation_and_budget_semantics(self):
         """
         函数名：PlanningTests.test_mde_and_allocation_and_budget_semantics
@@ -71,14 +55,6 @@ class PlanningTests(unittest.TestCase):
             plan_policy_ab(0.003, 0.00015)['n_total'], 3 * partial['n_total']
         )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_economics_hand_example_and_ci —— 用手算示例核对成本收益和区间。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：用手算示例核对成本收益和区间。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_economics_hand_example_and_ci(self):
         """
         函数名：PlanningTests.test_economics_hand_example_and_ci
@@ -106,14 +82,6 @@ class PlanningTests(unittest.TestCase):
         )
         self.assertLess(negative['break_even_contact_cost'], 0)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_reject_invalid_assumptions —— 确认规划函数拒绝不合法的假设。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认规划函数拒绝不合法的假设。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_reject_invalid_assumptions(self):
         """
         函数名：PlanningTests.test_reject_invalid_assumptions

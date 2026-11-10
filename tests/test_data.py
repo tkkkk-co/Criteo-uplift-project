@@ -13,14 +13,6 @@ from criteo_uplift import pipeline_io, preparation
 from criteo_uplift.preparation import _scan_raw_data
 
 
-#-----------------------------------------------------------------------------------------------------------------------
-# 函数：_synthetic_frame —— 创建用于数据读取测试的合成数据。
-# 输入：
-#     n：样本数量或预期数组长度。
-# 输出：
-#     frame：具有完整输入列的合成数据表。
-# 说明：创建用于数据读取测试的合成数据。
-#-----------------------------------------------------------------------------------------------------------------------
 def _synthetic_frame(n=400):
     """
     函数名：_synthetic_frame
@@ -50,14 +42,6 @@ def _synthetic_frame(n=400):
 # 说明：验证数据读取、抽样和划分。
 #-----------------------------------------------------------------------------------------------------------------------
 class DataTests(unittest.TestCase):
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：setUp —— 准备当前测试使用的数据和临时环境。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；测试数据保存在当前测试对象中。
-    # 说明：准备当前测试使用的数据和临时环境。
-    #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
         """
         函数名：DataTests.setUp
@@ -73,14 +57,6 @@ class DataTests(unittest.TestCase):
         self.frame = _synthetic_frame()
         self.frame.to_csv(self.source, index=False)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：tearDown —— 清理当前测试的临时资源。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；删除测试创建的临时目录。
-    # 说明：清理当前测试的临时资源。
-    #-----------------------------------------------------------------------------------------------------------------------
     def tearDown(self):
         """
         函数名：DataTests.tearDown
@@ -92,14 +68,6 @@ class DataTests(unittest.TestCase):
         """
         self.directory.cleanup()
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_sampling_reads_entire_file_is_reproducible_and_chunk_independent —— 确认抽样读取全量文件且可复现、不受分块影响。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认抽样读取全量文件且可复现、不受分块影响。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
         """
         函数名：DataTests.test_sampling_reads_entire_file_is_reproducible_and_chunk_independent
@@ -136,14 +104,6 @@ class DataTests(unittest.TestCase):
         self.assertEqual(audit["groups"]["0"]["conversion"]["positive"], 100)
         self.assertEqual(preparation.fingerprint(self.source), before)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_full_data_audit_counts_duplicates_without_removing_rows —— 确认全量审计统计重复行但不删除记录。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认全量审计统计重复行但不删除记录。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_full_data_audit_counts_duplicates_without_removing_rows(self):
         """
         函数名：DataTests.test_full_data_audit_counts_duplicates_without_removing_rows
@@ -177,14 +137,6 @@ class DataTests(unittest.TestCase):
                     feature_stats[f"std_{arm}"], values.std(ddof=1), places=9
                 )
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_sample_larger_than_input_retains_every_original_row —— 确认目标样本量超过输入时保留全部原始记录。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认目标样本量超过输入时保留全部原始记录。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_sample_larger_than_input_retains_every_original_row(self):
         """
         函数名：DataTests.test_sample_larger_than_input_retains_every_original_row
@@ -198,14 +150,6 @@ class DataTests(unittest.TestCase):
         sample = scanned["sample"]
         np.testing.assert_array_equal(sample.row_id, np.arange(len(self.frame)))
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_readonly_guard_rejects_direct_and_symlinked_data_destinations —— 确认只读保护拒绝直接或通过链接写入数据目录。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认只读保护拒绝直接或通过链接写入数据目录。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_readonly_guard_rejects_direct_and_symlinked_data_destinations(self):
         """
         函数名：DataTests.test_readonly_guard_rejects_direct_and_symlinked_data_destinations
@@ -244,14 +188,6 @@ class DataTests(unittest.TestCase):
         self.assertFalse((protected / "new").exists())
         self.assertFalse((protected / "sample.npz").exists())
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_sample_round_trip_uses_an_output_directory —— 核对建模样本保存和读取后的数据一致性。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：核对建模样本保存和读取后的数据一致性。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_sample_round_trip_uses_an_output_directory(self):
         """
         函数名：DataTests.test_sample_round_trip_uses_an_output_directory
@@ -270,14 +206,6 @@ class DataTests(unittest.TestCase):
         loaded = pipeline_io.load_sample(destination)
         pd.testing.assert_frame_equal(sample, loaded)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_split_is_disjoint_reproducible_and_preserves_joint_strata —— 确认划分互斥、可复现并保持联合分层比例。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认划分互斥、可复现并保持联合分层比例。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_split_is_disjoint_reproducible_and_preserves_joint_strata(self):
         """
         函数名：DataTests.test_split_is_disjoint_reproducible_and_preserves_joint_strata
@@ -407,14 +335,6 @@ class DataTests(unittest.TestCase):
         self.assertEqual(set(overlap['feature_dtypes'].values()), {'float32'})
         self.assertEqual(sum(map(len, parts.values())), len(frame))
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_invalid_schema_nonfinite_and_nonbinary_labels_fail —— 确认错误列结构、非有限特征及非二分类标签报错。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认错误列结构、非有限特征及非二分类标签报错。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_schema_nonfinite_and_nonbinary_labels_fail(self):
         """
         函数名：DataTests.test_invalid_schema_nonfinite_and_nonbinary_labels_fail
@@ -450,14 +370,6 @@ class DataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _scan_raw_data(self.source, chunk_size=0)
 
-    #-----------------------------------------------------------------------------------------------------------------------
-    # 函数：test_split_rejects_unsupported_outcome_and_too_small_strata —— 确认划分拒绝不支持的结果列及过小的分层。
-    # 输入：
-    #     self：当前对象，保存模型状态或测试上下文。
-    # 输出：
-    #     返回值：None；通过断言验证预期行为，失败时报告错误。
-    # 说明：确认划分拒绝不支持的结果列及过小的分层。
-    #-----------------------------------------------------------------------------------------------------------------------
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         """
         函数名：DataTests.test_split_rejects_unsupported_outcome_and_too_small_strata
