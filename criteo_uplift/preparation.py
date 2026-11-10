@@ -464,6 +464,10 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None):
     scanned.pop('audit')
     return sample, audit, current, scanned
 
+
+
+#-------------------------------------------------------------------------
+
 def split_sample(df, outcome='conversion', seed=42):
     """按处理组和结果分层，返回三个数据集、人数汇总和重叠检查。"""
     if outcome not in ['conversion', 'visit']:

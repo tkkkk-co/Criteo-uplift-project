@@ -28,7 +28,7 @@ def run(args):
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f'结果目录非空：{out}。请用 --output 指定新的实验目录。')
     manifest_path = out / 'manifest.json'  # 来源、参数、冻结选择和完成状态
-    report_path = out / 'report.html'  # 面试展示用的完整报告
+    report_path = out / 'report.html'  # 展示完整报告
     data_out = out / 'data_preparation'  # 全量审计、抽样说明、划分行号
     diagnostics_out = out / 'diagnostics'  # SRM、SMD/KS、C2ST、可学习性
     models_out = out / 'models'  # 模型、Validation 评价、冻结选择
