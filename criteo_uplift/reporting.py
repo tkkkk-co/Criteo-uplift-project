@@ -189,6 +189,20 @@ def _image(path: Path, alt: str, caption: str) -> str:
 
 
 def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
+    """
+    函数名：_errorbar
+    功能：在给定 Matplotlib 坐标轴上绘制点估计及其上下置信区间。
+    输入参数：
+        - ax：Matplotlib 坐标轴对象。
+        - point：点估计数组。
+        - low：置信区间下界数组。
+        - high：置信区间上界数组。
+        - positions：各点在另一坐标轴上的位置。
+        - horizontal：是否绘制水平误差线。
+        - color：误差线和点的颜色。
+    输出参数：
+        - 无；直接在 ax 上添加误差线和点。
+    """
     valid = np.isfinite(point) & np.isfinite(low) & np.isfinite(high)
     if horizontal:
         ax.hlines(positions[valid], low[valid], high[valid], color=color, lw=2)
@@ -280,15 +294,15 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     ):
 
         def save(fig, name):
-    """
-    函数名：build_report.save
-    功能：将当前 Matplotlib Figure 保存到预先登记的报告图像路径并关闭图形。
-    输入参数：
-        - fig：待保存的 Matplotlib Figure。
-        - name：图像名称，用于查找对应输出路径。
-    输出参数：
-        - 无；保存 PNG 并关闭 Figure。
-    """
+            """
+            函数名：build_report.save
+            功能：将当前 Matplotlib Figure 保存到预先登记的报告图像路径并关闭图形。
+            输入参数：
+                - fig：待保存的 Matplotlib Figure。
+                - name：图像名称，用于查找对应输出路径。
+            输出参数：
+                - 无；保存 PNG 并关闭 Figure。
+            """
             fig.savefig(paths[name], dpi=160, bbox_inches="tight")
             plt.close(fig)
 
@@ -874,14 +888,6 @@ def finalize_run(
         "assumptions": [
             "公开样本中，给定特征 X 的处理分配概率近似恒定",
             "样本行相互独立，满足一致性和个体间无干扰假设",
-    """
-    函数名：_errorbar
-    功能：在给定 Matplotlib 坐标轴上绘制点估计及其上下置信区间。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；直接在 ax 上添加误差线和点。
-    """
             "每次转化的价值相同，每次触达的成本相同",
         ],
         "ate_variance_definition": "Both inputs use Bernoulli sample variance with n-1 correction; pooled-null z test unchanged.",

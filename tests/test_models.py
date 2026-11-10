@@ -33,14 +33,14 @@ class _FixedProbabilityModel:
     # 说明：保存模型或测试对象的初始化配置。
     #-----------------------------------------------------------------------------------------------------------------------
     def __init__(self, probability):
-    """
-    函数名：_FixedProbabilityModel.__init__
-    功能：保存测试分类器的固定正类概率。
-    输入参数：
-        - probability：模型对每条样本输出的正类概率。
-    输出参数：
-        - 无；保存 probability 属性。
-    """
+        """
+        函数名：_FixedProbabilityModel.__init__
+        功能：保存测试分类器的固定正类概率。
+        输入参数：
+            - probability：模型对每条样本输出的正类概率。
+        输出参数：
+            - 无；保存 probability 属性。
+        """
         self.probability = probability
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -54,15 +54,15 @@ class _FixedProbabilityModel:
     # 说明：记录传入的拟合数据。
     #-----------------------------------------------------------------------------------------------------------------------
     def fit(self, X, y):
-    """
-    函数名：_FixedProbabilityModel.fit
-    功能：记录传入的特征和标签，模拟一个已经拟合的分类器。
-    输入参数：
-        - X：用于拟合的测试特征矩阵。
-        - y：用于拟合的二元标签。
-    输出参数：
-        - 当前测试分类器实例。
-    """
+        """
+        函数名：_FixedProbabilityModel.fit
+        功能：记录传入的特征和标签，模拟一个已经拟合的分类器。
+        输入参数：
+            - X：用于拟合的测试特征矩阵。
+            - y：用于拟合的二元标签。
+        输出参数：
+            - 当前测试分类器实例。
+        """
         self.fit_X = np.array(X)
         self.fit_y = np.array(y)
         return self
@@ -77,14 +77,14 @@ class _FixedProbabilityModel:
     # 说明：生成两类标签的预测概率。
     #-----------------------------------------------------------------------------------------------------------------------
     def predict_proba(self, X):
-    """
-    函数名：_FixedProbabilityModel.predict_proba
-    功能：为每条输入样本返回固定的负类和正类概率。
-    输入参数：
-        - X：需要输出概率的测试特征矩阵。
-    输出参数：
-        - n_samples × 2 的类别概率矩阵。
-    """
+        """
+        函数名：_FixedProbabilityModel.predict_proba
+        功能：为每条输入样本返回固定的负类和正类概率。
+        输入参数：
+            - X：需要输出概率的测试特征矩阵。
+        输出参数：
+            - n_samples × 2 的类别概率矩阵。
+        """
         return np.tile([1.0 - self.probability, self.probability], (len(X), 1))
 
 
@@ -107,14 +107,14 @@ class _RecordingRegressor:
     # 说明：保存模型或测试对象的初始化配置。
     #-----------------------------------------------------------------------------------------------------------------------
     def __init__(self, prediction):
-    """
-    函数名：_RecordingRegressor.__init__
-    功能：保存测试回归器的固定预测值。
-    输入参数：
-        - prediction：每条样本使用的固定回归预测值。
-    输出参数：
-        - 无；保存 prediction 属性。
-    """
+        """
+        函数名：_RecordingRegressor.__init__
+        功能：保存测试回归器的固定预测值。
+        输入参数：
+            - prediction：每条样本使用的固定回归预测值。
+        输出参数：
+            - 无；保存 prediction 属性。
+        """
         self.prediction = prediction
 
     #-----------------------------------------------------------------------------------------------------------------------
@@ -128,15 +128,15 @@ class _RecordingRegressor:
     # 说明：记录传入的拟合数据。
     #-----------------------------------------------------------------------------------------------------------------------
     def fit(self, X, y):
-    """
-    函数名：_RecordingRegressor.fit
-    功能：记录效应回归器接收的训练特征和伪效应目标。
-    输入参数：
-        - X：效应模型训练特征矩阵。
-        - y：效应模型训练目标，即伪处理效应。
-    输出参数：
-        - 当前测试回归器实例。
-    """
+        """
+        函数名：_RecordingRegressor.fit
+        功能：记录效应回归器接收的训练特征和伪效应目标。
+        输入参数：
+            - X：效应模型训练特征矩阵。
+            - y：效应模型训练目标，即伪处理效应。
+        输出参数：
+            - 当前测试回归器实例。
+        """
         self.fit_X = np.array(X)
         self.fit_y = np.array(y)
         return self
@@ -151,14 +151,14 @@ class _RecordingRegressor:
     # 说明：返回测试预设的常数预测。
     #-----------------------------------------------------------------------------------------------------------------------
     def predict(self, X):
-    """
-    函数名：_RecordingRegressor.predict
-    功能：对每条输入样本返回预设的固定效应预测。
-    输入参数：
-        - X：需要预测效应的特征矩阵。
-    输出参数：
-        - 长度与输入样本数相同的回归预测数组。
-    """
+        """
+        函数名：_RecordingRegressor.predict
+        功能：对每条输入样本返回预设的固定效应预测。
+        输入参数：
+            - X：需要预测效应的特征矩阵。
+        输出参数：
+            - 长度与输入样本数相同的回归预测数组。
+        """
         return np.full(len(X), self.prediction)
 
 
@@ -180,14 +180,14 @@ class ModelTests(unittest.TestCase):
     # 说明：准备当前测试使用的数据和临时环境。
     #-----------------------------------------------------------------------------------------------------------------------
     def setUp(self):
-    """
-    函数名：ModelTests.setUp
-    功能：生成模型单元测试共用的合成 X、T、Y 数据及随机状态。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；初始化或清理测试实例状态。
-    """
+        """
+        函数名：ModelTests.setUp
+        功能：生成模型单元测试共用的合成 X、T、Y 数据及随机状态。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；初始化或清理测试实例状态。
+        """
         rng = np.random.default_rng(18)
         self.X = rng.normal(size=(240, 3))
         self.t = np.tile([0, 1], 120)
@@ -203,14 +203,14 @@ class ModelTests(unittest.TestCase):
     # 说明：核对 Logistic 学习器的接口、序列化和复制。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_logistic_contracts_pickle_and_clone(self):
-    """
-    函数名：ModelTests.test_logistic_contracts_pickle_and_clone
-    功能：验证 Logistic Uplift Learner 符合 sklearn estimator 接口，并支持 clone 和 joblib 序列化往返。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_logistic_contracts_pickle_and_clone
+        功能：验证 Logistic Uplift Learner 符合 sklearn estimator 接口，并支持 clone 和 joblib 序列化往返。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         for estimator in (make_uplift_model("s", "logistic"), make_uplift_model("t", "logistic")):
             with self.subTest(estimator=type(estimator).__name__):
                 self.assertIs(estimator.fit(self.X, self.t, self.y), estimator)
@@ -232,14 +232,14 @@ class ModelTests(unittest.TestCase):
     # 说明：确认 S 学习器仅添加处理主效应。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_s_learner_has_only_additive_treatment_feature(self):
-    """
-    函数名：ModelTests.test_s_learner_has_only_additive_treatment_feature
-    功能：验证 S-Learner 仅将 T 作为附加输入特征，并分别预测 T=0 和 T=1 的潜在结果。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_s_learner_has_only_additive_treatment_feature
+        功能：验证 S-Learner 仅将 T 作为附加输入特征，并分别预测 T=0 和 T=1 的潜在结果。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         model = make_uplift_model("s", "logistic").fit(self.X, self.t, self.y)
         self.assertEqual(
             model.model_["classifier"].coef_.shape, (1, self.X.shape[1] + 1)
@@ -254,14 +254,14 @@ class ModelTests(unittest.TestCase):
     # 说明：确认预处理仅使用对应组的训练数据。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_preprocessing_is_fit_per_training_arm_only(self):
-    """
-    函数名：ModelTests.test_preprocessing_is_fit_per_training_arm_only
-    功能：验证缺失值插补和标准化只在各自训练数据或训练处理臂上拟合，不读取验证信息。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_preprocessing_is_fit_per_training_arm_only
+        功能：验证缺失值插补和标准化只在各自训练数据或训练处理臂上拟合，不读取验证信息。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         X = np.array([[0.0], [np.nan], [2.0], [100.0], [np.nan], [104.0]])
         t = np.array([0, 0, 0, 1, 1, 1])
         y = np.array([0, 1, 0, 1, 0, 1])
@@ -281,14 +281,14 @@ class ModelTests(unittest.TestCase):
     # 说明：确认单类别训练组仍有明确的正例概率。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_constant_outcome_arms_have_defined_positive_probabilities(self):
-    """
-    函数名：ModelTests.test_constant_outcome_arms_have_defined_positive_probabilities
-    功能：验证某个处理臂的结果只有单一类别时，常数概率分类器仍能返回定义良好的正类概率。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_constant_outcome_arms_have_defined_positive_probabilities
+        功能：验证某个处理臂的结果只有单一类别时，常数概率分类器仍能返回定义良好的正类概率。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         X = np.arange(16, dtype=float).reshape(8, 2)
         t = np.array([0, 0, 0, 0, 1, 1, 1, 1])
         for estimator in (make_uplift_model("t", "logistic"), make_uplift_model("t", "xgboost")):
@@ -310,14 +310,14 @@ class ModelTests(unittest.TestCase):
     # 说明：确认正例概率按类别标签而非固定列位置提取。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_probability_selection_uses_class_label(self):
-    """
-    函数名：ModelTests.test_probability_selection_uses_class_label
-    功能：验证正类概率按 classes_ 中的类别标签 1 定位，而不是假定概率矩阵固定列顺序。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_probability_selection_uses_class_label
+        功能：验证正类概率按 classes_ 中的类别标签 1 定位，而不是假定概率矩阵固定列顺序。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         #-----------------------------------------------------------------------------------------------------------------------
         # 类：ReversedClasses —— 用反向类别顺序验证正例概率提取的测试模型。
         # 输入：
@@ -339,14 +339,14 @@ class ModelTests(unittest.TestCase):
             # 说明：生成两类标签的预测概率。
             #-----------------------------------------------------------------------------------------------------------------------
             def predict_proba(self, X):
-    """
-    函数名：ModelTests.test_probability_selection_uses_class_label.ReversedClasses.predict_proba
-    功能：构造类别顺序为 [1,0] 的概率矩阵，用于验证正类概率列按标签定位。
-    输入参数：
-        - X：需要返回类别概率的特征矩阵。
-    输出参数：
-        - 列顺序对应 classes_=[1,0] 的概率矩阵。
-    """
+                """
+                函数名：ModelTests.test_probability_selection_uses_class_label.ReversedClasses.predict_proba
+                功能：构造类别顺序为 [1,0] 的概率矩阵，用于验证正类概率列按标签定位。
+                输入参数：
+                    - X：需要返回类别概率的特征矩阵。
+                输出参数：
+                    - 列顺序对应 classes_=[1,0] 的概率矩阵。
+                """
                 return np.tile([0.8, 0.2], (len(X), 1))
 
         np.testing.assert_allclose(
@@ -362,14 +362,14 @@ class ModelTests(unittest.TestCase):
     # 说明：核对 X 学习器的跨组伪结果和加权方向。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_x_learner_cross_arm_targets_and_weight_direction(self):
-    """
-    函数名：ModelTests.test_x_learner_cross_arm_targets_and_weight_direction
-    功能：验证 X-Learner 两组跨臂伪效应目标、Effect Model 训练输入和按训练处理比例加权的方向。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_x_learner_cross_arm_targets_and_weight_direction
+        功能：验证 X-Learner 两组跨臂伪效应目标、Effect Model 训练输入和按训练处理比例加权的方向。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         X = np.arange(16, dtype=float).reshape(8, 2)
         t = np.array([0, 0, 0, 0, 0, 0, 1, 1])
         y = np.array([0, 1, 0, 1, 0, 1, 0, 1])
@@ -399,14 +399,14 @@ class ModelTests(unittest.TestCase):
     # 说明：核对输入检查及未拟合模型的错误行为。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_validation_and_unfitted_behavior(self):
-    """
-    函数名：ModelTests.test_validation_and_unfitted_behavior
-    功能：验证模型拒绝未拟合预测、错误特征数量、错误列顺序和不合法训练输入。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_validation_and_unfitted_behavior
+        功能：验证模型拒绝未拟合预测、错误特征数量、错误列顺序和不合法训练输入。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         with self.assertRaises(NotFittedError):
             make_uplift_model("t", "logistic").predict(self.X)
         invalid_cases = [
@@ -432,14 +432,14 @@ class ModelTests(unittest.TestCase):
     # 说明：确认模型创建与配置检查无需提前导入 XGBoost。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_factory_and_extra_combinations(self):
-    """
-    函数名：ModelTests.test_factory_and_extra_combinations
-    功能：验证模型工厂可以组合 S/T/X Learner 与支持的 Outcome/Effect Base Model，而不局限于正式候选组合。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：ModelTests.test_factory_and_extra_combinations
+        功能：验证模型工厂可以组合 S/T/X Learner 与支持的 Outcome/Effect Base Model，而不局限于正式候选组合。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         for learner, outcome, effect, cls in [
             ("s", "logistic", None, SLearner), ("t", "logistic", None, TLearner),
             ("t", "xgboost", None, TLearner), ("x", "xgboost", "xgboost", XLearner),

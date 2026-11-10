@@ -89,14 +89,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：核对按比例分层的嵌套训练抽样。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_nested_proportional_sampling(self):
-    """
-    函数名：StabilityTests.test_nested_proportional_sampling
-    功能：验证嵌套分层抽样按各 T×Y 分层比例抽样、无放回且不同训练比例之间保持嵌套。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_nested_proportional_sampling
+        功能：验证嵌套分层抽样按各 T×Y 分层比例抽样、无放回且不同训练比例之间保持嵌套。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         t = np.repeat([0, 0, 1, 1], [19, 3, 31, 7])
         y = np.repeat([0, 1, 0, 1], [19, 3, 31, 7])
         subsets = nested_stratified_indices(t, y, [0.25, 0.5, 1.0], 17)
@@ -123,14 +123,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：确认嵌套抽样拒绝非法输入。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_invalid_sampling_inputs(self):
-    """
-    函数名：StabilityTests.test_invalid_sampling_inputs
-    功能：验证嵌套抽样拒绝空比例、越界比例、重复/乱序比例和非法随机种子。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_invalid_sampling_inputs
+        功能：验证嵌套抽样拒绝空比例、越界比例、重复/乱序比例和非法随机种子。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         for fractions in ([], [0], [1.1], [0.5, 0.5], [1, 0.5], [np.nan]):
             with self.subTest(fractions=fractions), self.assertRaises(ValueError):
                 nested_stratified_indices([0, 1], [0, 1], fractions)
@@ -149,14 +149,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：确认排除原测试集且特征分组划分无组间重叠。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_old_test_excluded_and_group_split_has_zero_overlap(self):
-    """
-    函数名：StabilityTests.test_old_test_excluded_and_group_split_has_zero_overlap
-    功能：验证 Stability 开发样本排除原 Test，并在匿名特征分组划分中保持组间零重叠。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_old_test_excluded_and_group_split_has_zero_overlap
+        功能：验证 Stability 开发样本排除原 Test，并在匿名特征分组划分中保持组间零重叠。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
             development, old_test, provenance = load_development_sample(cache, base)
@@ -183,14 +183,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：完整保留来源记录的缓存可以使用，截断或缺少审计依据的缓存仍应报错。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_requested_sample_larger_than_source_uses_source_row_count(self):
-    """
-    函数名：StabilityTests.test_requested_sample_larger_than_source_uses_source_row_count
-    功能：验证缓存抽样目标大于原始数据量时，按真实来源行数核验样本规模。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_requested_sample_larger_than_source_uses_source_row_count
+        功能：验证缓存抽样目标大于原始数据量时，按真实来源行数核验样本规模。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
             metadata_path = cache.with_suffix('.json')
@@ -212,14 +212,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：确认敏感性分析拒绝不一致的来源和未知测试行号。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_bad_provenance_and_unknown_test_id_rejected(self):
-    """
-    函数名：StabilityTests.test_bad_provenance_and_unknown_test_id_rejected
-    功能：验证来源 SHA 不一致或旧 Test row_id 不存在于缓存时拒绝开展 Stability。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_bad_provenance_and_unknown_test_id_rejected
+        功能：验证来源 SHA 不一致或旧 Test row_id 不存在于缓存时拒绝开展 Stability。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
             metadata = json.loads(cache.with_suffix(".json").read_text())
@@ -244,14 +244,14 @@ class StabilityTests(unittest.TestCase):
     # 说明：确认小规模敏感性流程冻结配置并保留输入。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_small_integration_freezes_protocol_and_preserves_inputs(self):
-    """
-    函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs
-    功能：验证小规模 Stability 集成流程先冻结 protocol、排除旧 Test、完成模型比较且不修改只读输入。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs
+        功能：验证小规模 Stability 集成流程先冻结 protocol、排除旧 Test、完成模型比较且不修改只读输入。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         with TemporaryDirectory() as folder:
             root = Path(folder)
             cache, base = synthetic_inputs(root)
@@ -275,14 +275,14 @@ class StabilityTests(unittest.TestCase):
             # 说明：创建并包装模型以记录拟合数据。
             #-----------------------------------------------------------------------------------------------------------------------
             def checked_make_model(**kwargs):
-    """
-    函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model
-    功能：包装模型工厂，记录 Stability 集成测试创建的模型配置，并返回可追踪拟合行为的测试模型。
-    输入参数：
-        - **kwargs：传递给正式 make_uplift_model 的模型配置参数。
-    输出参数：
-        - 包装后的测试模型实例。
-    """
+                """
+                函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model
+                功能：包装模型工厂，记录 Stability 集成测试创建的模型配置，并返回可追踪拟合行为的测试模型。
+                输入参数：
+                    - **kwargs：传递给正式 make_uplift_model 的模型配置参数。
+                输出参数：
+                    - 包装后的测试模型实例。
+                """
                 name = kwargs["learner"] + "_" + kwargs["outcome_model"]
                 model = make_uplift_model(**kwargs)
                 original_fit = model.fit
@@ -298,16 +298,16 @@ class StabilityTests(unittest.TestCase):
                 # 说明：使用输入数据拟合当前模型。
                 #-----------------------------------------------------------------------------------------------------------------------
                 def fit(X, t, y):
-    """
-    函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model.fit
-    功能：记录测试模型的 X、T、Y 拟合输入，并返回当前模型实例以支持后续预测。
-    输入参数：
-        - X：测试模型拟合特征矩阵。
-        - t：测试模型拟合处理分配向量。
-        - y：测试模型拟合结果标签向量。
-    输出参数：
-        - 当前测试模型实例。
-    """
+                    """
+                    函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model.fit
+                    功能：记录测试模型的 X、T、Y 拟合输入，并返回当前模型实例以支持后续预测。
+                    输入参数：
+                        - X：测试模型拟合特征矩阵。
+                        - t：测试模型拟合处理分配向量。
+                        - y：测试模型拟合结果标签向量。
+                    输出参数：
+                        - 当前测试模型实例。
+                    """
                     self.assertTrue((output / "protocol.json").exists())
                     protocol = json.loads((output / "protocol.json").read_text())
                     self.assertEqual(protocol["status"], "frozen_before_model_fits")

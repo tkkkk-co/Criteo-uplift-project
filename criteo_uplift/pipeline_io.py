@@ -78,14 +78,14 @@ def write_result(value, path):
     if not isinstance(value, (dict, list, tuple)):
         raise TypeError("JSON 结果必须是字典或列表")
     def convert(v):
-    """
-    函数名：write_result.convert
-    功能：递归转换 NumPy、Path 和容器对象，使其可以安全序列化为 JSON。
-    输入参数：
-        - v：待递归转换的 Python/NumPy 值。
-    输出参数：
-        - JSON 可序列化的 Python 基础类型、列表或字典。
-    """
+        """
+        函数名：write_result.convert
+        功能：递归转换 NumPy、Path 和容器对象，使其可以安全序列化为 JSON。
+        输入参数：
+            - v：待递归转换的 Python/NumPy 值。
+        输出参数：
+            - JSON 可序列化的 Python 基础类型、列表或字典。
+        """
         if isinstance(v, dict): return {str(k): convert(x) for k,x in v.items()}
         if isinstance(v, (tuple,list)): return [convert(x) for x in v]
         if isinstance(v, np.ndarray): return convert(v.tolist())

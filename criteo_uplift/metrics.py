@@ -266,14 +266,14 @@ def ranking_confidence_intervals(
     orders = [_rank(_scores(score_dict[k], n), seed) for k in names]
 
     def values(order):
-    """
-    函数名：ranking_confidence_intervals.values
-    功能：根据一个排序索引计算该策略的完整排序指标向量，供 Bootstrap 点估计和重抽样共用。
-    输入参数：
-        - order：当前重排样本的位置索引。
-    输出参数：
-        - 按预设指标顺序排列的指标值列表。
-    """
+        """
+        函数名：ranking_confidence_intervals.values
+        功能：根据一个排序索引计算该策略的完整排序指标向量，供 Bootstrap 点估计和重抽样共用。
+        输入参数：
+            - order：当前重排样本的位置索引。
+        输出参数：
+            - 按预设指标顺序排列的指标值列表。
+        """
         result = _ranking_from_ordered(y[order], t[order], e)
         return [result[k] for k in metrics]
 

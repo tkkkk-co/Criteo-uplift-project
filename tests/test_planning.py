@@ -22,14 +22,14 @@ class PlanningTests(unittest.TestCase):
     # 说明：核对等规模两组的样本量公式和功效。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_equal_arm_textbook_formula_and_power(self):
-    """
-    函数名：PlanningTests.test_equal_arm_textbook_formula_and_power
-    功能：验证等比例分组下 A/B 样本量公式及目标功效的计算结果。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：PlanningTests.test_equal_arm_textbook_formula_and_power
+        功能：验证等比例分组下 A/B 样本量公式及目标功效的计算结果。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         r = plan_policy_ab(0.003, 0.0003)
         z = NormalDist()
         expected = math.ceil(
@@ -54,14 +54,14 @@ class PlanningTests(unittest.TestCase):
     # 说明：核对效应差、分组比例和预算的含义。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_mde_and_allocation_and_budget_semantics(self):
-    """
-    函数名：PlanningTests.test_mde_and_allocation_and_budget_semantics
-    功能：验证 MDE、非等比例分配和触达预算参数对实验规划输出的影响。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：PlanningTests.test_mde_and_allocation_and_budget_semantics
+        功能：验证 MDE、非等比例分配和触达预算参数对实验规划输出的影响。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         r = plan_policy_ab(0.003, 0.0003, allocation_ratio=2)
         self.assertEqual(r['n_policy_A'], 2 * r['n_policy_B'])
         full = plan_policy_ab(0.003, 0.0003, budget=1)
@@ -80,14 +80,14 @@ class PlanningTests(unittest.TestCase):
     # 说明：用手算示例核对成本收益和区间。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_economics_hand_example_and_ci(self):
-    """
-    函数名：PlanningTests.test_economics_hand_example_and_ci
-    功能：使用手工情景核对增量转化、收益、触达成本、净值和条件性区间。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：PlanningTests.test_economics_hand_example_and_ci
+        功能：使用手工情景核对增量转化、收益、触达成本、净值和条件性区间。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         r = cost_value_scenario(
             100,
             budget=0.2,
@@ -115,14 +115,14 @@ class PlanningTests(unittest.TestCase):
     # 说明：确认规划函数拒绝不合法的假设。
     #-----------------------------------------------------------------------------------------------------------------------
     def test_reject_invalid_assumptions(self):
-    """
-    函数名：PlanningTests.test_reject_invalid_assumptions
-    功能：验证样本量规划和经济情景函数拒绝越界、非有限或不完整的假设参数。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 无；通过断言验证预期行为，失败时由测试框架报告。
-    """
+        """
+        函数名：PlanningTests.test_reject_invalid_assumptions
+        功能：验证样本量规划和经济情景函数拒绝越界、非有限或不完整的假设参数。
+        输入参数：
+            - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        输出参数：
+            - 无；通过断言验证预期行为，失败时由测试框架报告。
+        """
         for p, d in [
             (0, 0.01),
             (0.99, 0.02),
