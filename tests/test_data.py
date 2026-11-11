@@ -80,16 +80,16 @@ class DataTests(unittest.TestCase):
         #-------------
         before = preparation.fingerprint(self.source)
         scanned = scan_raw_data(
-            self.source, sample_size=43, seed=31, chunk_size=57
+            self.source, per_arm=10, sample_size=43, seed=31, chunk_size=57
         )
         first = scanned["sample"]
         audit = scanned["audit"]
         scanned = scan_raw_data(
-            self.source, sample_size=43, seed=31, chunk_size=101
+            self.source, per_arm=10, sample_size=43, seed=31, chunk_size=101
         )
         repeated = scanned["sample"]
         scanned = scan_raw_data(
-            self.source, sample_size=43, seed=32, chunk_size=57
+            self.source, per_arm=10, sample_size=43, seed=32, chunk_size=57
         )
         different = scanned["sample"]
         pd.testing.assert_frame_equal(first, repeated)
@@ -118,7 +118,7 @@ class DataTests(unittest.TestCase):
             [self.frame, self.frame.iloc[[7, 7, 210]]], ignore_index=True
         )
         duplicated.to_csv(self.source, index=False)
-        scanned = scan_raw_data(self.source, sample_size=0, chunk_size=61)
+        scanned = scan_raw_data(self.source, per_arm=10, sample_size=0, chunk_size=61)
         sample = scanned["sample"]
         audit = scanned["audit"]
         self.assertEqual(len(sample), len(duplicated))
@@ -147,7 +147,7 @@ class DataTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        scanned = scan_raw_data(self.source, sample_size=1000, chunk_size=37)
+        scanned = scan_raw_data(self.source, per_arm=10, sample_size=1000, chunk_size=37)
         sample = scanned["sample"]
         np.testing.assert_array_equal(sample.row_id, np.arange(len(self.frame)))
 
@@ -199,7 +199,7 @@ class DataTests(unittest.TestCase):
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
         scanned = scan_raw_data(
-            self.source, sample_size=33, seed=2, chunk_size=41
+            self.source, per_arm=10, sample_size=33, seed=2, chunk_size=41
         )
         sample = scanned["sample"]
         destination = self.root / "artifacts" / "sample.npz"
@@ -365,11 +365,11 @@ class DataTests(unittest.TestCase):
                 frame.to_csv(self.source, index=False)
                 # 即使非法记录不在目标样本中，全量扫描仍应报错。
                 with self.assertRaises(ValueError):
-                    scan_raw_data(self.source, sample_size=5, chunk_size=73)
+                    scan_raw_data(self.source, per_arm=10, sample_size=5, chunk_size=73)
         with self.assertRaises(ValueError):
-            scan_raw_data(self.source, sample_size=-1)
+            scan_raw_data(self.source, per_arm=10, sample_size=-1)
         with self.assertRaises(ValueError):
-            scan_raw_data(self.source, chunk_size=0)
+            scan_raw_data(self.source, per_arm=10, chunk_size=0)
 
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         #-------------

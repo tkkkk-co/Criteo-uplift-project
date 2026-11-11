@@ -18,29 +18,46 @@ from .diagnostics import covariate_balance, srm_summary
 SAMPLE_CACHE_VERSION = 1
 
 
-def validate_scan_options(sample_size, chunk_size, per_arm, audit_enabled, diagnostics_enabled):
+def validate_scan_options(sample_size, chunk_size, per_arm, *, sample_enabled,
+                          audit_enabled, diagnostics_enabled):
     #-------------
-    # 在打开原始文件之前校验抽样规模、分块大小和任务开关。
+    # 校验三个显式开关及已启用任务的参数；关闭任务的规模参数不参与校验。
+    # 输入参数：
+    #     - sample_size：建模目标样本行数；0 表示保留全部原始行。
+    #     - chunk_size：每次解析原始 CSV 的行数，必须为正整数。
+    #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+    #     - sample_enabled：是否启用建模抽样任务。
+    #     - audit_enabled：是否启用全量审计任务。
+    #     - diagnostics_enabled：是否启用全量诊断和两臂 C2ST 抽样任务。
+    # 输出参数：
+    #     - 无返回值；任一已启用任务参数或开关非法时抛出 ValueError。
     #-------------
-    if sample_size is not None and (
+    for name, enabled in (('sample_enabled', sample_enabled), ('audit_enabled', audit_enabled),
+                          ('diagnostics_enabled', diagnostics_enabled)):
+        if not isinstance(enabled, bool):
+            raise ValueError(f'{name} 必须为布尔值')
+    if not any((sample_enabled, audit_enabled, diagnostics_enabled)):
+        raise ValueError('至少启用一个扫描任务')
+    if sample_enabled and (
         isinstance(sample_size, bool) or not isinstance(sample_size, int) or sample_size < 0
     ):
-        raise ValueError('sample_size 必须为大于等于 0 的整数或 None')
+        raise ValueError('sample_size 必须为大于等于 0 的整数')
     if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size < 1:
         raise ValueError('chunk_size 必须为正整数')
-    if per_arm is not None and (
+    if diagnostics_enabled and (
         isinstance(per_arm, bool) or not isinstance(per_arm, int) or per_arm < 2
     ):
         raise ValueError('per_arm 必须为大于等于 2 的整数')
-    if not isinstance(audit_enabled, bool) or not isinstance(diagnostics_enabled, bool):
-        raise ValueError('audit_enabled 和 diagnostics_enabled 必须为布尔值')
-    if not any((sample_size is not None, per_arm is not None, audit_enabled, diagnostics_enabled)):
-        raise ValueError('至少启用一个扫描任务')
 
 
 def validate_chunk(chunk, offset):
     #-------------
     # 校验当前块的全部原始行，返回共用数值视图、原始行号及处理分组。
+    # 输入参数：
+    #     - chunk：当前经过验证的原始数据块，所有原始列保持 float64。
+    #     - offset：当前块在原始 CSV 数据行中的起始位置。
+    # 输出参数：
+    #     - (原始数值视图, 原始行号, 处理分组向量)；非法行会抛出 ValueError。
     #-------------
     values = chunk.to_numpy()
     check_feature_matrix(values)
@@ -53,29 +70,42 @@ def validate_chunk(chunk, offset):
 
 def scan_raw_data(
     path=DEFAULT_DATA, sample_size=1_000_000, seed=42, chunk_size=250_000,
-    *, per_arm=None, audit_enabled=True, diagnostics_enabled=True,
+    *, per_arm=10_000, sample_enabled=True, audit_enabled=True, diagnostics_enabled=True,
     progress=print, source=None,
 ):
     #-------------
     # 功能：读取一次 CSV，将每个校验后的数据块分发给本次需要计算的任务。
-    # 参数：sample_size=None 关闭建模抽样，0 保留全量；per_arm 控制两臂等量抽样。
-    #       audit_enabled 控制全量审计，diagnostics_enabled 控制全量 SMD、KS 和 SRM。
-    #       source 为可选来源指纹；progress 接收扫描进度。
-    # 返回：建模样本、抽样说明、审计、平衡表、C2ST 样本、SRM 和扫描元数据。
     # 资源：ExitStack 统一关闭读取器与诊断临时文件，校验或计算失败时同样释放。
+    # 输入参数：
+    #     - path：原始 CSV 路径。
+    #     - sample_size：建模目标样本行数；0 表示保留全部原始行。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    #     - chunk_size：每次解析原始 CSV 的行数，必须为正整数。
+    #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+    #     - sample_enabled：是否启用建模抽样任务。
+    #     - audit_enabled：是否启用全量审计任务。
+    #     - diagnostics_enabled：是否启用全量诊断和两臂 C2ST 抽样任务。
+    #     - progress：接收扫描进度文本的回调函数。
+    #     - source：可选来源指纹；None 时在读取前计算，结束时再次核验。
+    # 输出参数：
+    #     - 包含建模样本、抽样说明、审计、平衡表、C2ST 样本、SRM、元数据及来源的字典。
     #-------------
-    validate_scan_options(sample_size, chunk_size, per_arm, audit_enabled, diagnostics_enabled)
+    validate_scan_options(
+        sample_size, chunk_size, per_arm, sample_enabled=sample_enabled,
+        audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,
+    )
+    per_arm = per_arm if diagnostics_enabled else None
     path = Path(path)
     source = fingerprint(path) if source is None else source
     if list(pd.read_csv(path, nrows=0).columns) != COLUMNS:
         raise ValueError(f'CSV 列名及顺序必须严格为 {COLUMNS}')
-    model = ModelSampler(sample_size, seed) if sample_size is not None else None
+    model = ModelSampler(sample_size, seed) if sample_enabled else None
     audit = AuditAccumulator(streaming_features=not diagnostics_enabled) if audit_enabled else None
     total, counts = 0, np.zeros(2, dtype=np.int64)
     with ExitStack() as stack:
         diagnostics = DiagnosticsAccumulator(
-            stack, full_enabled=diagnostics_enabled, per_arm=per_arm, seed=seed,
-        ) if diagnostics_enabled or per_arm is not None else None
+            stack, per_arm=per_arm, seed=seed,
+        ) if diagnostics_enabled else None
         reader = stack.enter_context(pd.read_csv(path, dtype=np.float64, chunksize=chunk_size))
         for chunk in reader:
             values, ids, treatment = validate_chunk(chunk, total)
@@ -103,6 +133,20 @@ def finalize_scan(model, audit, diagnostics, total, counts, source, seed,
                   chunk_size, per_arm, diagnostics_enabled, progress):
     #-------------
     # 确认全量两臂齐全、诊断样本数量充足，再整理各任务结果及扫描元数据。
+    # 输入参数：
+    #     - model：建模样本池；未计算 Sample 时为 None。
+    #     - audit：全量审计累计器；未计算 Audit 时为 None。
+    #     - diagnostics：全量诊断累计器；未计算 Diagnostics 时为 None。
+    #     - total：本次扫描读取的原始数据总行数。
+    #     - counts：截至当前的全量两臂人数，依次为对照组、处理组。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    #     - chunk_size：每次解析原始 CSV 的行数，必须为正整数。
+    #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+    #     - diagnostics_enabled：是否启用全量诊断和两臂 C2ST 抽样任务。
+    #     - progress：接收扫描进度文本的回调函数。
+    # 输出参数：
+    #     - 各任务最终结果和来源说明组成的字典；缺少处理臂或样本不足时抛出 ValueError。
     #-------------
     if total == 0 or (counts == 0).any():
         raise ValueError('数据为空或缺少 treatment/control')
@@ -123,16 +167,29 @@ def finalize_scan(model, audit, diagnostics, total, counts, source, seed,
         'metadata': scan_metadata(
             total=total, counts=counts, source=source, seed=seed, chunk_size=chunk_size,
             per_arm=per_arm, audit_enabled=audit is not None,
-            diagnostics_enabled=diagnostics_enabled, model_sample_enabled=model is not None,
-            c2st_sample_enabled=per_arm is not None, c2st_sample=c2st_sample,
+            diagnostics_enabled=diagnostics_enabled, sample_enabled=model is not None,
+            c2st_sample=c2st_sample,
         ),
     }
 
 
 def scan_metadata(*, total, counts, source, seed, chunk_size, per_arm, audit_enabled,
-                  diagnostics_enabled, model_sample_enabled, c2st_sample_enabled, c2st_sample):
+                  diagnostics_enabled, sample_enabled, c2st_sample):
     #-------------
     # 生成来源、全量人数、数据表示、任务开关和抽样方法说明。
+    # 输入参数：
+    #     - total：本次扫描读取的原始数据总行数。
+    #     - counts：全量两臂人数；只复用建模缓存时未知的全量计数为 None。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    #     - chunk_size：每次解析原始 CSV 的行数，必须为正整数。
+    #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+    #     - audit_enabled：是否启用全量审计任务。
+    #     - diagnostics_enabled：是否启用全量诊断和两臂 C2ST 抽样任务。
+    #     - sample_enabled：是否启用建模抽样任务。
+    #     - c2st_sample：两臂等量的 float64 诊断样本；诊断关闭时为 None。
+    # 输出参数：
+    #     - 包含来源、全量人数、任务开关、执行状态及抽样方法的元数据字典。
     #-------------
     metadata = {
         'scope': 'full_published_dataset', 'source': source, 'representation': 'raw_csv_float64',
@@ -141,12 +198,18 @@ def scan_metadata(*, total, counts, source, seed, chunk_size, per_arm, audit_ena
         'n_control': int(counts[0]) if counts[0] is not None else None,
         'rows_dropped': 0, 'seed': seed, 'chunk_size': chunk_size,
         'audit_enabled': audit_enabled, 'diagnostics_enabled': diagnostics_enabled,
-        'model_sample_enabled': model_sample_enabled, 'c2st_sample_enabled': c2st_sample_enabled,
-        'sample_n': len(c2st_sample) if c2st_sample_enabled else None,
+        'sample_enabled': sample_enabled, 'model_sample_enabled': sample_enabled,
+        'c2st_sample_enabled': diagnostics_enabled,
+        'task_status': {
+            name: 'computed' if enabled else 'disabled'
+            for name, enabled in (('sample', sample_enabled), ('audit', audit_enabled),
+                                  ('diagnostics', diagnostics_enabled))
+        },
+        'sample_n': len(c2st_sample) if diagnostics_enabled else None,
         'sample_n_treatment': per_arm, 'sample_n_control': per_arm,
-        'sampling': 'independent uniform-priority reservoir without replacement within each arm' if c2st_sample_enabled else None,
-        'sample_scope': 'full_source_arm_balanced_sample' if c2st_sample_enabled else None,
-        'sampling_target': 'P(X|T=1) versus P(X|T=0); balanced arms, not population T prevalence' if c2st_sample_enabled else None,
+        'sampling': 'independent uniform-priority reservoir without replacement within each arm' if diagnostics_enabled else None,
+        'sample_scope': 'full_source_arm_balanced_sample' if diagnostics_enabled else None,
+        'sampling_target': 'P(X|T=1) versus P(X|T=0); balanced arms, not population T prevalence' if diagnostics_enabled else None,
         'row_id_definition': 'zero-based original CSV data-row position; not a user ID',
         'ks_method': 'two-sided asymptotic; unadjusted exploratory p-values; ties and dependence limit calibration' if diagnostics_enabled else None,
     }
@@ -160,6 +223,12 @@ class ModelSampler:
     def __init__(self, sample_size, seed):
         #-------------
         # 初始化独立随机流、建模样本池及原始行号；仅全量模式保留所有块。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - sample_size：建模目标样本行数；0 表示保留全部原始行。
+        #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+        # 输出参数：
+        #     - 无返回值；初始化独立随机流及建模样本池。
         #-------------
         self.sample_size = sample_size
         self.rng = np.random.default_rng(seed)
@@ -171,6 +240,13 @@ class ModelSampler:
     def update(self, chunk, values, ids):
         #-------------
         # 为当前块分配随机优先级，更新样本池；全量模式直接保留建模表示。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - chunk：当前经过验证的原始数据块，所有原始列保持 float64。
+        #     - values：当前数据块的二维 float64 数值视图，与读取器共享底层数据。
+        #     - ids：当前数据块的原始位置行号，为从 0 开始的 int64 向量。
+        # 输出参数：
+        #     - 无返回值；原位更新样本池、优先级和来源行号。
         #-------------
         if self.sample_size == 0:
             model_chunk = chunk.astype({
@@ -190,6 +266,10 @@ class ModelSampler:
     def finish(self):
         #-------------
         # 按原始行号排序并生成建模样本，特征转为 float32、标签转为 int8。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        # 输出参数：
+        #     - 按原始行号排序的建模 DataFrame，特征为 float32，标签为 int8。
         #-------------
         if self.sample_size == 0:
             sample = pd.concat(self.all_chunks, ignore_index=True)
@@ -209,6 +289,12 @@ class BalancedSampler:
     def __init__(self, per_arm, seed):
         #-------------
         # 从种子派生两个独立随机流，初始化处理组和对照组样本池。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+        #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+        # 输出参数：
+        #     - 无返回值；初始化两个独立随机流和两臂样本池。
         #-------------
         self.per_arm = per_arm
         self.generators = [np.random.default_rng(s) for s in np.random.SeedSequence(seed).spawn(2)]
@@ -218,6 +304,13 @@ class BalancedSampler:
     def update(self, chunk, treatment, ids):
         #-------------
         # 分别向两臂样本池补入当前块候选行，保持 float64 特征精度。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - chunk：当前经过验证的原始数据块，所有原始列保持 float64。
+        #     - treatment：当前块的处理分组向量，0 为对照组，1 为处理组。
+        #     - ids：当前数据块的原始位置行号，为从 0 开始的 int64 向量。
+        # 输出参数：
+        #     - 无返回值；分别更新两臂候选样本及优先级。
         #-------------
         for arm in (0, 1):
             mask = treatment == arm
@@ -235,6 +328,10 @@ class BalancedSampler:
     def finish(self):
         #-------------
         # 合并两臂等量样本，按原始行号排序并校验数量与唯一性。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        # 输出参数：
+        #     - 按原始行号排序的两臂等量 DataFrame，特征保持 float64。
         #-------------
         c2st_sample = pd.concat(self.diagnostic_reservoirs, ignore_index=True).sort_values('row_id').reset_index(drop=True)
         for label in LABELS:
@@ -248,6 +345,14 @@ class BalancedSampler:
 def sample_report(sample, *, sample_size, seed, source, total):
     #-------------
     # 根据最终建模样本及扫描总行数生成抽样说明，不依赖审计任务。
+    # 输入参数：
+    #     - sample：包含原始行号、float32 特征和二元标签的建模样本。
+    #     - sample_size：建模目标样本行数；0 表示保留全部原始行。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - total：本次扫描读取的原始数据总行数。
+    # 输出参数：
+    #     - 建模样本报告字典，包含来源规模、抽样参数、数据表示和分组汇总。
     #-------------
     sample_report = {
         'scope': 'modeling_sample',
@@ -290,6 +395,11 @@ class AuditAccumulator:
     def __init__(self, *, streaming_features):
         #-------------
         # 初始化审计累计量；仅在不执行全量诊断时累计流式特征统计。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - streaming_features：是否累计流式特征矩统计；全量诊断提供共享统计时为 False。
+        # 输出参数：
+        #     - 无返回值；初始化审计计数、行指纹列表和可选流式统计累计量。
         #-------------
         self.streaming_features = streaming_features
         self.hashes = []
@@ -304,6 +414,14 @@ class AuditAccumulator:
     def update(self, chunk, values, treatment, counts):
         #-------------
         # 累计全部行的重复指纹、标签正例和异常计数，按需合并特征均值及方差。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - chunk：当前经过验证的原始数据块，所有原始列保持 float64。
+        #     - values：当前数据块的二维 float64 数值视图，与读取器共享底层数据。
+        #     - treatment：当前块的处理分组向量，0 为对照组，1 为处理组。
+        #     - counts：截至当前的全量两臂人数，依次为对照组、处理组。
+        # 输出参数：
+        #     - 无返回值；累计全量质量计数、重复指纹及可选的分组矩统计。
         #-------------
         x = values[:, :len(FEATURES)]
         self.hashes.append(pd.util.hash_pandas_object(chunk, index=False).to_numpy())
@@ -334,6 +452,11 @@ class AuditAccumulator:
     def _feature_stats(self, counts):
         #-------------
         # 将流式均值和中心平方和整理为全量分组标准差、范围及 SMD。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - counts：截至当前的全量两臂人数，依次为对照组、处理组。
+        # 输出参数：
+        #     - 按特征排列的记录列表，包含范围、两臂均值、标准差及 SMD。
         #-------------
         feature_stats = []
         for j, feature in enumerate(FEATURES):
@@ -357,6 +480,13 @@ class AuditAccumulator:
     def finish(self, total, counts, feature_stats=None):
         #-------------
         # 结合流式或诊断共享的特征统计，生成完整全量审计结果。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - total：本次扫描读取的原始数据总行数。
+        #     - counts：截至当前的全量两臂人数，依次为对照组、处理组。
+        #     - feature_stats：可复用的全量特征描述统计；为 None 时使用本任务的流式统计。
+        # 输出参数：
+        #     - 全量审计字典，包含重复行、逻辑异常、分组计数和特征统计。
         #-------------
         if feature_stats is None:
             feature_stats = self._feature_stats(counts)
@@ -414,35 +544,53 @@ class DiagnosticsAccumulator:
     #-------------
     # 全量诊断累计器：临时列文件支持精确 KS，独立样本池支持 C2ST。
     #-------------
-    def __init__(self, stack, *, full_enabled, per_arm, seed):
+    def __init__(self, stack, *, per_arm, seed):
         #-------------
         # 按需建立全量特征临时文件和两臂等量样本池，由外层统一管理文件关闭。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - stack：外层 ExitStack，统一管理诊断临时文件的生命周期。
+        #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
+        #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+        # 输出参数：
+        #     - 无返回值；创建全量列临时文件和两臂等量样本池。
         #-------------
-        self.full_enabled = full_enabled
-        self.sampler = BalancedSampler(per_arm, seed) if per_arm is not None else None
+        self.sampler = BalancedSampler(per_arm, seed)
         self.files = {
             name: stack.enter_context(TemporaryFile())
             for name in FEATURES + ['treatment']
-        } if full_enabled else {}
+        }
 
     def update(self, chunk, treatment, ids):
         #-------------
         # 写入当前块的 float64 特征和分组标签，并按需更新两臂样本池。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - chunk：当前经过验证的原始数据块，所有原始列保持 float64。
+        #     - treatment：当前块的处理分组向量，0 为对照组，1 为处理组。
+        #     - ids：当前数据块的原始位置行号，为从 0 开始的 int64 向量。
+        # 输出参数：
+        #     - 无返回值；向临时列文件追加数据并更新 C2ST 样本池。
         #-------------
-        if self.full_enabled:
-            for feature in FEATURES:
-                chunk[feature].to_numpy().tofile(self.files[feature])
-            treatment.tofile(self.files['treatment'])
-        if self.sampler is not None:
-            self.sampler.update(chunk, treatment, ids)
+        for feature in FEATURES:
+            chunk[feature].to_numpy().tofile(self.files[feature])
+        treatment.tofile(self.files['treatment'])
+        self.sampler.update(chunk, treatment, ids)
 
     def finish(self, total, counts, source, progress, *, include_audit_stats):
         #-------------
         # 逐列读取全量特征完成诊断，并按需向审计提供可复用的描述性统计。
+        # 输入参数：
+        #     - self：当前实例，保存本任务的累计状态或测试上下文。
+        #     - total：本次扫描读取的原始数据总行数。
+        #     - counts：截至当前的全量两臂人数，依次为对照组、处理组。
+        #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+        #     - progress：接收扫描进度文本的回调函数。
+        #     - include_audit_stats：是否额外整理全量特征范围和组内标准差，供审计复用。
+        # 输出参数：
+        #     - (全量平衡表, C2ST 样本, SRM 字典, 审计特征统计)；未请求审计统计时末项为 None。
         #-------------
-        c2st_sample = self.sampler.finish() if self.sampler is not None else None
-        if not self.full_enabled:
-            return None, c2st_sample, None, None
+        c2st_sample = self.sampler.finish()
         records, feature_stats = [], []
         for file in self.files.values():
             file.flush()

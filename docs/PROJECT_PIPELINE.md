@@ -35,7 +35,7 @@ sample, audit, source, prepared = prepare_sample(
 )
 ```
 
-只新增 `raw_scan.py`，所有扫描任务都集中于该文件：
+只新增 `raw_scan.py`，所有扫描任务都集中于该文件。`scan_raw_data()` 与调度入口一样，使用显式的 `sample_enabled`、`audit_enabled`、`diagnostics_enabled`；`sample_size=None` 不再关闭 Sample。Diagnostics 同时负责全量统计及 C2ST，`per_arm` 仅指定每臂规模（默认 10,000），不作为任务开关：
 
 | 函数或类 | 职责 |
 |---|---|
@@ -60,9 +60,9 @@ artifacts/cache/
   full_diagnostics_<source_sha256>_n20000_seed42.json
 ```
 
-建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段与载荷指纹。审计和诊断均没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
+建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。说明与 NPZ 内容都校验通过才算命中；文件损坏、缺字段、形状或数据异常会在扫描计划形成前判为未命中，与其他待计算任务共用一次扫描重建样本和说明。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段与载荷指纹。审计和诊断均没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
 
-`prepare_sample()` 的四元组接口和实验结果目录不变，第四项不重复持有建模大表。未启用任务返回 `None`。诊断缓存元数据描述生成该缓存时的扫描配置；仅使用建模缓存时，来源说明中未知的全量两臂人数为 `None`，不以样本人数冒充全量人数。`split_sample()` 保留原有分层划分及互斥检查。不存在旧扫描入口或缓存迁移分支。
+`prepare_sample()` 的四元组接口和实验结果目录不变，第四项不重复持有建模大表。未启用任务返回 `None`。返回的 Metadata 描述本次请求的三个开关，`task_status` 分别记录 `computed`、`cache` 或 `disabled`，不会沿用诊断缓存生成时的开关；仅使用建模缓存时，来源说明中未知的全量两臂人数为 `None`，不以样本人数冒充全量人数。`split_sample()` 保留原有分层划分及互斥检查。不存在旧扫描入口或缓存迁移分支。
 
 ## 模型与评价
 

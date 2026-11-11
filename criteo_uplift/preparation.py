@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 from zipfile import BadZipFile
+from zlib import error as ZlibError
 
 import numpy as np
 import pandas as pd
@@ -23,6 +24,10 @@ _BALANCE_COLUMNS = [
 def _read_cache_manifest(path):
     #-------------
     # 读取缓存说明；文件缺失、内容截断或 JSON 无效时视为缓存未命中。
+    # 输入参数：
+    #     - path：缓存 JSON 说明文件的路径。
+    # 输出参数：
+    #     - 缓存说明字典；文件缺失或 JSON 无效时返回 None。
     #-------------
     try:
         value = json.loads(path.read_text())
@@ -34,6 +39,13 @@ def _read_cache_manifest(path):
 def _sample_cache_report(path, source, size, seed):
     #-------------
     # 校验建模样本缓存的来源、规模、种子、表示和报告完整性。
+    # 输入参数：
+    #     - path：建模样本 NPZ 路径；说明文件使用相同文件名的 .json 后缀。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - size：请求的建模样本规模；0 表示全量。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    # 输出参数：
+    #     - 通过说明校验的建模抽样报告；未命中时返回 None。
     #-------------
     info = _read_cache_manifest(path.with_suffix('.json'))
     fields = {
@@ -56,9 +68,43 @@ def _sample_cache_report(path, source, size, seed):
     return info
 
 
+def _load_sample_cache(path, source, size, seed):
+    #-------------
+    # 说明与 NPZ 均通过校验才命中；文件损坏、缺列、形状或数据异常均交由统一扫描重建。
+    # 在决定扫描任务前完成读取，避免扫描结束后才发现损坏而被迫再次扫描来源。
+    # 输入参数：
+    #     - path：待校验并读取的建模样本 NPZ 路径。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - size：请求的建模样本规模；0 表示全量。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    # 输出参数：
+    #     - (建模样本, 抽样报告)；说明或 NPZ 无效时返回 (None, None)。
+    #-------------
+    try:
+        report = _sample_cache_report(path, source, size, seed)
+        if report is None:
+            return None, None
+        sample = load_sample(path)
+        _validate_prepared_counts(sample, report, None, None, None, size)
+        if (not all(sample[f].dtype == np.float32 for f in FEATURES)
+                or not all(sample[label].dtype == np.int8 for label in LABELS)
+                or sample.row_id.dtype != np.int64
+                or int(sample.treatment.sum()) != report['n_treatment']
+                or int((sample.treatment == 0).sum()) != report['n_control']):
+            return None, None
+        return sample, report
+    except (KeyError, TypeError, ValueError, OSError, EOFError, BadZipFile, ZlibError):
+        return None, None
+
+
 def _audit_cache_result(path, source):
     #-------------
     # 校验全量审计缓存的来源和必需统计字段，返回可复用审计。
+    # 输入参数：
+    #     - path：全量审计缓存 JSON 的路径。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    # 输出参数：
+    #     - 可复用的全量审计字典；来源或内容校验失败时返回 None。
     #-------------
     saved = _read_cache_manifest(path)
     if (saved is None or not isinstance(saved.get('source'), dict)
@@ -78,6 +124,13 @@ def _audit_cache_result(path, source):
 def _load_diagnostics_cache(path, source, size, seed):
     #-------------
     # 校验诊断缓存并恢复 float64 数组；保留无限 SMD，不解析原始 CSV。
+    # 输入参数：
+    #     - path：诊断 NPZ 路径；说明文件使用相同文件名的 .json 后缀。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - size：C2ST 两臂合计目标样本行数。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    # 输出参数：
+    #     - 包含平衡表、C2ST 样本、SRM 和元数据的字典；未命中时返回 None。
     #-------------
     saved = _read_cache_manifest(path.with_suffix('.json'))
     if saved is None or not path.exists():
@@ -135,6 +188,14 @@ def _load_diagnostics_cache(path, source, size, seed):
 def _write_diagnostics_cache(result, path, source, size, seed):
     #-------------
     # 保存 C2ST 样本和全量统计，最后写入说明及载荷指纹，避免复用不完整缓存。
+    # 输入参数：
+    #     - result：本次生成的诊断结果字典，包含平衡表、C2ST 样本、SRM 和元数据。
+    #     - path：诊断 NPZ 的输出路径；同名 JSON 保存说明。
+    #     - source：原始文件指纹，包含来源路径、大小、修改时间及 SHA256。
+    #     - size：C2ST 两臂合计目标样本行数。
+    #     - seed：随机种子；建模抽样和两臂诊断抽样使用独立随机流。
+    # 输出参数：
+    #     - 无返回值；写入诊断 NPZ，再写入包含载荷指纹的 JSON 说明。
     #-------------
     path = safe_output(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,6 +219,15 @@ def _write_diagnostics_cache(result, path, source, size, seed):
 def _validate_prepared_counts(sample, report, audit, diagnostics, scanned, size):
     #-------------
     # 核对各任务缓存中的全量人数及抽样行数；不要求必须启用审计。
+    # 输入参数：
+    #     - sample：包含原始行号、float32 特征和二元标签的建模样本。
+    #     - report：建模样本报告；Sample 关闭时为 None。
+    #     - audit：全量审计结果；Audit 关闭时为 None。
+    #     - diagnostics：完整诊断结果；Diagnostics 关闭时为 None。
+    #     - scanned：本次重新扫描结果；全部缓存命中时为 None。
+    #     - size：请求的建模样本规模；Sample 关闭时为 None。
+    # 输出参数：
+    #     - 一致的来源总行数；规模、来源行号或两臂计数不一致时抛出 ValueError。
     #-------------
     populations = []
     if report is not None:
@@ -186,12 +256,16 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
                    audit_enabled=None, diagnostics_enabled=None, chunk_size=None):
     #-------------
     # 功能：决定需要重算的任务，共用一次扫描，独立读写各自缓存。
-    # 参数：三个开关优先采用显式参数，否则读取 args 的同名属性，未提供时默认开启。
-    #       关闭的任务不读取或写入缓存，也不要求提供该任务的专用参数。
-    #       chunk_size 默认读取 args.chunk_size，未提供时为 250_000。
-    # 返回：(建模样本、全量审计、来源指纹、诊断及抽样说明字典)。
-    #       未启用任务返回 None；第四项不重复持有建模大表或审计字典。
-    #       C2ST 拟合仍由 run_diagnostics() 执行，原 CLI 调用方式不变。
+    # 输入参数：
+    #     - args：运行参数对象，包含数据路径、种子及已启用任务的规模参数。
+    #     - root：项目根目录，缓存位于其 artifacts/cache 下。
+    #     - progress：进度回调；None 时使用立即刷新的标准输出。
+    #     - sample_enabled：是否启用 Sample；None 时读取 args 同名属性，未提供则默认 True。
+    #     - audit_enabled：是否启用 Audit；None 时读取 args 同名属性，未提供则默认 True。
+    #     - diagnostics_enabled：是否启用 Diagnostics；None 时读取 args 同名属性，未提供则默认 True。
+    #     - chunk_size：每块行数；None 时读取 args.chunk_size，未提供则采用 250_000。
+    # 输出参数：
+    #     - (建模样本, 全量审计, 来源指纹, 诊断及抽样说明字典)；未启用任务为 None。
     #-------------
     switches = [sample_enabled, audit_enabled, diagnostics_enabled]
     for i, name in enumerate(('sample_enabled', 'audit_enabled', 'diagnostics_enabled')):
@@ -213,7 +287,10 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
         if args.permutations < 1:
             raise ValueError('permutations 必须为正数')
     per_arm = diagnostic_size // 2 if diagnostics_enabled else None
-    validate_scan_options(size, chunk_size, per_arm, audit_enabled, diagnostics_enabled)
+    validate_scan_options(
+        size, chunk_size, per_arm, sample_enabled=sample_enabled,
+        audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,
+    )
     progress = progress if progress is not None else lambda message: print(message, flush=True)
     current = fingerprint(args.data)
     cache_dir = safe_output(Path(root) / 'artifacts/cache')
@@ -221,8 +298,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
     audit_path = cache_dir / f'full_audit_{current["sha256"]}.json'
     diagnostic_path = cache_dir / f'full_diagnostics_{current["sha256"]}_n{diagnostic_size}_seed{args.seed}.npz'
 
-    report = _sample_cache_report(sample_path, current, size, args.seed) if sample_enabled else None
-    sample = None
+    sample, report = _load_sample_cache(sample_path, current, size, args.seed) if sample_enabled else (None, None)
     audit = _audit_cache_result(audit_path, current) if audit_enabled else None
     diagnostics = _load_diagnostics_cache(diagnostic_path, current, diagnostic_size, args.seed) if diagnostics_enabled else None
     needs_sample = sample_enabled and report is None
@@ -238,7 +314,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
     scanned = None
     if any((needs_sample, needs_audit, needs_diagnostics)):
         scanned = scan_raw_data(
-            args.data, sample_size=size if needs_sample else None, seed=args.seed,
+            args.data, sample_size=size, sample_enabled=needs_sample, seed=args.seed,
             chunk_size=chunk_size, per_arm=per_arm if needs_diagnostics else None,
             audit_enabled=needs_audit, diagnostics_enabled=needs_diagnostics,
             progress=progress, source=current,
@@ -249,9 +325,6 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
             audit = scanned['audit']
         if needs_diagnostics:
             diagnostics = {key: scanned[key] for key in ('balance', 'c2st_sample', 'srm', 'metadata')}
-    # 缓存命中的建模大表延后加载，避免它与审计指纹或全量诊断临时数组同时占用内存。
-    if sample_enabled and not needs_sample:
-        sample = load_sample(sample_path)
     total = _validate_prepared_counts(sample, report, audit, diagnostics, scanned, size)
     if needs_sample:
         save_sample(sample, sample_path)
@@ -260,18 +333,27 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
         write_result({'source': current, 'audit': audit}, audit_path)
     if needs_diagnostics:
         _write_diagnostics_cache(diagnostics, diagnostic_path, current, diagnostic_size, args.seed)
-    if diagnostics is not None:
-        prepared = dict(diagnostics)
-    elif scanned is not None:
-        prepared = {key: scanned[key] for key in ('balance', 'c2st_sample', 'srm', 'metadata')}
+    prepared = ({key: diagnostics[key] for key in ('balance', 'c2st_sample', 'srm')}
+                if diagnostics is not None else {'balance': None, 'c2st_sample': None, 'srm': None})
+    # 返回说明描述本次调用，而不是缓存生成时的开关。全量人数只使用已知的来源计数。
+    population = scanned if scanned is not None else diagnostics
+    if population is not None:
+        counts = [population['metadata']['n_control'], population['metadata']['n_treatment']]
     else:
-        # 根据已启用任务的缓存恢复来源说明；建模报告没有全量两臂人数，未知计数保留为空。
         counts = [audit['n_control'], audit['n_treatment']] if audit is not None else [None, None]
-        prepared = {'balance': None, 'c2st_sample': None, 'srm': None, 'metadata': scan_metadata(
-            total=total, counts=counts, source=current, seed=args.seed, chunk_size=chunk_size,
-            per_arm=None, audit_enabled=False, diagnostics_enabled=False,
-            model_sample_enabled=False, c2st_sample_enabled=False, c2st_sample=None,
-        )}
+    prepared['metadata'] = scan_metadata(
+        total=total, counts=counts, source=current, seed=args.seed, chunk_size=chunk_size,
+        per_arm=per_arm, audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,
+        sample_enabled=sample_enabled, c2st_sample=prepared['c2st_sample'],
+    )
+    # 开关表示本次要求的任务；执行状态区分重新计算、缓存复用和关闭。
+    prepared['metadata']['task_status'] = {
+        name: 'disabled' if not enabled else 'computed' if needed else 'cache'
+        for name, enabled, needed in zip(
+            ('sample', 'audit', 'diagnostics'), switches,
+            (needs_sample, needs_audit, needs_diagnostics),
+        )
+    }
     prepared.update(sample_report=report, source=current)
     return sample, audit, current, prepared
 

@@ -289,7 +289,7 @@ artifacts/
 
 ### criteo_uplift/raw_scan.py
 
-- `scan_raw_data(path=DEFAULT_DATA, sample_size=1000000, seed=42, chunk_size=250000, *, per_arm=None, audit_enabled=True, diagnostics_enabled=True, progress=print, source=None)`
+- `scan_raw_data(path=DEFAULT_DATA, sample_size=1000000, seed=42, chunk_size=250000, *, per_arm=10000, sample_enabled=True, audit_enabled=True, diagnostics_enabled=True, progress=print, source=None)`
 - 扫描任务、逐块校验及结束整理见 `docs/PROJECT_PIPELINE.md`。
 
 ### criteo_uplift/reporting.py
