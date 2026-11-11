@@ -6,6 +6,8 @@ from unittest.mock import patch
 from itertools import product
 import json
 import unittest
+from zipfile import ZipFile, ZIP_DEFLATED
+from zlib import error as ZlibError
 
 import numpy as np
 import pandas as pd
@@ -672,14 +674,17 @@ class UnifiedScanTests(unittest.TestCase):
                 self.assertEqual(scanned['sample'].row_id.tolist(), reference['sample_ids'])
                 self.assertEqual(scanned['c2st_sample'].row_id.tolist(), reference['c2st_ids'])
                 self.assert_audit_close(scanned['audit'], reference['audit'])
-                # 跨 Pandas 版本的均值和 SMD 舍入差异不超过 5.56e-17；人数、KS 和说明仍精确比较。
+                # 均值、SMD 和 KS P-value 分别使用严格浮点容差；KS Statistic、人数和说明仍精确比较。
                 balance = scanned['balance'].drop(columns='source_sha256')
                 expected_balance = pd.DataFrame(reference['balance'])
                 moments = ['mean_treatment', 'mean_control', 'smd', 'abs_smd']
                 pd.testing.assert_frame_equal(balance[moments], expected_balance[moments],
                                               check_exact=False, rtol=1e-12, atol=1e-15)
-                pd.testing.assert_frame_equal(balance.drop(columns=moments),
-                                              expected_balance.drop(columns=moments), check_exact=True)
+                pd.testing.assert_series_equal(balance['ks_pvalue'], expected_balance['ks_pvalue'],
+                                               check_exact=False, rtol=1e-12, atol=1e-15)
+                exact_columns = balance.columns.difference(moments + ['ks_pvalue'])
+                pd.testing.assert_frame_equal(balance[exact_columns],
+                                              expected_balance[exact_columns], check_exact=True)
                 self.assertEqual({k: v for k, v in scanned['srm'].items() if k != 'source_sha256'}, reference['srm'])
         # 基准行号来自旧实现；从原始 float64 表恢复相同输入，独立运行真实分类器。
         expected_sample = self.raw.iloc[reference['c2st_ids']]
@@ -723,6 +728,60 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(scan.call_args.kwargs['per_arm'], 20)
         self.assertFalse(scan.call_args.kwargs['sample_enabled'])
         self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+
+    def test_diagnostics_cache_zlib_error_rebuilds_only_diagnostics(self):
+        #-------------
+        # 损坏压缩数据但保持载荷指纹匹配，验证真实 zlib 解压异常触发独立重建。
+        # 输入参数：
+        #     - self：当前测试实例，提供临时原始数据和缓存目录。
+        # 输出参数：
+        #     - 无返回值；验证一次扫描完成修复，且有效的 Sample、Audit 缓存不被改写。
+        #-------------
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        expected = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        directory = self.root / 'artifacts/cache'
+        payload = next(directory.glob('full_diagnostics_*.npz'))
+        manifest = payload.with_suffix('.json')
+        preserved = {
+            file: preparation.fingerprint(file)
+            for file in directory.iterdir() if file not in (payload, manifest)
+        }
+        source = preparation.fingerprint(self.path)
+        with ZipFile(payload) as archive:
+            entry = archive.getinfo('X.npy')
+            self.assertEqual(entry.compress_type, ZIP_DEFLATED)
+            offset = entry.header_offset
+        data = bytearray(payload.read_bytes())
+        name_length = int.from_bytes(data[offset + 26:offset + 28], 'little')
+        extra_length = int.from_bytes(data[offset + 28:offset + 30], 'little')
+        compressed_start = offset + 30 + name_length + extra_length
+        # DEFLATE 的 BTYPE=3 为保留类型，可稳定触发 zlib.error，而不是普通 ZIP 校验失败。
+        data[compressed_start] = (data[compressed_start] & ~6) | 6
+        payload.write_bytes(data)
+        saved = json.loads(manifest.read_text())
+        saved['payload_sha256'] = preparation.fingerprint(payload)['sha256']
+        manifest.write_text(json.dumps(saved))
+        with np.load(payload, allow_pickle=False) as arrays:
+            with self.assertRaises(ZlibError):
+                arrays['X']
+        with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan, \
+             patch.object(raw_scan.pd, 'read_csv', wraps=pd.read_csv) as read:
+            actual = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertEqual(scan.call_count, 1)
+        self.assertFalse(scan.call_args.kwargs['sample_enabled'])
+        self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+        self.assertTrue(scan.call_args.kwargs['diagnostics_enabled'])
+        self.assertEqual(sum('chunksize' in call.kwargs for call in read.call_args_list), 1)
+        pd.testing.assert_frame_equal(actual[0], expected[0], check_exact=True)
+        self.assertEqual(actual[1], expected[1])
+        for key in ('balance', 'c2st_sample'):
+            pd.testing.assert_frame_equal(actual[3][key], expected[3][key], check_exact=True)
+        self.assertEqual(actual[3]['srm'], expected[3]['srm'])
+        for file, before in preserved.items():
+            self.assertEqual(preparation.fingerprint(file), before)
+        self.assertEqual(preparation.fingerprint(self.path), source)
+        with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('修复后应全部命中')):
+            preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
 
     def test_diagnostics_cache_preserves_infinite_smd(self):
         #-------------

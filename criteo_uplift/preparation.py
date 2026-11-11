@@ -181,7 +181,7 @@ def _load_diagnostics_cache(path, source, size, seed):
             if not balance[key].eq(metadata[key]).all() or srm[key] != metadata[key]:
                 return None
         return {'balance': balance, 'c2st_sample': sample, 'srm': srm, 'metadata': metadata}
-    except (KeyError, TypeError, ValueError, OSError, EOFError, BadZipFile):
+    except (KeyError, TypeError, ValueError, OSError, EOFError, BadZipFile, ZlibError):
         return None
 
 
