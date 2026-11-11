@@ -685,7 +685,13 @@ class UnifiedScanTests(unittest.TestCase):
                 exact_columns = balance.columns.difference(moments + ['ks_pvalue'])
                 pd.testing.assert_frame_equal(balance[exact_columns],
                                               expected_balance[exact_columns], check_exact=True)
-                self.assertEqual({k: v for k, v in scanned['srm'].items() if k != 'source_sha256'}, reference['srm'])
+                # SRM P-value 在 Linux 与 macOS 的尾数存在舍入差异，其他 SRM 字段仍精确比较。
+                np.testing.assert_allclose(scanned['srm']['pvalue'], reference['srm']['pvalue'],
+                                           rtol=1e-12, atol=1e-15)
+                self.assertEqual(
+                    {k: v for k, v in scanned['srm'].items() if k not in ('source_sha256', 'pvalue')},
+                    {k: v for k, v in reference['srm'].items() if k != 'pvalue'},
+                )
         # 基准行号来自旧实现；从原始 float64 表恢复相同输入，独立运行真实分类器。
         expected_sample = self.raw.iloc[reference['c2st_ids']]
         expected = diagnostics.c2st(expected_sample, FEATURES, sample_size=20, permutations=2, seed=31)
