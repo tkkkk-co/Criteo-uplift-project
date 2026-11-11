@@ -5,7 +5,7 @@
 | 阶段 | 调用 | 输入与输出 | 核心边界 |
 |---|---|---|---|
 | 01 配置 | config、safe_output | 参数 → 全部输出目录 | 拒绝写入原始 data，拒绝覆盖已有实验 |
-| 02 准备 | prepare_sample、split_sample | 原始 CSV/缓存 → audit、样本、60/20/20 划分 | 一次 CSV 分块扫描；审计与样本独立缓存 |
+| 02 准备 | prepare_sample、split_sample | 原始 CSV/缓存 → audit、样本、60/20/20 划分 | 最多一次 CSV 分块扫描；三任务独立缓存 |
 | 03 诊断 | run_diagnostics | 扫描统计、C2ST 样本、Train/Validation → SRM、SMD/KS、C2ST、Learnability | diagnostics 不读原始 CSV、不重新审计 |
 | 04 全量效果 | ate_summary_from_audit | 两组人数及正例数 → 全量 ATE/ITT | 全量结果只提供背景，不选模型 |
 | 05 训练/验证 | fit_and_select_models | Train 拟合，Validation 比较 → 模型与 selection.json | 固定四候选，按主预算 HT 增量选策略 |
@@ -26,18 +26,43 @@ Score Policy 独立运行。它面对未来仅有 X 的数据，因此不属于�
 
 ## 一次扫描与独立缓存
 
-`preparation._scan_raw_data()` 保留两个独立随机流。建模样本是均匀无放回的随机优先级蓄水池；C2ST 是两组分别均匀抽样，每组默认 10,000 行。建模抽样大小不会改变诊断抽样。
+`preparation.prepare_sample()` 负责三个独立开关、缓存检查、读取和写入，以及返回值组装。`sample_enabled`、`audit_enabled`、`diagnostics_enabled` 可以任意组合，默认全部开启；全部关闭会明确报错。开关可作为关键字参数传入，也可放在 `args` 的同名属性中，显式参数优先。关闭的任务不读取缓存、不计算，不要求提供其专用参数。
 
-全量 KS 需要完整分布。扫描把必要列写入临时文件，之后用内存映射调用 diagnostics 的纯计算函数；不会为了计算 KS 再解析原 CSV。全量原始统计保持 float64，建模缓存使用 float32。文件内容指纹按块计算，用于来源与扫描前后完整性核验；指纹读取不等于再次解析 CSV。
+```python
+sample, audit, source, prepared = prepare_sample(
+    args, sample_enabled=True, audit_enabled=True,
+    diagnostics_enabled=False, chunk_size=250_000,
+)
+```
+
+只新增 `raw_scan.py`，所有扫描任务都集中于该文件：
+
+| 函数或类 | 职责 |
+|---|---|
+| `scan_raw_data()` | 建立读取器和临时资源，执行一次读取循环，分发当前数据块 |
+| `validate_scan_options()`、`validate_chunk()` | 参数及逐块输入校验；不删除非法行 |
+| `ModelSampler` | 建模随机优先级蓄水池，最终特征为 float32 |
+| `BalancedSampler` | 两臂独立的等量 C2ST 抽样，特征保持 float64 |
+| `AuditAccumulator` | 全量重复指纹、标签计数、异常计数及稳定的分组矩统计 |
+| `DiagnosticsAccumulator` | 全量 SMD/KS、SRM 和 C2ST 样本准备 |
+| `finalize_scan()`、`scan_metadata()`、`sample_report()` | 扫描结束校验、结果整理和来源说明 |
+
+每个任务只在自身缓存未命中时进入扫描。Sample 命中、Audit 失效时，只更新 Audit。所有启用任务均命中时不调用扫描函数，也不读取 CSV 表头。所有未命中任务共享同一个 float64 数据块；不会逐任务重读 CSV。原始位置 `row_id`、抽样种子和两组均匀无放回抽样规则不变。建模随机流与两臂 C2ST 随机流互相独立。
+
+全量 KS 需要完整分布。扫描把必要列写入临时文件，之后逐列用内存映射调用诊断计算函数；不会为了计算 KS 再解析原 CSV。诊断和审计同时重算时共享全量特征统计；仅审计重算时使用稳定的流式均值和中心平方和，允许原有近常量特征浮点容差。文件指纹始终按块计算，用于来源与扫描前后完整性核验；指纹读取不等于再次解析 CSV。
 
 ```text
 artifacts/cache/
   sample_1000000_seed42.npz
   sample_1000000_seed42.json
   full_audit_<source_sha256>.json
+  full_diagnostics_<source_sha256>_n20000_seed42.npz
+  full_diagnostics_<source_sha256>_n20000_seed42.json
 ```
 
-样本 metadata 记录来源、原始/抽样规模、种子、方法、表示和版本，不内嵌全量审计。Sample 与 Audit 版本在 preparation.py 中独立维护。一方失效不自动使另一方失效；为本轮全量诊断仍执行一次统一扫描。
+建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段与载荷指纹。审计和诊断均没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
+
+`prepare_sample()` 的四元组接口和实验结果目录不变，第四项不重复持有建模大表。未启用任务返回 `None`。诊断缓存元数据描述生成该缓存时的扫描配置；仅使用建模缓存时，来源说明中未知的全量两臂人数为 `None`，不以样本人数冒充全量人数。`split_sample()` 保留原有分层划分及互斥检查。不存在旧扫描入口或缓存迁移分支。
 
 ## 模型与评价
 

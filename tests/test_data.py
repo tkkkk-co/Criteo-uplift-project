@@ -1,3 +1,4 @@
+from criteo_uplift.config import COLUMNS, FEATURES, LABELS
 # 项目测试：验证数据读取、抽样和划分。
 
 from pathlib import Path
@@ -10,27 +11,27 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift import pipeline_io, preparation
-from criteo_uplift.preparation import _scan_raw_data
+from criteo_uplift.raw_scan import scan_raw_data
 
 
 def _synthetic_frame(n=400):
-    """
-    函数名：_synthetic_frame
-    功能：生成包含 f0–f11、treatment、conversion、visit 和 exposure 的合成测试数据。
-    输入参数：
-        - n：需要生成的合成数据行数。
-    输出参数：
-        - 合成数据 DataFrame。
-    """
+    #-------------
+    # 函数名：_synthetic_frame
+    # 功能：生成包含 f0–f11、treatment、conversion、visit 和 exposure 的合成测试数据。
+    # 输入参数：
+    #     - n：需要生成的合成数据行数。
+    # 输出参数：
+    #     - 合成数据 DataFrame。
+    #-------------
     row = np.arange(n)
     frame = pd.DataFrame(
-        {feature: row * (j + 1.0) + j / 8.0 for j, feature in enumerate(preparation.FEATURES)}
+        {feature: row * (j + 1.0) + j / 8.0 for j, feature in enumerate(FEATURES)}
     )
     frame["treatment"] = row % 2
     frame["conversion"] = (row // 2) % 2
     frame["visit"] = np.maximum(frame.conversion, row % 5 == 0).astype(int)
     frame["exposure"] = frame.treatment * (row % 3 != 0)
-    return frame[preparation.COLUMNS]
+    return frame[COLUMNS]
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -43,14 +44,14 @@ def _synthetic_frame(n=400):
 #-----------------------------------------------------------------------------------------------------------------------
 class DataTests(unittest.TestCase):
     def setUp(self):
-        """
-        函数名：DataTests.setUp
-        功能：创建数据准备测试使用的临时项目目录和合成 CSV 文件。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；初始化测试实例的临时路径和数据属性。
-        """
+        #-------------
+        # 函数名：DataTests.setUp
+        # 功能：创建数据准备测试使用的临时项目目录和合成 CSV 文件。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；初始化测试实例的临时路径和数据属性。
+        #-------------
         self.directory = tempfile.TemporaryDirectory(prefix="criteo_data_test_")
         self.root = Path(self.directory.name)
         self.source = self.root / "synthetic.csv"
@@ -58,36 +59,36 @@ class DataTests(unittest.TestCase):
         self.frame.to_csv(self.source, index=False)
 
     def tearDown(self):
-        """
-        函数名：DataTests.tearDown
-        功能：清理数据准备测试创建的临时目录。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；释放测试资源。
-        """
+        #-------------
+        # 函数名：DataTests.tearDown
+        # 功能：清理数据准备测试创建的临时目录。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；释放测试资源。
+        #-------------
         self.directory.cleanup()
 
     def test_sampling_reads_entire_file_is_reproducible_and_chunk_independent(self):
-        """
-        函数名：DataTests.test_sampling_reads_entire_file_is_reproducible_and_chunk_independent
-        功能：验证分块扫描读取完整 CSV，抽样结果可复现且不受 chunk_size 影响。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_sampling_reads_entire_file_is_reproducible_and_chunk_independent
+        # 功能：验证分块扫描读取完整 CSV，抽样结果可复现且不受 chunk_size 影响。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         before = preparation.fingerprint(self.source)
-        scanned = _scan_raw_data(
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=57
         )
         first = scanned["sample"]
         audit = scanned["audit"]
-        scanned = _scan_raw_data(
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=31, chunk_size=101
         )
         repeated = scanned["sample"]
-        scanned = _scan_raw_data(
+        scanned = scan_raw_data(
             self.source, sample_size=43, seed=32, chunk_size=57
         )
         different = scanned["sample"]
@@ -105,19 +106,19 @@ class DataTests(unittest.TestCase):
         self.assertEqual(preparation.fingerprint(self.source), before)
 
     def test_full_data_audit_counts_duplicates_without_removing_rows(self):
-        """
-        函数名：DataTests.test_full_data_audit_counts_duplicates_without_removing_rows
-        功能：验证全量审计能够统计重复行，但不会自动删除原始记录。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_full_data_audit_counts_duplicates_without_removing_rows
+        # 功能：验证全量审计能够统计重复行，但不会自动删除原始记录。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         duplicated = pd.concat(
             [self.frame, self.frame.iloc[[7, 7, 210]]], ignore_index=True
         )
         duplicated.to_csv(self.source, index=False)
-        scanned = _scan_raw_data(self.source, sample_size=0, chunk_size=61)
+        scanned = scan_raw_data(self.source, sample_size=0, chunk_size=61)
         sample = scanned["sample"]
         audit = scanned["audit"]
         self.assertEqual(len(sample), len(duplicated))
@@ -138,27 +139,27 @@ class DataTests(unittest.TestCase):
                 )
 
     def test_sample_larger_than_input_retains_every_original_row(self):
-        """
-        函数名：DataTests.test_sample_larger_than_input_retains_every_original_row
-        功能：验证目标抽样量大于原始数据行数时，样本保留全部原始行。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
-        scanned = _scan_raw_data(self.source, sample_size=1000, chunk_size=37)
+        #-------------
+        # 函数名：DataTests.test_sample_larger_than_input_retains_every_original_row
+        # 功能：验证目标抽样量大于原始数据行数时，样本保留全部原始行。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
+        scanned = scan_raw_data(self.source, sample_size=1000, chunk_size=37)
         sample = scanned["sample"]
         np.testing.assert_array_equal(sample.row_id, np.arange(len(self.frame)))
 
     def test_readonly_guard_rejects_direct_and_symlinked_data_destinations(self):
-        """
-        函数名：DataTests.test_readonly_guard_rejects_direct_and_symlinked_data_destinations
-        功能：验证输出路径保护同时拒绝直接写入 data 目录和通过符号链接写入。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_readonly_guard_rejects_direct_and_symlinked_data_destinations
+        # 功能：验证输出路径保护同时拒绝直接写入 data 目录和通过符号链接写入。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         protected = self.root / "protected_data"
         protected.mkdir()
         marker = protected / "existing.json"
@@ -189,15 +190,15 @@ class DataTests(unittest.TestCase):
         self.assertFalse((protected / "sample.npz").exists())
 
     def test_sample_round_trip_uses_an_output_directory(self):
-        """
-        函数名：DataTests.test_sample_round_trip_uses_an_output_directory
-        功能：验证样本缓存保存和读取往返一致，且输出路径位于允许的结果目录。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
-        scanned = _scan_raw_data(
+        #-------------
+        # 函数名：DataTests.test_sample_round_trip_uses_an_output_directory
+        # 功能：验证样本缓存保存和读取往返一致，且输出路径位于允许的结果目录。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
+        scanned = scan_raw_data(
             self.source, sample_size=33, seed=2, chunk_size=41
         )
         sample = scanned["sample"]
@@ -207,14 +208,14 @@ class DataTests(unittest.TestCase):
         pd.testing.assert_frame_equal(sample, loaded)
 
     def test_split_is_disjoint_reproducible_and_preserves_joint_strata(self):
-        """
-        函数名：DataTests.test_split_is_disjoint_reproducible_and_preserves_joint_strata
-        功能：验证 Train/Validation/Test 划分互斥、可复现，并保留 T×Y 联合分层。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_split_is_disjoint_reproducible_and_preserves_joint_strata
+        # 功能：验证 Train/Validation/Test 划分互斥、可复现，并保留 T×Y 联合分层。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         frame = _synthetic_frame(2000)
         frame.insert(0, "row_id", np.arange(len(frame)) * 3 + 100)
         parts, summary, overlap = preparation.split_sample(frame, outcome="conversion", seed=42)
@@ -260,14 +261,14 @@ class DataTests(unittest.TestCase):
         self.assertEqual(conversion_only.conversion_positive.sum(), frame.conversion.sum())
 
     def test_split_rejects_missing_null_or_duplicate_source_ids(self):
-        """
-        函数名：DataTests.test_split_rejects_missing_null_or_duplicate_source_ids
-        功能：验证样本划分拒绝缺失、空值或重复的来源 row_id。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_split_rejects_missing_null_or_duplicate_source_ids
+        # 功能：验证样本划分拒绝缺失、空值或重复的来源 row_id。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         frame = _synthetic_frame(2000)
         frame.insert(0, "row_id", np.arange(len(frame)))
         missing = frame.drop(columns="row_id")
@@ -280,14 +281,14 @@ class DataTests(unittest.TestCase):
                 preparation.split_sample(invalid)
 
     def test_split_detects_corrupted_partition_membership(self):
-        """
-        函数名：DataTests.test_split_detects_corrupted_partition_membership
-        功能：验证划分完整性检查能够发现集合成员被篡改或遗漏。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_split_detects_corrupted_partition_membership
+        # 功能：验证划分完整性检查能够发现集合成员被篡改或遗漏。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         frame = _synthetic_frame(2000)
         frame.insert(0, "row_id", np.arange(len(frame)))
         train, holdout = np.arange(1200), np.arange(1200, 2000)
@@ -307,20 +308,20 @@ class DataTests(unittest.TestCase):
                 preparation.split_sample(frame)
 
     def test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates(self):
-        """
-        函数名：DataTests.test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates
-        功能：验证相同匿名特征向量会被报告为特征重叠，而不会误判为来源行重复。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_split_reports_all_feature_pairs_without_treating_matches_as_row_duplicates
+        # 功能：验证相同匿名特征向量会被报告为特征重叠，而不会误判为来源行重复。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         frame = _synthetic_frame(15)
         frame.insert(0, 'row_id', np.arange(15))
-        frame[preparation.FEATURES] = frame[preparation.FEATURES].astype('float32')
+        frame[FEATURES] = frame[FEATURES].astype('float32')
         # 不同 row_id 保持原样，只复制特征；重复训练向量不应重复计数。
-        frame.loc[[1, 9, 10, 12], preparation.FEATURES] = frame.loc[0, preparation.FEATURES].to_numpy()
-        frame.loc[13, preparation.FEATURES] = frame.loc[11, preparation.FEATURES].to_numpy()
+        frame.loc[[1, 9, 10, 12], FEATURES] = frame.loc[0, FEATURES].to_numpy()
+        frame.loc[13, FEATURES] = frame.loc[11, FEATURES].to_numpy()
         with patch.object(preparation, 'train_test_split', side_effect=[
             (np.arange(9), np.arange(9, 15)),
             (np.arange(9, 12), np.arange(12, 15)),
@@ -331,19 +332,19 @@ class DataTests(unittest.TestCase):
             'validation': 2 / 3, 'test': 1 / 3,
         })
         self.assertEqual(overlap['fraction_test_matching_validation_features'], 2 / 3)
-        self.assertEqual(overlap['features'], preparation.FEATURES)
+        self.assertEqual(overlap['features'], FEATURES)
         self.assertEqual(set(overlap['feature_dtypes'].values()), {'float32'})
         self.assertEqual(sum(map(len, parts.values())), len(frame))
 
     def test_invalid_schema_nonfinite_and_nonbinary_labels_fail(self):
-        """
-        函数名：DataTests.test_invalid_schema_nonfinite_and_nonbinary_labels_fail
-        功能：验证 CSV Schema 错误、非有限特征和非二元标签会触发明确异常。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_invalid_schema_nonfinite_and_nonbinary_labels_fail
+        # 功能：验证 CSV Schema 错误、非有限特征和非二元标签会触发明确异常。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         invalid_frames = []
         invalid_frames.append(self.frame.drop(columns="f11"))
         invalid_frames.append(self.frame.assign(extra=0))
@@ -354,7 +355,7 @@ class DataTests(unittest.TestCase):
         missing = self.frame.copy()
         missing.loc[350, "f2"] = np.nan
         invalid_frames.append(missing)
-        for label in preparation.LABELS:
+        for label in LABELS:
             invalid = self.frame.copy()
             invalid.loc[350, label] = 2
             invalid_frames.append(invalid)
@@ -364,21 +365,21 @@ class DataTests(unittest.TestCase):
                 frame.to_csv(self.source, index=False)
                 # 即使非法记录不在目标样本中，全量扫描仍应报错。
                 with self.assertRaises(ValueError):
-                    _scan_raw_data(self.source, sample_size=5, chunk_size=73)
+                    scan_raw_data(self.source, sample_size=5, chunk_size=73)
         with self.assertRaises(ValueError):
-            _scan_raw_data(self.source, sample_size=-1)
+            scan_raw_data(self.source, sample_size=-1)
         with self.assertRaises(ValueError):
-            _scan_raw_data(self.source, chunk_size=0)
+            scan_raw_data(self.source, chunk_size=0)
 
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
-        """
-        函数名：DataTests.test_split_rejects_unsupported_outcome_and_too_small_strata
-        功能：验证划分拒绝不支持的结果变量及样本量不足的联合分层。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_split_rejects_unsupported_outcome_and_too_small_strata
+        # 功能：验证划分拒绝不支持的结果变量及样本量不足的联合分层。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         with self.assertRaises(ValueError):
             preparation.split_sample(self.frame, outcome="exposure")
         tiny = self.frame.iloc[:4].assign(row_id=np.arange(4))
@@ -387,14 +388,14 @@ class DataTests(unittest.TestCase):
 
 
     def test_write_result_preserves_json_values_and_csv_columns(self):
-        """
-        函数名：DataTests.test_write_result_preserves_json_values_and_csv_columns
-        功能：验证 JSON/CSV 写入保留数值内容和 DataFrame 列结构。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_write_result_preserves_json_values_and_csv_columns
+        # 功能：验证 JSON/CSV 写入保留数值内容和 DataFrame 列结构。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         report = {"中文": np.int64(3), "array": np.array([1.5, np.nan]),
                   "path": Path("result"), "infinity": float("inf")}
         path = self.root / "results" / "audit.json"
@@ -408,14 +409,14 @@ class DataTests(unittest.TestCase):
         pd.testing.assert_frame_equal(pd.read_csv(target), frame.reset_index(drop=True))
 
     def test_write_result_rejects_invalid_format_before_writing(self):
-        """
-        函数名：DataTests.test_write_result_rejects_invalid_format_before_writing
-        功能：验证不支持的结果文件格式会在写入前被拒绝。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：DataTests.test_write_result_rejects_invalid_format_before_writing
+        # 功能：验证不支持的结果文件格式会在写入前被拒绝。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         for value, name, error in [
             ({"n": 1}, "summary.csv", TypeError),
             (pd.DataFrame({"n": [1]}), "audit.json", TypeError),
@@ -438,14 +439,14 @@ if __name__ == "__main__":
 
 class InputChecksTests(unittest.TestCase):
     def test_checks_do_not_transform_inputs(self):
-        """
-        函数名：InputChecksTests.test_checks_do_not_transform_inputs
-        功能：验证公共输入检查只校验数据，不对传入数组或 DataFrame 执行原地修改。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：InputChecksTests.test_checks_do_not_transform_inputs
+        # 功能：验证公共输入检查只校验数据，不对传入数组或 DataFrame 执行原地修改。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         from criteo_uplift.input_checks import check_binary_vector, check_feature_matrix, check_row_ids
         x = np.array([[1., np.nan], [2., 3.]])
         before = x.copy()
@@ -465,14 +466,14 @@ class InputChecksTests(unittest.TestCase):
         check_row_ids(["a", "b"], n_rows=2)
 
     def test_corrupt_cached_arrays_are_rejected(self):
-        """
-        函数名：InputChecksTests.test_corrupt_cached_arrays_are_rejected
-        功能：验证形状、标签或来源行号损坏的 NPZ 缓存无法被静默加载。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：InputChecksTests.test_corrupt_cached_arrays_are_rejected
+        # 功能：验证形状、标签或来源行号损坏的 NPZ 缓存无法被静默加载。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'corrupt.npz'
             valid = {'X': np.ones((3, 12)), 'labels': np.zeros((3, 4), dtype=np.int8),

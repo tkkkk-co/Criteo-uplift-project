@@ -28,55 +28,55 @@ DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
 
 def row_ids_sha256(ids):
-    """
-    函数名：row_ids_sha256
-    功能：对来源 row_id 排序后按固定 int64 字节编码计算 SHA256，用于记录样本行集合指纹。
-    输入参数：
-        - ids：来源 row_id 向量。
-    输出参数：
-        - 十六进制 SHA256 字符串。
-    """
+    #-------------
+    # 函数名：row_ids_sha256
+    # 功能：对来源 row_id 排序后按固定 int64 字节编码计算 SHA256，用于记录样本行集合指纹。
+    # 输入参数：
+    #     - ids：来源 row_id 向量。
+    # 输出参数：
+    #     - 十六进制 SHA256 字符串。
+    #-------------
     return sha256(np.sort(np.asarray(ids, dtype="<i8")).tobytes()).hexdigest()
 
 
 def _checked_ids(values, label):
-    """
-    函数名：_checked_ids
-    功能：校验来源行号唯一、非空且为非负整数，再转换为 int64 数组。
-    输入参数：
-        - values：待校验的来源 row_id 向量。
-        - label：用于错误信息的来源标识名称。
-    输出参数：
-        - 通过校验的 int64 row_id 数组。
-    """
+    #-------------
+    # 函数名：_checked_ids
+    # 功能：校验来源行号唯一、非空且为非负整数，再转换为 int64 数组。
+    # 输入参数：
+    #     - values：待校验的来源 row_id 向量。
+    #     - label：用于错误信息的来源标识名称。
+    # 输出参数：
+    #     - 通过校验的 int64 row_id 数组。
+    #-------------
     check_row_ids(values, label, require_integer=True)
     return np.asarray(values, dtype=np.int64)
 
 
 def _binary_vectors(t, y):
-    """
-    函数名：_binary_vectors
-    功能：同时校验处理分配和结果变量为合法二元向量，并转换为 int8 数组。
-    输入参数：
-        - t：0/1 处理分配向量，要求两组均存在。
-        - y：与 t 等长的 0/1 结果向量。
-    输出参数：
-        - 二元组：(int8 处理数组, int8 结果数组)。
-    """
+    #-------------
+    # 函数名：_binary_vectors
+    # 功能：同时校验处理分配和结果变量为合法二元向量，并转换为 int8 数组。
+    # 输入参数：
+    #     - t：0/1 处理分配向量，要求两组均存在。
+    #     - y：与 t 等长的 0/1 结果向量。
+    # 输出参数：
+    #     - 二元组：(int8 处理数组, int8 结果数组)。
+    #-------------
     check_binary_vector(t, "t", require_both=True)
     check_binary_vector(y, "y", len(t))
     return np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
 
 
 def _validate_fractions(fractions):
-    """
-    函数名：_validate_fractions
-    功能：校验训练样本比例为严格递增、唯一且位于 (0,1] 的序列。
-    输入参数：
-        - fractions：待检查的训练样本比例序列。
-    输出参数：
-        - 转换为 float 的比例元组。
-    """
+    #-------------
+    # 函数名：_validate_fractions
+    # 功能：校验训练样本比例为严格递增、唯一且位于 (0,1] 的序列。
+    # 输入参数：
+    #     - fractions：待检查的训练样本比例序列。
+    # 输出参数：
+    #     - 转换为 float 的比例元组。
+    #-------------
     fractions = tuple(float(f) for f in fractions)
     if (
         not fractions
@@ -85,20 +85,20 @@ def _validate_fractions(fractions):
         or tuple(sorted(set(fractions))) != fractions
     ):
         raise ValueError(
-            "fractions must be strictly increasing unique values in (0, 1]"
+            "fractions 必须为 (0, 1] 内严格递增且不重复的数值"
         )
     return fractions
 
 
 def _validate_seeds(seeds):
-    """
-    函数名：_validate_seeds
-    功能：校验随机种子为非负、唯一且位于 NumPy 允许范围内的整数。
-    输入参数：
-        - seeds：待检查的随机种子序列。
-    输出参数：
-        - 转换为 Python int 的种子元组。
-    """
+    #-------------
+    # 函数名：_validate_seeds
+    # 功能：校验随机种子为非负、唯一且位于 NumPy 允许范围内的整数。
+    # 输入参数：
+    #     - seeds：待检查的随机种子序列。
+    # 输出参数：
+    #     - 转换为 Python int 的种子元组。
+    #-------------
     seeds = tuple(seeds)
     if (
         not seeds
@@ -111,38 +111,38 @@ def _validate_seeds(seeds):
         )
         or len(set(seeds)) != len(seeds)
     ):
-        raise ValueError("seeds must be unique integers in [0, 2**32)")
+        raise ValueError("seeds 必须为 [0, 2**32) 内不重复的整数")
     return tuple(int(s) for s in seeds)
 
 
 def feature_groups(frame):
-    """
-    函数名：feature_groups
-    功能：将 f0–f11 转为 float32 后计算每行匿名特征向量哈希，用于特征分组隔离检查。
-    输入参数：
-        - frame：包含 f0–f11 的样本 DataFrame。
-    输出参数：
-        - 每行对应一个匿名特征组的 uint64 哈希数组。
-    """
+    #-------------
+    # 函数名：feature_groups
+    # 功能：将 f0–f11 转为 float32 后计算每行匿名特征向量哈希，用于特征分组隔离检查。
+    # 输入参数：
+    #     - frame：包含 f0–f11 的样本 DataFrame。
+    # 输出参数：
+    #     - 每行对应一个匿名特征组的 uint64 哈希数组。
+    #-------------
     return pd.util.hash_pandas_object(
         frame[FEATURES].astype(np.float32), index=False
     ).to_numpy(dtype=np.uint64)
 
 
 def load_development_sample(cache, base_run, outcome="conversion"):
-    """
-    函数名：load_development_sample
-    功能：读取样本缓存和原实验清单，核对来源及 Test 行号，并排除原 Test 得到 Stability 开发样本。
-    输入参数：
-        - cache：建模样本 NPZ 缓存路径。
-        - base_run：已有完整实验的输出目录。
-        - outcome：Stability 使用的结果列名，须与基准实验一致。
-    输出参数：
-        - 三元组：(排除旧 Test 后的 development DataFrame、旧 Test row_id 数组、输入来源及行集合 provenance 字典)。
-    """
+    #-------------
+    # 函数名：load_development_sample
+    # 功能：读取样本缓存和原实验清单，核对来源及 Test 行号，并排除原 Test 得到 Stability 开发样本。
+    # 输入参数：
+    #     - cache：建模样本 NPZ 缓存路径。
+    #     - base_run：已有完整实验的输出目录。
+    #     - outcome：Stability 使用的结果列名，须与基准实验一致。
+    # 输出参数：
+    #     - 三元组：(排除旧 Test 后的 development DataFrame、旧 Test row_id 数组、输入来源及行集合 provenance 字典)。
+    #-------------
     cache, base_run = Path(cache).resolve(), Path(base_run).resolve()
     if outcome not in ("conversion", "visit"):
-        raise ValueError("outcome must be conversion or visit")
+        raise ValueError("outcome 必须为 conversion 或 visit")
     manifest_path = base_run / "manifest.json"
     test_path = (base_run / 'data_preparation' / 'test_row_ids.csv')
     metadata_path = cache.with_suffix(".json")
@@ -151,22 +151,22 @@ def load_development_sample(cache, base_run, outcome="conversion"):
     if manifest.get("status") not in ("complete", "models_frozen") or (
         manifest.get("status") == "models_frozen" and not manifest.get("selection", {}).get("frozen_before_test")
     ):
-        raise ValueError("the base run must have a complete manifest")
+        raise ValueError("基础实验必须具有完整的运行清单")
     source_sha = manifest.get("source", {}).get("sha256")
     if not source_sha or source_sha != metadata.get("source", {}).get("sha256"):
-        raise ValueError("cache metadata and base run source SHA256 disagree")
+        raise ValueError("缓存说明与基础实验的来源 SHA256 不一致")
     if manifest.get("primary_outcome") != outcome:
-        raise ValueError("study outcome must match the existing base run")
+        raise ValueError("敏感性研究的结果变量必须与基础实验一致")
     sample = load_sample(cache)
     ids = _checked_ids(sample.row_id.to_numpy(), "cache")
     test_table = pd.read_csv(test_path)
     if list(test_table.columns) != ["row_id"]:
-        raise ValueError("test_row_ids.csv must contain exactly the row_id column")
+        raise ValueError("test_row_ids.csv 必须且只能包含 row_id 列")
     old_test_ids = _checked_ids(test_table.row_id.to_numpy(), "old test")
     if not np.isin(old_test_ids, ids).all():
-        raise ValueError("old test row IDs are not all present in the supplied cache")
+        raise ValueError("提供的缓存未包含原测试集的全部来源行号")
     if manifest.get("sample_n") != len(sample):
-        raise ValueError("cache row count disagrees with base manifest")
+        raise ValueError("缓存行数与基础实验清单不一致")
     requested = metadata.get("sample_size")
     source_rows = metadata.get("source_n")
     if (
@@ -174,10 +174,10 @@ def load_development_sample(cache, base_run, outcome="conversion"):
         or isinstance(source_rows, bool) or not isinstance(source_rows, int)
         or source_rows < len(sample) or metadata.get("sample_n") != len(sample)
     ):
-        raise ValueError("cache row count disagrees with cache metadata")
+        raise ValueError("缓存行数与缓存说明不一致")
     expected_n = source_rows if requested == 0 else min(requested, source_rows)
     if len(sample) != expected_n:
-        raise ValueError("cache row count disagrees with cache metadata")
+        raise ValueError("缓存行数与缓存说明不一致")
     check_feature_matrix(sample[FEATURES], n_features=len(FEATURES))
     _binary_vectors(sample.treatment, sample[outcome])
     development = sample.loc[~sample.row_id.isin(old_test_ids)].reset_index(drop=True)
@@ -202,17 +202,17 @@ def load_development_sample(cache, base_run, outcome="conversion"):
 
 
 def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
-    """
-    函数名：nested_stratified_indices
-    功能：在 treatment × outcome 分层内生成嵌套、无放回的训练样本位置索引。
-    输入参数：
-        - t：处理分配二元向量。
-        - y：结果变量二元向量。
-        - fractions：严格递增的训练样本比例序列。
-        - seed：分层抽样随机种子。
-    输出参数：
-        - 字典：以训练比例为键、对应样本位置索引数组为值。
-    """
+    #-------------
+    # 函数名：nested_stratified_indices
+    # 功能：在 treatment × outcome 分层内生成嵌套、无放回的训练样本位置索引。
+    # 输入参数：
+    #     - t：处理分配二元向量。
+    #     - y：结果变量二元向量。
+    #     - fractions：严格递增的训练样本比例序列。
+    #     - seed：分层抽样随机种子。
+    # 输出参数：
+    #     - 字典：以训练比例为键、对应样本位置索引数组为值。
+    #-------------
     t, y = _binary_vectors(t, y)
     fractions = _validate_fractions(fractions)
     _validate_seeds((seed,))
@@ -228,30 +228,30 @@ def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
         indices = np.sort(indices)
         if len(indices) == 0 or len(np.unique(t[indices])) != 2:
             raise ValueError(
-                f"fraction {fraction} leaves too few rows or a missing treatment arm"
+                f"比例 {fraction} 下保留的行数不足或缺少某个处理臂"
             )
         result[fraction] = indices
     return result
 
 
 def development_splits(frame, seed=17, outcome="conversion"):
-    """
-    函数名：development_splits
-    功能：为 Stability 开发样本构造行级 T×Y 分层划分和匿名特征分组划分，并检查两种划分无泄漏。
-    输入参数：
-        - frame：已排除原 Test 的开发样本 DataFrame。
-        - seed：本次开发划分随机种子。
-        - outcome：用于分层和模型训练的二元结果列名。
-    输出参数：
-        - 字典：row_stratified 和 feature_group 两种划分各自的训练/验证位置索引二元组。
-    """
+    #-------------
+    # 函数名：development_splits
+    # 功能：为 Stability 开发样本构造行级 T×Y 分层划分和匿名特征分组划分，并检查两种划分无泄漏。
+    # 输入参数：
+    #     - frame：已排除原 Test 的开发样本 DataFrame。
+    #     - seed：本次开发划分随机种子。
+    #     - outcome：用于分层和模型训练的二元结果列名。
+    # 输出参数：
+    #     - 字典：row_stratified 和 feature_group 两种划分各自的训练/验证位置索引二元组。
+    #-------------
     _validate_seeds((seed,))
     t, y = _binary_vectors(frame.treatment, frame[outcome])
     strata = t * 2 + y
     counts = np.unique(strata, return_counts=True)[1]
     if counts.min() < 2:
         raise ValueError(
-            "each observed T x Y stratum needs at least two development rows"
+            "每个已观测的 T × Y 分层至少需要两条开发集记录"
         )
     positions = np.arange(len(frame))
     train, validation = train_test_split(
@@ -259,7 +259,7 @@ def development_splits(frame, seed=17, outcome="conversion"):
     )
     groups = feature_groups(frame)
     if len(np.unique(groups)) < 2:
-        raise ValueError("feature-group sensitivity needs at least two feature groups")
+        raise ValueError("特征分组敏感性分析至少需要两个特征组")
     group_train, group_validation = next(
         GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=seed).split(
             positions, groups=groups
@@ -280,16 +280,16 @@ def development_splits(frame, seed=17, outcome="conversion"):
 
 
 def _counts(frame, outcome, prefix):
-    """
-    函数名：_counts
-    功能：汇总指定 DataFrame 中 Control/Treatment 人数及对应结果正例数，并添加字段前缀。
-    输入参数：
-        - frame：需要统计的训练或验证 DataFrame。
-        - outcome：统计的二元结果列名。
-        - prefix：输出字段使用的前缀，例如 train 或 validation。
-    输出参数：
-        - 人数和正例数统计字典。
-    """
+    #-------------
+    # 函数名：_counts
+    # 功能：汇总指定 DataFrame 中 Control/Treatment 人数及对应结果正例数，并添加字段前缀。
+    # 输入参数：
+    #     - frame：需要统计的训练或验证 DataFrame。
+    #     - outcome：统计的二元结果列名。
+    #     - prefix：输出字段使用的前缀，例如 train 或 validation。
+    # 输出参数：
+    #     - 人数和正例数统计字典。
+    #-------------
     t, y = frame.treatment.to_numpy(), frame[outcome].to_numpy()
     return {
         f"{prefix}_n": len(frame),
@@ -301,14 +301,14 @@ def _counts(frame, outcome, prefix):
 
 
 def _summarize(longmetrics):
-    """
-    函数名：_summarize
-    功能：按划分方式、训练比例和策略汇总 Stability 指标的均值、标准差、极值及 Validation 选择频率。
-    输入参数：
-        - longmetrics：每次开发实验逐策略记录的长表 DataFrame。
-    输出参数：
-        - 二元组：(聚合指标 DataFrame、策略选择频率 DataFrame)。
-    """
+    #-------------
+    # 函数名：_summarize
+    # 功能：按划分方式、训练比例和策略汇总 Stability 指标的均值、标准差、极值及 Validation 选择频率。
+    # 输入参数：
+    #     - longmetrics：每次开发实验逐策略记录的长表 DataFrame。
+    # 输出参数：
+    #     - 二元组：(聚合指标 DataFrame、策略选择频率 DataFrame)。
+    #-------------
     dimensions = ["split_method", "training_fraction", "policy"]
     quantities = [
         "incremental_per_100k",
@@ -352,29 +352,29 @@ def run_stability(
     primary_budget=0.2,
     outcome="conversion",
 ):
-    """
-    函数名：run_stability
-    功能：在排除原 Test 的开发数据上运行多随机种子、训练规模和划分方式敏感性分析，并保存协议、明细和汇总。
-    输入参数：
-        - cache：当前样本 NPZ 缓存路径。
-        - base_run：作为来源和旧 Test 行号依据的基准实验目录。
-        - output：本次 Stability 新输出目录。
-        - seeds：重复开发实验使用的随机种子序列。
-        - fractions：行分层划分下使用的嵌套训练比例序列。
-        - trees：Stability 中 XGBoost 模型的树数量。
-        - primary_budget：比较策略时使用的主要触达预算。
-        - outcome：模型训练和指标计算使用的结果列名。
-    输出参数：
-        - 完成后的 Stability 输出目录 pathlib.Path；同时写入 protocol、逐次指标、划分审计和汇总文件。
-    """
+    #-------------
+    # 函数名：run_stability
+    # 功能：在排除原 Test 的开发数据上运行多随机种子、训练规模和划分方式敏感性分析，并保存协议、明细和汇总。
+    # 输入参数：
+    #     - cache：当前样本 NPZ 缓存路径。
+    #     - base_run：作为来源和旧 Test 行号依据的基准实验目录。
+    #     - output：本次 Stability 新输出目录。
+    #     - seeds：重复开发实验使用的随机种子序列。
+    #     - fractions：行分层划分下使用的嵌套训练比例序列。
+    #     - trees：Stability 中 XGBoost 模型的树数量。
+    #     - primary_budget：比较策略时使用的主要触达预算。
+    #     - outcome：模型训练和指标计算使用的结果列名。
+    # 输出参数：
+    #     - 完成后的 Stability 输出目录 pathlib.Path；同时写入 protocol、逐次指标、划分审计和汇总文件。
+    #-------------
     from .config import configure_runtime
 
     configure_runtime()
     seeds, fractions = _validate_seeds(seeds), _validate_fractions(fractions)
     if not isinstance(trees, (int, np.integer)) or isinstance(trees, bool) or trees < 1:
-        raise ValueError("trees must be a positive integer")
+        raise ValueError("trees 必须为正整数")
     if not np.isfinite(primary_budget) or not 0 < primary_budget <= 1:
-        raise ValueError("primary_budget must lie in (0, 1]")
+        raise ValueError("primary_budget 必须属于 (0, 1]")
     output = safe_output(output)
     base_run, cache = Path(base_run).resolve(), Path(cache).resolve()
     if (
@@ -384,7 +384,7 @@ def run_stability(
         or cache.parent in output.parents
     ):
         raise ValueError(
-            "output must be separate from the original run and sample cache"
+            "输出目录必须与原实验目录和样本缓存分开"
         )
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f"output already exists and is nonempty: {output}")

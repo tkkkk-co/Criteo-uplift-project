@@ -21,27 +21,27 @@ from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate
 #-----------------------------------------------------------------------------------------------------------------------
 class EvaluationTests(unittest.TestCase):
     def setUp(self):
-        """
-        函数名：EvaluationTests.setUp
-        功能：准备 ATE、HT 曲线和 Policy Evaluation 测试共用的二元样本及策略分数。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；初始化或清理测试实例状态。
-        """
+        #-------------
+        # 函数名：EvaluationTests.setUp
+        # 功能：准备 ATE、HT 曲线和 Policy Evaluation 测试共用的二元样本及策略分数。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；初始化或清理测试实例状态。
+        #-------------
         self.y = np.array([1, 0, 1, 0, 1, 1, 0, 0])
         self.t = np.array([1, 1, 0, 0, 1, 1, 0, 0])
         self.scores = np.array([8, 7, 6, 5, 4, 3, 2, 1], dtype=float)
 
     def test_difference_in_means_and_pooled_null(self):
-        """
-        函数名：EvaluationTests.test_difference_in_means_and_pooled_null
-        功能：验证 ATE 差均值估计、标准误和 pooled 零假设检验与手工公式一致。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_difference_in_means_and_pooled_null
+        # 功能：验证 ATE 差均值估计、标准误和 pooled 零假设检验与手工公式一致。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         result = ate_summary(self.y, self.t)
         self.assertEqual(result["ate"], 0.5)
         self.assertEqual(result["relative_uplift"], 2.0)
@@ -51,14 +51,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertGreater(result["ci_high"], result["ate"])
 
     def test_ate_row_and_audit_paths_agree_for_every_statistic(self):
-        """
-        函数名：EvaluationTests.test_ate_row_and_audit_paths_agree_for_every_statistic
-        功能：验证逐行 ATE 与 Audit 计数 ATE 的估计、标准误、置信区间和 p 值字段一致。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_ate_row_and_audit_paths_agree_for_every_statistic
+        # 功能：验证逐行 ATE 与 Audit 计数 ATE 的估计、标准误、置信区间和 p 值字段一致。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         for y, t in ((self.y, self.t), (np.array([1, 0, 1]), np.array([0, 1, 1])),
                      (np.zeros(8), self.t), (np.ones(8), self.t)):
             audit = {"groups": {str(arm): {"n": int((t == arm).sum()),
@@ -72,14 +72,14 @@ class EvaluationTests(unittest.TestCase):
                     np.testing.assert_allclose(actual[key], expected[key], equal_nan=True, rtol=0, atol=0)
 
     def test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range(self):
-        """
-        函数名：EvaluationTests.test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range
-        功能：验证极端正态尾部概率在浮点下溢附近仍保留可用的 log p 值和文本表示。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_normal_tail_retains_subnormal_probability_and_log_beyond_float_range
+        # 功能：验证极端正态尾部概率在浮点下溢附近仍保留可用的 log p 值和文本表示。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         # z=38 的双侧尾概率仍可用 subnormal float 表达，不能提前截为零。
         p, log_p, text = _normal_pvalue(38.0)
         self.assertGreater(p, 0.0)
@@ -98,14 +98,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(_normal_pvalue(0.0), (1.0, 0.0, '1.000e+00'))
 
     def test_ate_extreme_pvalues_preserve_test_and_estimates(self):
-        """
-        函数名：EvaluationTests.test_ate_extreme_pvalues_preserve_test_and_estimates
-        功能：验证极端 p 值场景下检验结果不会改变 ATE 点估计及其区间。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_ate_extreme_pvalues_preserve_test_and_estimates
+        # 功能：验证极端 p 值场景下检验结果不会改变 ATE 点估计及其区间。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         y = np.r_[np.ones(8000), np.zeros(2000), np.ones(1000), np.zeros(9000)]
         t = np.repeat([1, 0], 10000)
         row = ate_summary(y, t)
@@ -130,14 +130,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertTrue(np.isnan(ate_summary(np.r_[1., 0., 1.], np.r_[0, 1, 1])['standard_error']))
 
     def test_aggregate_ate_rejects_invalid_counts(self):
-        """
-        函数名：EvaluationTests.test_aggregate_ate_rejects_invalid_counts
-        功能：验证 ATE 计数聚合函数拒绝非法人数、正例数和非整数计数。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_aggregate_ate_rejects_invalid_counts
+        # 功能：验证 ATE 计数聚合函数拒绝非法人数、正例数和非整数计数。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         for n, positive in ((0, 0), (2, 3), (2, -1), (2.5, 1), (True, 1)):
             audit = {'groups': {
                 '0': {'n': n, 'conversion': {'positive': positive}},
@@ -147,28 +147,28 @@ class EvaluationTests(unittest.TestCase):
                 ate_summary_from_audit(audit, 'conversion')
 
     def test_constant_outcomes_and_missing_control_response(self):
-        """
-        函数名：EvaluationTests.test_constant_outcomes_and_missing_control_response
-        功能：验证常量结果和某一处理臂缺失正例时 ATE 的边界计算行为。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_constant_outcomes_and_missing_control_response
+        # 功能：验证常量结果和某一处理臂缺失正例时 ATE 的边界计算行为。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         result = ate_summary(np.zeros(8), self.t)
         self.assertEqual(result["p_value"], 1.0)
         self.assertEqual(result["standard_error"], 0.0)
         self.assertTrue(np.isnan(result["relative_uplift"]))
 
     def test_ht_curve_preserves_fixed_assignment_probability(self):
-        """
-        函数名：EvaluationTests.test_ht_curve_preserves_fixed_assignment_probability
-        功能：验证 HT 曲线始终使用调用方传入的固定处理分配概率。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_ht_curve_preserves_fixed_assignment_probability
+        # 功能：验证 HT 曲线始终使用调用方传入的固定处理分配概率。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         curve = uplift_curve(self.y, self.t, self.scores, e=0.8)
         expected_z = self.t * self.y / 0.8 - (1 - self.t) * self.y / 0.2
         np.testing.assert_allclose(curve.gain_ht, np.r_[0.0, expected_z.cumsum()] / 8)
@@ -182,14 +182,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertTrue(np.isnan(curve.uplift.iloc[2]))
 
     def test_area_uses_full_curve_and_centering(self):
-        """
-        函数名：EvaluationTests.test_area_uses_full_curve_and_centering
-        功能：验证曲线积分使用完整前缀分辨率，并按终点随机基线进行中心化。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_area_uses_full_curve_and_centering
+        # 功能：验证曲线积分使用完整前缀分辨率，并按终点随机基线进行中心化。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         curve = uplift_curve(self.y, self.t, self.scores, e=0.5)
         metrics = ranking_metrics(self.y, self.t, self.scores, e=0.5)
         expected = sum(
@@ -199,14 +199,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["qini_ht"], expected - metrics["ate_ht"] / 2)
 
     def test_traditional_qini_bridges_initial_undefined_prefix(self):
-        """
-        函数名：EvaluationTests.test_traditional_qini_bridges_initial_undefined_prefix
-        功能：验证传统 Qini 在初始前缀未同时出现两组时采用规定的积分连接方式。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_traditional_qini_bridges_initial_undefined_prefix
+        # 功能：验证传统 Qini 在初始前缀未同时出现两组时采用规定的积分连接方式。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         y, t = [1, 0, 0, 1], [1, 1, 0, 0]
         scores = [4, 3, 2, 1]
         curve = uplift_curve(y, t, scores, e=0.5)
@@ -218,14 +218,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(metrics["qini_score_traditional"], 1 / 8)
 
     def test_traditional_qini_centers_its_own_full_coverage_endpoint(self):
-        """
-        函数名：EvaluationTests.test_traditional_qini_centers_its_own_full_coverage_endpoint
-        功能：验证传统 Qini 使用自身全覆盖终点计算随机基线面积。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_traditional_qini_centers_its_own_full_coverage_endpoint
+        # 功能：验证传统 Qini 使用自身全覆盖终点计算随机基线面积。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         y, t = [1, 0, 0, 0], [1, 1, 0, 0]
         scores = [4, 3, 2, 1]
         curve = uplift_curve(y, t, scores, e=0.6)
@@ -237,27 +237,27 @@ class EvaluationTests(unittest.TestCase):
         self.assertNotEqual(metrics["qini_score_traditional"], metrics["qini_ht"])
 
     def test_traditional_score_is_not_changed_by_ht_assignment_probability(self):
-        """
-        函数名：EvaluationTests.test_traditional_score_is_not_changed_by_ht_assignment_probability
-        功能：验证传统 Qini 排序分数不受 HT 处理分配概率参数影响。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_traditional_score_is_not_changed_by_ht_assignment_probability
+        # 功能：验证传统 Qini 排序分数不受 HT 处理分配概率参数影响。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         a = ranking_metrics(self.y, self.t, self.scores, e=0.5)
         b = ranking_metrics(self.y, self.t, self.scores, e=0.8)
         self.assertEqual(a["qini_score_traditional"], b["qini_score_traditional"])
 
     def test_tie_break_is_seeded_and_does_not_use_row_order(self):
-        """
-        函数名：EvaluationTests.test_tie_break_is_seeded_and_does_not_use_row_order
-        功能：验证相同分数的排序由独立随机种子决定，而不依赖输入行顺序。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_tie_break_is_seeded_and_does_not_use_row_order
+        # 功能：验证相同分数的排序由独立随机种子决定，而不依赖输入行顺序。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         n = 100
         t = np.r_[np.ones(n // 2), np.zeros(n // 2)]
         y = np.ones(n)
@@ -269,14 +269,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertGreater(a.n_control.iloc[10], 0)
 
     def test_weighted_prefix_reselects_boundary(self):
-        """
-        函数名：EvaluationTests.test_weighted_prefix_reselects_boundary
-        功能：验证 Bootstrap 权重压缩表示在 top-k 边界处正确重新选择部分样本。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_weighted_prefix_reselects_boundary
+        # 功能：验证 Bootstrap 权重压缩表示在 top-k 边界处正确重新选择部分样本。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         # 展开重复次数后的排序样本为 [3, 3, -2, -2, -2, 7]。
         z = np.array([10.0, 3.0, -2.0, 7.0])
         counts = np.array([0, 2, 3, 1])
@@ -285,14 +285,14 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_array_equal(_prefix_values(z, counts, k), expected)
 
     def test_same_score_paired_difference_is_exactly_zero(self):
-        """
-        函数名：EvaluationTests.test_same_score_paired_difference_is_exactly_zero
-        功能：验证两个完全相同的策略分数在配对比较中的增量差值严格为零。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_same_score_paired_difference_is_exactly_zero
+        # 功能：验证两个完全相同的策略分数在配对比较中的增量差值严格为零。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         result = evaluate_policies(
             self.y,
             self.t,
@@ -313,14 +313,14 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(full.vs_random_ci_high, 0, atol=1e-10)
 
     def test_bootstrap_is_reproducible_and_point_estimates_unchanged(self):
-        """
-        函数名：EvaluationTests.test_bootstrap_is_reproducible_and_point_estimates_unchanged
-        功能：验证 Policy Bootstrap 在相同随机种子下可复现，且不改变原始点估计。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_bootstrap_is_reproducible_and_point_estimates_unchanged
+        # 功能：验证 Policy Bootstrap 在相同随机种子下可复现，且不改变原始点估计。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         kwargs = dict(
             y=self.y,
             t=self.t,
@@ -341,14 +341,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertTrue(point.vs_propensity_per_100k.isna().all())
 
     def test_budget_rounding_and_analytic_random(self):
-        """
-        函数名：EvaluationTests.test_budget_rounding_and_analytic_random
-        功能：验证预算比例向下取整得到 top-k 人数，并正确计算随机策略解析期望。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_budget_rounding_and_analytic_random
+        # 功能：验证预算比例向下取整得到 top-k 人数，并正确计算随机策略解析期望。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         result = evaluate_policies(
             self.y, self.t, {"S": self.scores}, e=0.5, budgets=[0.01, 0.3], bootstrap=0
         )
@@ -358,14 +358,14 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_array_equal(random.incremental_per_100k, [0, 12_500])
 
     def test_paired_difference_matches_direct_resampling(self):
-        """
-        函数名：EvaluationTests.test_paired_difference_matches_direct_resampling
-        功能：验证优化后的配对 Bootstrap 差值区间与显式直接重抽样结果一致。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_paired_difference_matches_direct_resampling
+        # 功能：验证优化后的配对 Bootstrap 差值区间与显式直接重抽样结果一致。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         # 通过显式展开抽样行，独立核对优化后的重抽样计算。
         budgets = np.array([0.25, 0.5])
         seed, replicates = 15, 30
@@ -396,14 +396,14 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(selected.vs_random_ci_high, expected[1])
 
     def test_calibration_bins_cover_data_and_missing_arms_are_nan(self):
-        """
-        函数名：EvaluationTests.test_calibration_bins_cover_data_and_missing_arms_are_nan
-        功能：验证校准分箱完整覆盖样本，缺少某个处理臂的分箱保留 NaN。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_calibration_bins_cover_data_and_missing_arms_are_nan
+        # 功能：验证校准分箱完整覆盖样本，缺少某个处理臂的分箱保留 NaN。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         bins = calibration_table(self.y, self.t, self.scores, n_bins=4)
         self.assertEqual(bins.n.sum(), len(self.y))
         self.assertTrue(bins.predicted_cate.is_monotonic_increasing)
@@ -412,14 +412,14 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual(single.observed_ate.iloc[0], 0.5)
 
     def test_invalid_inputs_fail_explicitly(self):
-        """
-        函数名：EvaluationTests.test_invalid_inputs_fail_explicitly
-        功能：验证 ATE、Policy Evaluation 和校准函数对非法输入明确报错。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EvaluationTests.test_invalid_inputs_fail_explicitly
+        # 功能：验证 ATE、Policy Evaluation 和校准函数对非法输入明确报错。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         with self.assertRaises(ValueError):
             ate_summary([1, 0], [1, 1])
         with self.assertRaises(ValueError):
@@ -446,27 +446,27 @@ class EvaluationTests(unittest.TestCase):
 #-----------------------------------------------------------------------------------------------------------------------
 class ExtendedMetricTests(unittest.TestCase):
     def setUp(self):
-        """
-        函数名：ExtendedMetricTests.setUp
-        功能：准备扩展排序指标测试使用的八行手工数据和评分向量。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；初始化或清理测试实例状态。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.setUp
+        # 功能：准备扩展排序指标测试使用的八行手工数据和评分向量。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；初始化或清理测试实例状态。
+        #-------------
         self.t = np.array([1, 0, 1, 0, 1, 0, 1, 0])
         self.y = np.array([1, 0, 1, 0, 0, 1, 1, 0])
         self.s = np.arange(8, 0, -1)
 
     def test_full_eight_row_hand_example(self):
-        """
-        函数名：ExtendedMetricTests.test_full_eight_row_hand_example
-        功能：使用八行手工样本核对 uplift curve、HT gain 和 Qini 指标的完整计算结果。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_full_eight_row_hand_example
+        # 功能：使用八行手工样本核对 uplift curve、HT gain 和 Qini 指标的完整计算结果。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         c = uplift_curve(self.y, self.t, self.s, 0.5)
         np.testing.assert_allclose(
             c.cumulative_lift.iloc[2:], [1, 1, 1, 2 / 3, 1 / 3, 5 / 12, 1 / 2]
@@ -489,14 +489,14 @@ class ExtendedMetricTests(unittest.TestCase):
             self.assertAlmostEqual(m[name], expected)
 
     def test_qini_keeps_defined_control_only_zero_nodes(self):
-        """
-        函数名：ExtendedMetricTests.test_qini_keeps_defined_control_only_zero_nodes
-        功能：验证传统 Qini 保留仅包含 Control 的已定义零值前缀节点。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_qini_keeps_defined_control_only_zero_nodes
+        # 功能：验证传统 Qini 保留仅包含 Control 的已定义零值前缀节点。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         # Qini 曲线点为 (0,0)、(.25,0)、(.5,.25)、(.75,.25)、(1,.5)。
         # 曲线面积 3/16 减去随机基线面积 1/4，得到 -1/16。
         m = ranking_metrics([0, 1, 0, 1], [0, 1, 0, 1], [4, 3, 2, 1], 0.5)
@@ -510,14 +510,14 @@ class ExtendedMetricTests(unittest.TestCase):
         np.testing.assert_allclose(curve.qini_traditional.iloc[3:], [1 / 4, 1 / 2])
 
         def centered_area(mask):
-            """
-            函数名：ExtendedMetricTests.test_qini_keeps_defined_control_only_zero_nodes.centered_area
-            功能：计算给定曲线节点相对端点随机基线的中心化面积。
-            输入参数：
-                - mask：用于选择参与积分的曲线节点的布尔掩码。
-            输出参数：
-                - 中心化曲线面积的浮点数。
-            """
+            #-------------
+            # 函数名：ExtendedMetricTests.test_qini_keeps_defined_control_only_zero_nodes.centered_area
+            # 功能：计算给定曲线节点相对端点随机基线的中心化面积。
+            # 输入参数：
+            #     - mask：用于选择参与积分的曲线节点的布尔掩码。
+            # 输出参数：
+            #     - 中心化曲线面积的浮点数。
+            #-------------
             x = np.r_[0.0, curve.loc[mask, 'fraction'].to_numpy()]
             q = np.r_[0.0, curve.loc[mask, 'qini_traditional'].to_numpy()]
             return np.sum(np.diff(x) * (q[1:] + q[:-1]) / 2) - q[-1] / 2
@@ -529,28 +529,28 @@ class ExtendedMetricTests(unittest.TestCase):
         self.assertEqual(ranking_metrics(y, t, scores, 0.5)['qini_score_traditional'], v2)
 
     def test_relative_lift_undefined_for_nonpositive_total_effect(self):
-        """
-        函数名：ExtendedMetricTests.test_relative_lift_undefined_for_nonpositive_total_effect
-        功能：验证总体处理效应非正时，相对 lift 被标记为未定义而不产生误导数值。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_relative_lift_undefined_for_nonpositive_total_effect
+        # 功能：验证总体处理效应非正时，相对 lift 被标记为未定义而不产生误导数值。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         for y in [np.zeros(8), 1 - self.y]:
             c = uplift_curve(y, self.t, self.s, 0.5)
             self.assertTrue(c.relative_lift.isna().all())
             self.assertTrue(np.isfinite(c.gain_plugin.iloc[-1]))
 
     def test_paired_ranking_intervals_same_score_zero_difference(self):
-        """
-        函数名：ExtendedMetricTests.test_paired_ranking_intervals_same_score_zero_difference
-        功能：验证相同策略评分的配对排序指标差值及其 Bootstrap 区间为零。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_paired_ranking_intervals_same_score_zero_difference
+        # 功能：验证相同策略评分的配对排序指标差值及其 Bootstrap 区间为零。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         r = ranking_confidence_intervals(
             self.y, self.t, {'propensity': self.s, 'same': self.s}, 0.5, 30
         )
@@ -560,14 +560,14 @@ class ExtendedMetricTests(unittest.TestCase):
         np.testing.assert_array_equal(same.vs_propensity_ci_high, 0)
 
     def test_ranking_bootstrap_matches_independent_expanded_sample(self):
-        """
-        函数名：ExtendedMetricTests.test_ranking_bootstrap_matches_independent_expanded_sample
-        功能：验证排名指标 Bootstrap 与独立展开重抽样样本的计算结果一致。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_ranking_bootstrap_matches_independent_expanded_sample
+        # 功能：验证排名指标 Bootstrap 与独立展开重抽样样本的计算结果一致。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         seed, draws = 19, 40
         score_dict = {'propensity': self.s, 'reverse': -self.s}
         r = ranking_confidence_intervals(self.y, self.t, score_dict, 0.5, draws, seed)
@@ -593,14 +593,14 @@ class ExtendedMetricTests(unittest.TestCase):
         )
 
     def test_no_draws_and_invalid_bootstrap(self):
-        """
-        函数名：ExtendedMetricTests.test_no_draws_and_invalid_bootstrap
-        功能：验证关闭 Bootstrap 和传入非法重抽样次数时的边界行为。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：ExtendedMetricTests.test_no_draws_and_invalid_bootstrap
+        # 功能：验证关闭 Bootstrap 和传入非法重抽样次数时的边界行为。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         r = ranking_confidence_intervals(self.y, self.t, {'s': self.s}, 0.5, 0)
         self.assertTrue(r.ci_low.isna().all())
         self.assertTrue(r.vs_propensity.isna().all())

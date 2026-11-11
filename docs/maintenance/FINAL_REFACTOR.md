@@ -66,7 +66,7 @@ ATE 冲突已由用户确认统一为原逐行口径：两条路径均使用 n�
 | criteo_uplift/pipeline_io.py | `save_sample` | criteo_uplift/pipeline_io.py | `save_sample` | 保留 |
 | criteo_uplift/pipeline_io.py | `load_sample` | criteo_uplift/pipeline_io.py | `load_sample` | 保留 |
 | criteo_uplift/pipeline_io.py | `result_directory` | criteo_uplift/pipeline_io.py | `result_directory` | 保留 |
-| criteo_uplift/diagnostics.py | `scan_raw_data` | criteo_uplift/preparation.py | `_scan_raw_data` | 迁移/合并 |
+| criteo_uplift/diagnostics.py | `scan_raw_data` | criteo_uplift/raw_scan.py | `scan_raw_data` | 迁移/合并 |
 | criteo_uplift/diagnostics.py | `_features` | criteo_uplift/diagnostics.py | `_features（保留诊断列约束，基础检查委托公共模块）` | 迁移/合并 |
 | criteo_uplift/diagnostics.py | `_binary` | criteo_uplift/input_checks.py | `check_binary_vector` | 合并 |
 | criteo_uplift/diagnostics.py | `srm_summary` | criteo_uplift/diagnostics.py | `srm_summary` | 保留 |
@@ -284,9 +284,13 @@ artifacts/
 
 ### criteo_uplift/preparation.py
 
-- `_scan_raw_data(path=DEFAULT_DATA, sample_size=1000000, seed=42, chunk_size=250000, *, per_arm=None, audit_enabled=True, diagnostics_enabled=True, progress=print, source=None)`
-- `prepare_sample(args, *, root: Path=ROOT, progress=None)`
+- `prepare_sample(args, *, root: Path=ROOT, progress=None, sample_enabled=None, audit_enabled=None, diagnostics_enabled=None, chunk_size=None)`
 - `split_sample(df, outcome='conversion', seed=42)`
+
+### criteo_uplift/raw_scan.py
+
+- `scan_raw_data(path=DEFAULT_DATA, sample_size=1000000, seed=42, chunk_size=250000, *, per_arm=None, audit_enabled=True, diagnostics_enabled=True, progress=print, source=None)`
+- 扫描任务、逐块校验及结束整理见 `docs/PROJECT_PIPELINE.md`。
 
 ### criteo_uplift/reporting.py
 

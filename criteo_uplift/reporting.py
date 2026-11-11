@@ -36,15 +36,15 @@ _LABELS = {
 
 
 def save_sample_feature_plot(sample, path):
-    """
-    函数名：save_sample_feature_plot
-    功能：绘制建模样本中 f0–f11 的特征分布直方图并保存为 PNG。
-    输入参数：
-        - sample：包含 f0–f11 的建模样本 DataFrame。
-        - path：PNG 图像输出路径。
-    输出参数：
-        - 已保存图像的 pathlib.Path。
-    """
+    #-------------
+    # 函数名：save_sample_feature_plot
+    # 功能：绘制建模样本中 f0–f11 的特征分布直方图并保存为 PNG。
+    # 输入参数：
+    #     - sample：包含 f0–f11 的建模样本 DataFrame。
+    #     - path：PNG 图像输出路径。
+    # 输出参数：
+    #     - 已保存图像的 pathlib.Path。
+    #-------------
     from matplotlib.figure import Figure
 
     path = safe_output(path)
@@ -61,14 +61,14 @@ def save_sample_feature_plot(sample, path):
 
 
 def save_c2st_plot(out):
-    """
-    函数名：save_c2st_plot
-    功能：读取 C2ST 观测 AUC 和置换零分布，绘制各诊断模型的 AUC 直方图并保存。
-    输入参数：
-        - out：本次实验输出目录，需包含 diagnostics 结果。
-    输出参数：
-        - 无显式返回值；在实验 figures 目录保存 c2st_null.png。
-    """
+    #-------------
+    # 函数名：save_c2st_plot
+    # 功能：读取 C2ST 观测 AUC 和置换零分布，绘制各诊断模型的 AUC 直方图并保存。
+    # 输入参数：
+    #     - out：本次实验输出目录，需包含 diagnostics 结果。
+    # 输出参数：
+    #     - 无显式返回值；在实验 figures 目录保存 c2st_null.png。
+    #-------------
     from matplotlib.figure import Figure
 
     out = Path(out)
@@ -97,40 +97,40 @@ def save_c2st_plot(out):
 
 
 def _json(out: Path, name: str) -> dict:
-    """
-    函数名：_json
-    功能：从实验结果目录读取指定 JSON 文件并解析为 Python 对象。
-    输入参数：
-        - out：实验结果目录或对应子目录。
-        - name：相对于 out 的 JSON 文件名。
-    输出参数：
-        - 解析后的 JSON 字典。
-    """
+    #-------------
+    # 函数名：_json
+    # 功能：从实验结果目录读取指定 JSON 文件并解析为 Python 对象。
+    # 输入参数：
+    #     - out：实验结果目录或对应子目录。
+    #     - name：相对于 out 的 JSON 文件名。
+    # 输出参数：
+    #     - 解析后的 JSON 字典。
+    #-------------
     return json.loads((out / name).read_text(encoding="utf-8"))
 
 
 def _num(value, digits: int = 2) -> str:
-    """
-    函数名：_num
-    功能：将数值格式化为带千位分隔符的字符串，并对缺失值显示占位符。
-    输入参数：
-        - value：待格式化的数值。
-        - digits：保留的小数位数。
-    输出参数：
-        - 格式化后的字符串。
-    """
+    #-------------
+    # 函数名：_num
+    # 功能：将数值格式化为带千位分隔符的字符串，并对缺失值显示占位符。
+    # 输入参数：
+    #     - value：待格式化的数值。
+    #     - digits：保留的小数位数。
+    # 输出参数：
+    #     - 格式化后的字符串。
+    #-------------
     return "—" if value is None or pd.isna(value) else f"{value:,.{digits}f}"
 
 
 def _p(value) -> str:
-    """
-    函数名：_p
-    功能：将 p 值格式化为报告展示文本，并明确处理缺失值和数值下溢。
-    输入参数：
-        - value：待展示的 p 值。
-    输出参数：
-        - 用于 HTML 报告的 p 值字符串。
-    """
+    #-------------
+    # 函数名：_p
+    # 功能：将 p 值格式化为报告展示文本，并明确处理缺失值和数值下溢。
+    # 输入参数：
+    #     - value：待展示的 p 值。
+    # 输出参数：
+    #     - 用于 HTML 报告的 p 值字符串。
+    #-------------
     if value is None or pd.isna(value):
         return "—"
     if value == 0:
@@ -139,30 +139,30 @@ def _p(value) -> str:
 
 
 def _interval(row, low="ci_low", high="ci_high", scale=1, digits=2) -> str:
-    """
-    函数名：_interval
-    功能：读取一行结果中的置信区间上下界，按指定倍率和精度格式化为区间字符串。
-    输入参数：
-        - row：包含区间上下界字段的 Series 或映射对象。
-        - low：下界字段名。
-        - high：上界字段名。
-        - scale：展示时乘以的数值倍率。
-        - digits：区间端点保留的小数位数。
-    输出参数：
-        - 形如 [下界, 上界] 的字符串。
-    """
+    #-------------
+    # 函数名：_interval
+    # 功能：读取一行结果中的置信区间上下界，按指定倍率和精度格式化为区间字符串。
+    # 输入参数：
+    #     - row：包含区间上下界字段的 Series 或映射对象。
+    #     - low：下界字段名。
+    #     - high：上界字段名。
+    #     - scale：展示时乘以的数值倍率。
+    #     - digits：区间端点保留的小数位数。
+    # 输出参数：
+    #     - 形如 [下界, 上界] 的字符串。
+    #-------------
     return f"[{_num(row[low] * scale, digits)}, {_num(row[high] * scale, digits)}]"
 
 
 def _table(frame: pd.DataFrame) -> str:
-    """
-    函数名：_table
-    功能：将 DataFrame 转换为带横向滚动容器的 HTML 表格。
-    输入参数：
-        - frame：需要嵌入报告的表格数据。
-    输出参数：
-        - HTML 表格字符串。
-    """
+    #-------------
+    # 函数名：_table
+    # 功能：将 DataFrame 转换为带横向滚动容器的 HTML 表格。
+    # 输入参数：
+    #     - frame：需要嵌入报告的表格数据。
+    # 输出参数：
+    #     - HTML 表格字符串。
+    #-------------
     return (
         '<div class="table-wrap">'
         + frame.to_html(index=False, border=0, escape=True, na_rep="—")
@@ -171,16 +171,16 @@ def _table(frame: pd.DataFrame) -> str:
 
 
 def _image(path: Path, alt: str, caption: str) -> str:
-    """
-    函数名：_image
-    功能：将 PNG 文件编码为 Base64，并生成带替代文本和图注的 HTML figure。
-    输入参数：
-        - path：PNG 图像文件路径。
-        - alt：图像的替代文本。
-        - caption：显示在图像下方的说明文字。
-    输出参数：
-        - 包含内嵌图片和图注的 HTML 字符串。
-    """
+    #-------------
+    # 函数名：_image
+    # 功能：将 PNG 文件编码为 Base64，并生成带替代文本和图注的 HTML figure。
+    # 输入参数：
+    #     - path：PNG 图像文件路径。
+    #     - alt：图像的替代文本。
+    #     - caption：显示在图像下方的说明文字。
+    # 输出参数：
+    #     - 包含内嵌图片和图注的 HTML 字符串。
+    #-------------
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return (
         f'<figure><img src="data:image/png;base64,{encoded}" alt="{html.escape(alt)}">'
@@ -189,20 +189,20 @@ def _image(path: Path, alt: str, caption: str) -> str:
 
 
 def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
-    """
-    函数名：_errorbar
-    功能：在给定 Matplotlib 坐标轴上绘制点估计及其上下置信区间。
-    输入参数：
-        - ax：Matplotlib 坐标轴对象。
-        - point：点估计数组。
-        - low：置信区间下界数组。
-        - high：置信区间上界数组。
-        - positions：各点在另一坐标轴上的位置。
-        - horizontal：是否绘制水平误差线。
-        - color：误差线和点的颜色。
-    输出参数：
-        - 无；直接在 ax 上添加误差线和点。
-    """
+    #-------------
+    # 函数名：_errorbar
+    # 功能：在给定 Matplotlib 坐标轴上绘制点估计及其上下置信区间。
+    # 输入参数：
+    #     - ax：Matplotlib 坐标轴对象。
+    #     - point：点估计数组。
+    #     - low：置信区间下界数组。
+    #     - high：置信区间上界数组。
+    #     - positions：各点在另一坐标轴上的位置。
+    #     - horizontal：是否绘制水平误差线。
+    #     - color：误差线和点的颜色。
+    # 输出参数：
+    #     - 无；直接在 ax 上添加误差线和点。
+    #-------------
     valid = np.isfinite(point) & np.isfinite(low) & np.isfinite(high)
     if horizontal:
         ax.hlines(positions[valid], low[valid], high[valid], color=color, lw=2)
@@ -213,15 +213,15 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
 
 
 def build_report(manifest_path: Path, report_path: Path) -> Path:
-    """
-    函数名：build_report
-    功能：读取实验 manifest 和各模块结果，生成包含数据诊断、ATE、Uplift、Stability、Score Policy 与 Planning 的完整 HTML 报告。
-    输入参数：
-        - manifest_path：本次实验 manifest.json 路径。
-        - report_path：最终 HTML 报告输出路径。
-    输出参数：
-        - 生成的 HTML 报告 pathlib.Path。
-    """
+    #-------------
+    # 函数名：build_report
+    # 功能：读取实验 manifest 和各模块结果，生成包含数据诊断、ATE、Uplift、Stability、Score Policy 与 Planning 的完整 HTML 报告。
+    # 输入参数：
+    #     - manifest_path：本次实验 manifest.json 路径。
+    #     - report_path：最终 HTML 报告输出路径。
+    # 输出参数：
+    #     - 生成的 HTML 报告 pathlib.Path。
+    #-------------
     manifest_path = Path(manifest_path)
     out = safe_output(manifest_path.parent)
     report_path = safe_output(report_path)
@@ -294,15 +294,15 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     ):
 
         def save(fig, name):
-            """
-            函数名：build_report.save
-            功能：将当前 Matplotlib Figure 保存到预先登记的报告图像路径并关闭图形。
-            输入参数：
-                - fig：待保存的 Matplotlib Figure。
-                - name：图像名称，用于查找对应输出路径。
-            输出参数：
-                - 无；保存 PNG 并关闭 Figure。
-            """
+            #-------------
+            # 函数名：build_report.save
+            # 功能：将当前 Matplotlib Figure 保存到预先登记的报告图像路径并关闭图形。
+            # 输入参数：
+            #     - fig：待保存的 Matplotlib Figure。
+            #     - name：图像名称，用于查找对应输出路径。
+            # 输出参数：
+            #     - 无；保存 PNG 并关闭 Figure。
+            #-------------
             fig.savefig(paths[name], dpi=160, bbox_inches="tight")
             plt.close(fig)
 
@@ -840,21 +840,21 @@ def finalize_run(
     *, manifest_path: Path, report_path: Path, args, source, sample_n,
     assignment_probability, fitted, elapsed_seconds,
 ):
-    """
-    函数名：finalize_run
-    功能：写入实验复现 manifest，生成最终 HTML 报告，并仅在报告成功后将实验状态标记为 complete。
-    输入参数：
-        - manifest_path：本次实验 manifest.json 路径。
-        - report_path：最终 HTML 报告路径。
-        - args：本次 Pipeline 的命令行参数对象。
-        - source：原始数据文件指纹。
-        - sample_n：实际建模样本行数。
-        - assignment_probability：用于 HT 评价的训练集处理比例代入值。
-        - fitted：训练和 Validation 阶段返回的模型、元数据及冻结选择。
-        - elapsed_seconds：本次 Pipeline 截至报告生成前的累计耗时秒数。
-    输出参数：
-        - 无；写入 manifest.json 并生成 report.html。
-    """
+    #-------------
+    # 函数名：finalize_run
+    # 功能：写入实验复现 manifest，生成最终 HTML 报告，并仅在报告成功后将实验状态标记为 complete。
+    # 输入参数：
+    #     - manifest_path：本次实验 manifest.json 路径。
+    #     - report_path：最终 HTML 报告路径。
+    #     - args：本次 Pipeline 的命令行参数对象。
+    #     - source：原始数据文件指纹。
+    #     - sample_n：实际建模样本行数。
+    #     - assignment_probability：用于 HT 评价的训练集处理比例代入值。
+    #     - fitted：训练和 Validation 阶段返回的模型、元数据及冻结选择。
+    #     - elapsed_seconds：本次 Pipeline 截至报告生成前的累计耗时秒数。
+    # 输出参数：
+    #     - 无；写入 manifest.json 并生成 report.html。
+    #-------------
     manifest = {
         "assignment_probability": assignment_probability,
         "probability_source": "使用训练集的处理组比例作为分配概率的代入估计",

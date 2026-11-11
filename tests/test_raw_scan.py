@@ -1,3 +1,4 @@
+from criteo_uplift.config import COLUMNS, FEATURES, LABELS
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from criteo_uplift import diagnostics, preparation
+from criteo_uplift import diagnostics, preparation, raw_scan
 from criteo_uplift.diagnostics import covariate_balance, run_diagnostics
 from criteo_uplift.pipeline_io import load_sample
 
@@ -24,21 +25,21 @@ from criteo_uplift.pipeline_io import load_sample
 #-----------------------------------------------------------------------------------------------------------------------
 class UnifiedScanTests(unittest.TestCase):
     def setUp(self):
-        """
-        函数名：UnifiedScanTests.setUp
-        功能：创建临时原始 CSV，包含指定处理比例、近常量特征和重复行，用于统一扫描测试。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；初始化或清理测试实例状态。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.setUp
+        # 功能：创建临时原始 CSV，包含指定处理比例、近常量特征和重复行，用于统一扫描测试。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；初始化或清理测试实例状态。
+        #-------------
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.path = self.root / 'raw.csv'
         rng = np.random.default_rng(9)
-        frame = pd.DataFrame(rng.normal(size=(160, 12)), columns=preparation.FEATURES)
-        for label in preparation.LABELS:
+        frame = pd.DataFrame(rng.normal(size=(160, 12)), columns=FEATURES)
+        for label in LABELS:
             frame[label] = rng.integers(0, 2, len(frame))
         frame['treatment'] = np.r_[np.zeros(40), np.ones(120)]
         frame['f0'] = 1 + np.arange(len(frame)) * 1e-10
@@ -47,28 +48,36 @@ class UnifiedScanTests(unittest.TestCase):
         frame.to_csv(self.path, index=False)
         self.raw = pd.read_csv(self.path, dtype=np.float64)
 
+    def assert_audit_close(self, actual, expected):
+        # 全列与流式统计的浮点归约顺序不同，沿用近常量特征已有的误差容限。
+        self.assertEqual({k: v for k, v in actual.items() if k != 'feature_stats'},
+                         {k: v for k, v in expected.items() if k != 'feature_stats'})
+        pd.testing.assert_frame_equal(pd.DataFrame(actual['feature_stats']),
+                                      pd.DataFrame(expected['feature_stats']),
+                                      rtol=2e-6, atol=1e-15)
+
     def scan(self, **kwargs):
-        """
-        函数名：UnifiedScanTests.scan
-        功能：使用统一测试默认参数调用 _scan_raw_data，并允许单项参数覆盖。
-        输入参数：
-            - **kwargs：需要覆盖默认扫描设置的关键字参数。
-        输出参数：
-            - 一次流式扫描返回的样本、审计和诊断结果字典。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.scan
+        # 功能：使用统一测试默认参数调用 scan_raw_data，并允许单项参数覆盖。
+        # 输入参数：
+        #     - **kwargs：需要覆盖默认扫描设置的关键字参数。
+        # 输出参数：
+        #     - 一次流式扫描返回的样本、审计和诊断结果字典。
+        #-------------
         options = dict(sample_size=43, per_arm=10, seed=31, chunk_size=17, progress=lambda _: None)
         options.update(kwargs)
-        return preparation._scan_raw_data(self.path, **options)
+        return raw_scan.scan_raw_data(self.path, **options)
 
     def test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics(self):
-        """
-        函数名：UnifiedScanTests.test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics
-        功能：验证单次 CSV 扫描同时保留建模抽样、C2ST 两臂抽样和全量统计结果。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_one_csv_pass_preserves_both_sampling_streams_and_full_statistics
+        # 功能：验证单次 CSV 扫描同时保留建模抽样、C2ST 两臂抽样和全量统计结果。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         before = self.path.read_bytes()
         with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
             scanned = self.scan()
@@ -85,11 +94,11 @@ class UnifiedScanTests(unittest.TestCase):
             diagnostic_ids.extend(ids[np.argsort(keys)[:10]])
         np.testing.assert_array_equal(scanned['c2st_sample'].row_id, sorted(diagnostic_ids))
         sample = scanned['c2st_sample']
-        np.testing.assert_array_equal(sample[preparation.FEATURES], self.raw.iloc[sample.row_id][preparation.FEATURES])
+        np.testing.assert_array_equal(sample[FEATURES], self.raw.iloc[sample.row_id][FEATURES])
         self.assertEqual(sample.f0.dtype, np.dtype('float64'))
         self.assertEqual(scanned['sample'].f0.dtype, np.dtype('float32'))
 
-        expected = covariate_balance(self.raw, preparation.FEATURES)
+        expected = covariate_balance(self.raw, FEATURES)
         pd.testing.assert_frame_equal(scanned['balance'][expected.columns], expected)
         audit = scanned['audit']
         self.assertEqual(audit['duplicate_row_fingerprints'], 1)
@@ -105,14 +114,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
 
     def test_audit_only_variance_matches_full_diagnostics_for_near_constant_features(self):
-        """
-        函数名：UnifiedScanTests.test_audit_only_variance_matches_full_diagnostics_for_near_constant_features
-        功能：验证关闭完整诊断时，流式累计的近常量特征方差与完整诊断结果一致。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_audit_only_variance_matches_full_diagnostics_for_near_constant_features
+        # 功能：验证关闭完整诊断时，流式累计的近常量特征方差与完整诊断结果一致。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         expected = self.scan()['audit']['feature_stats']
         for chunk_size in (13, 31, len(self.raw)):
             actual = self.scan(diagnostics_enabled=False, chunk_size=chunk_size)['audit']['feature_stats']
@@ -122,14 +131,14 @@ class UnifiedScanTests(unittest.TestCase):
                         np.testing.assert_allclose(observed[field], reference[field], rtol=2e-6, atol=1e-15)
 
     def test_diagnostic_sample_independent_of_model_size_and_chunk_size(self):
-        """
-        函数名：UnifiedScanTests.test_diagnostic_sample_independent_of_model_size_and_chunk_size
-        功能：验证 C2ST 诊断抽样不受建模样本规模和 CSV 分块大小影响。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_diagnostic_sample_independent_of_model_size_and_chunk_size
+        # 功能：验证 C2ST 诊断抽样不受建模样本规模和 CSV 分块大小影响。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         baseline = self.scan()
         for size in (None, 0, 200):
             with self.subTest(sample_size=size):
@@ -151,15 +160,15 @@ class UnifiedScanTests(unittest.TestCase):
                     )
 
     def test_audit_diagnostics_and_two_samples_are_independent(self):
-        """
-        函数名：UnifiedScanTests.test_audit_diagnostics_and_two_samples_are_independent
-        功能：验证全量审计、平衡诊断、建模样本和 C2ST 样本使用独立的计算/抽样路径。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
-        expected_balance = covariate_balance(self.raw, preparation.FEATURES)
+        #-------------
+        # 函数名：UnifiedScanTests.test_audit_diagnostics_and_two_samples_are_independent
+        # 功能：验证全量审计、平衡诊断、建模样本和 C2ST 样本使用独立的计算/抽样路径。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
+        expected_balance = covariate_balance(self.raw, FEATURES)
         baseline = self.scan()
         for audit, checks, model_size, per_arm in product((False, True), (False, True), (None, 43), (None, 10)):
             options = dict(
@@ -168,7 +177,7 @@ class UnifiedScanTests(unittest.TestCase):
             )
             with self.subTest(**options):
                 if not any((audit, checks, model_size is not None, per_arm is not None)):
-                    with self.assertRaisesRegex(ValueError, 'at least one'):
+                    with self.assertRaisesRegex(ValueError, '至少启用'):
                         self.scan(**options)
                     continue
                 scanned = self.scan(**options)
@@ -231,34 +240,34 @@ class UnifiedScanTests(unittest.TestCase):
                     pd.testing.assert_frame_equal(scanned['c2st_sample'], baseline['c2st_sample'])
 
     def test_source_changes_and_insufficient_arms_fail(self):
-        """
-        函数名：UnifiedScanTests.test_source_changes_and_insufficient_arms_fail
-        功能：验证扫描期间原始文件变化或某处理臂样本不足时会明确失败。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_source_changes_and_insufficient_arms_fail
+        # 功能：验证扫描期间原始文件变化或某处理臂样本不足时会明确失败。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         source = preparation.fingerprint(self.path)
-        with patch.object(preparation, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
-            with self.assertRaisesRegex(RuntimeError, 'changed'):
+        with patch.object(raw_scan, 'fingerprint', side_effect=[source, {**source, 'sha256': 'changed'}]):
+            with self.assertRaisesRegex(RuntimeError, '发生变化'):
                 self.scan()
-        with self.assertRaisesRegex(ValueError, 'Need 41 rows per arm'):
+        with self.assertRaisesRegex(ValueError, '每个处理臂至少需要 41 行'):
             self.scan(per_arm=41)
 
     def test_update_reuses_scan_and_rejects_mismatched_settings(self):
-        """
-        函数名：UnifiedScanTests.test_update_reuses_scan_and_rejects_mismatched_settings
-        功能：验证诊断复用已有扫描结果，并拒绝与原始扫描配置不匹配的设置。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_update_reuses_scan_and_rejects_mismatched_settings
+        # 功能：验证诊断复用已有扫描结果，并拒绝与原始扫描配置不匹配的设置。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         scanned = self.scan()
         out = self.root / 'diagnostics'
         out.mkdir()
-        with patch('criteo_uplift.preparation._scan_raw_data', side_effect=AssertionError('second scan')):
+        with patch('criteo_uplift.preparation.scan_raw_data', side_effect=AssertionError('second scan')):
             result = run_diagnostics(
                 out, train=self.raw, validation=self.raw, audit=scanned['audit'], source=scanned['source'],
                 sample_size=20, permutations=1, seed=31, scanned=scanned, progress=lambda _: None,
@@ -272,15 +281,15 @@ class UnifiedScanTests(unittest.TestCase):
                     )
         self.assertEqual(json.loads((out / 'srm.json').read_text())['observed_ratio'], .75)
 
-    def test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once(self):
-        """
-        函数名：UnifiedScanTests.test_prepare_sample_fresh_and_cached_paths_each_parse_csv_once
-        功能：验证新建缓存和复用缓存两条 Preparation 路径都只进行一次完整 CSV 分块解析。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+    def test_prepare_sample_scans_once_on_miss_and_never_on_full_hit(self):
+        #-------------
+        # 函数名：UnifiedScanTests.test_prepare_sample_scans_once_on_miss_and_never_on_full_hit
+        # 功能：验证新建缓存只解析一次 CSV，全部缓存命中时不再解析 CSV。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         with patch.object(diagnostics.pd, 'read_csv', wraps=pd.read_csv) as read:
             sample, audit, source, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
@@ -289,7 +298,7 @@ class UnifiedScanTests(unittest.TestCase):
             diagnostics.pd.util, 'hash_pandas_object', side_effect=AssertionError('repeated audit'),
         ):
             cached, cached_audit, cached_source, cached_diagnostics = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
-        self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), 1)
+        read.assert_not_called()
         pd.testing.assert_frame_equal(sample, cached)
         pd.testing.assert_frame_equal(prepared['c2st_sample'], cached_diagnostics['c2st_sample'])
         self.assertEqual(audit['n_rows'], cached_audit['n_rows'])
@@ -297,14 +306,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertNotIn('sample', prepared)  # 不让后续诊断持有百万行建模表。
 
     def test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files(self):
-        """
-        函数名：UnifiedScanTests.test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files
-        功能：验证缺少或不完整的 Sample Metadata 时，即使存在旧缓存文件也会重新构建样本。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_prepare_sample_rebuilds_without_metadata_even_with_legacy_files
+        # 功能：验证缺少或不完整的 Sample Metadata 时，即使存在旧缓存文件也会重新构建样本。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(
             data=self.path, sample_size=1_000_000, seed=42,
             c2st_sample=20, permutations=1,
@@ -341,14 +350,14 @@ class UnifiedScanTests(unittest.TestCase):
 
 
     def test_sample_and_audit_caches_are_reused_independently(self):
-        """
-        函数名：UnifiedScanTests.test_sample_and_audit_caches_are_reused_independently
-        功能：验证 Sample Cache 与 Audit Cache 可独立命中、失效和重新生成。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_sample_and_audit_caches_are_reused_independently
+        # 功能：验证 Sample Cache 与 Audit Cache 可独立命中、失效和重新生成。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         for reuse_sample, reuse_audit in product((False, True), repeat=2):
             with self.subTest(reuse_sample=reuse_sample, reuse_audit=reuse_audit):
                 root = self.root / f'combination_{reuse_sample}_{reuse_audit}'
@@ -366,11 +375,13 @@ class UnifiedScanTests(unittest.TestCase):
                     audit_path.rename(root / 'saved_audit.json')
                 if not reuse_sample:
                     args.sample_size = 57
-                with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+                with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
                     sample, audit, _, prepared = preparation.prepare_sample(args, root=root, progress=lambda _: None)
-                self.assertEqual(scan.call_count, 1)
-                self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
-                self.assertEqual(scan.call_args.kwargs['audit_enabled'], not reuse_audit)
+                self.assertEqual(scan.call_count, int(not (reuse_sample and reuse_audit)))
+                if scan.called:
+                    self.assertEqual(scan.call_args.kwargs['sample_size'], None if reuse_sample else 57)
+                    self.assertEqual(scan.call_args.kwargs['audit_enabled'], not reuse_audit)
+                    self.assertFalse(scan.call_args.kwargs['diagnostics_enabled'])
                 current_sample = root / f'artifacts/cache/sample_{args.sample_size}_seed31.npz'
                 self.assertEqual(json.loads(current_sample.with_suffix('.json').read_text()), prepared['sample_report'])
                 self.assertEqual(json.loads(audit_path.read_text())['audit'], audit)
@@ -379,21 +390,21 @@ class UnifiedScanTests(unittest.TestCase):
                         self.assertEqual(preparation.fingerprint(path), cached_files[path])
                 if reuse_audit:
                     self.assertEqual(preparation.fingerprint(audit_path), cached_files[audit_path])
-                self.assertEqual(audit, expected_audit)
+                self.assert_audit_close(audit, expected_audit)
                 self.assertEqual(prepared['sample_report']['sample_n'], len(sample))
                 self.assertNotIn('audit', prepared['sample_report'])
                 for key in ('sample_n', 'sample_seed', 'sampling'):
                     self.assertNotIn(key, audit)
 
     def test_incomplete_sample_metadata_is_regenerated_by_scan(self):
-        """
-        函数名：UnifiedScanTests.test_incomplete_sample_metadata_is_regenerated_by_scan
-        功能：验证 Sample Metadata 字段不完整时会通过重新扫描重新生成，而不误用旧说明。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_incomplete_sample_metadata_is_regenerated_by_scan
+        # 功能：验证 Sample Metadata 字段不完整时会通过重新扫描重新生成，而不误用旧说明。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         original, original_audit, source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
@@ -403,35 +414,35 @@ class UnifiedScanTests(unittest.TestCase):
             'source': source, 'sample_size': args.sample_size, 'seed': args.seed,
             'audit': saved_audit,
         }))
-        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
             sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
         self.assertFalse(scan.call_args.kwargs['audit_enabled'])
         pd.testing.assert_frame_equal(sample, original)
-        self.assertEqual(audit, original_audit)
+        self.assert_audit_close(audit, original_audit)
         self.assertEqual(json.loads(metadata.read_text()), prepared['sample_report'])
         self.assertNotIn('audit', prepared['sample_report'])
 
-    def test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version(self):
-        """
-        函数名：UnifiedScanTests.test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_version
-        功能：验证 Audit Cache 不因抽样规模或 seed 改变而失效，但会因数据来源或审计版本变化而失效。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+    def test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_content(self):
+        #-------------
+        # 函数名：UnifiedScanTests.test_audit_cache_survives_size_seed_changes_and_invalidates_by_source_and_content
+        # 功能：验证 Audit Cache 不因抽样规模或 seed 改变而失效，但会因数据来源变化或内容不完整而失效。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         _, original_audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         audit_path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
         original_fingerprint = preparation.fingerprint(audit_path)
         for size, seed in ((61, 31), (61, 32), (0, 32), (5000, 33)):
             args.sample_size, args.seed = size, seed
-            with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+            with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
                 sample, audit, _, prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
             self.assertFalse(scan.call_args.kwargs['audit_enabled'])
             self.assertEqual(scan.call_args.kwargs['sample_size'], size)
-            self.assertEqual(audit, original_audit)
+            self.assert_audit_close(audit, original_audit)
             self.assertEqual(preparation.fingerprint(audit_path), original_fingerprint)
             report = prepared['sample_report']
             self.assertEqual(report['seed'], seed)
@@ -440,25 +451,25 @@ class UnifiedScanTests(unittest.TestCase):
             self.assertEqual(report['sample_n'], len(sample))
         valid = json.loads(audit_path.read_text())
         for invalid in (
-            {**valid, 'audit_cache_version': -1},
+            {**valid, 'audit': {}},
             {**valid, 'source': {'sha256': 'another_source'}},
         ):
             audit_path.write_text(json.dumps(invalid))
-            with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+            with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
                 _, audit, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
             self.assertTrue(scan.call_args.kwargs['audit_enabled'])
             self.assertIsNone(scan.call_args.kwargs['sample_size'])
-            self.assertEqual(audit, original_audit)
+            self.assert_audit_close(audit, original_audit)
 
     def test_duplicate_excess_counts_are_not_unique_duplicate_patterns(self):
-        """
-        函数名：UnifiedScanTests.test_duplicate_excess_counts_are_not_unique_duplicate_patterns
-        功能：验证重复行多余计数采用总行数减不同指纹数，而不是重复模式种数。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_duplicate_excess_counts_are_not_unique_duplicate_patterns
+        # 功能：验证重复行多余计数采用总行数减不同指纹数，而不是重复模式种数。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         frame = self.raw.copy()
         frame.iloc[-3:] = frame.iloc[0].to_numpy()
         frame.iloc[-5:-3] = frame.iloc[1].to_numpy()
@@ -476,14 +487,14 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertIn('index=False', audit['duplicate_method'])
 
     def test_missing_duplicate_fields_rebuild_audit_without_resampling(self):
-        """
-        函数名：UnifiedScanTests.test_missing_duplicate_fields_rebuild_audit_without_resampling
-        功能：验证 Audit Cache 缺少重复行统计字段时会重建审计，但复用有效建模样本缓存。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_missing_duplicate_fields_rebuild_audit_without_resampling
+        # 功能：验证 Audit Cache 缺少重复行统计字段时会重建审计，但复用有效建模样本缓存。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         sample, original, _, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         path = next((self.root / 'artifacts/cache').glob('full_audit_*.json'))
@@ -493,39 +504,229 @@ class UnifiedScanTests(unittest.TestCase):
         path.write_text(json.dumps(saved))
         cache = self.root / 'artifacts/cache/sample_43_seed31.npz'
         before = cache.read_bytes()
-        info = json.loads(cache.with_suffix('.json').read_text())
-        info['group_summary'][-1]['group'] = '总体'
-        cache.with_suffix('.json').write_text(json.dumps(info))
-        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
             reused, audit, _, result = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertTrue(scan.call_args.kwargs['audit_enabled'])
         self.assertIsNone(scan.call_args.kwargs['sample_size'])
         self.assertEqual(cache.read_bytes(), before)
         pd.testing.assert_frame_equal(sample, reused)
-        self.assertEqual(audit, original)
+        self.assert_audit_close(audit, original)
         self.assertEqual(result['sample_report']['group_summary'][-1]['group'], 'Total')
         self.assertEqual(json.loads(cache.with_suffix('.json').read_text())['group_summary'][-1]['group'], 'Total')
 
     def test_source_change_invalidates_both_caches(self):
-        """
-        函数名：UnifiedScanTests.test_source_change_invalidates_both_caches
-        功能：验证原始 CSV 内容指纹变化时 Sample Cache 和 Audit Cache 均失效。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：UnifiedScanTests.test_source_change_invalidates_both_caches
+        # 功能：验证原始 CSV 内容指纹变化时 Sample Cache 和 Audit Cache 均失效。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         _, _, before_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         changed = pd.read_csv(self.path)
         changed.loc[0, 'f2'] += 1
         changed.to_csv(self.path, index=False)
-        with patch('criteo_uplift.preparation._scan_raw_data', wraps=preparation._scan_raw_data) as scan:
+        with patch('criteo_uplift.preparation.scan_raw_data', wraps=preparation.scan_raw_data) as scan:
             _, _, after_source, _ = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertNotEqual(before_source['sha256'], after_source['sha256'])
         self.assertEqual(scan.call_args.kwargs['sample_size'], 43)
         self.assertTrue(scan.call_args.kwargs['audit_enabled'])
         self.assertEqual(len(list((self.root / 'artifacts/cache').glob('full_audit_*.json'))), 2)
+
+
+    def test_preparation_all_seven_task_combinations(self):
+        #-------------
+        # 七种开关组合各自冷启动一次，随后只读取已启用任务的缓存。
+        #-------------
+        before = preparation.fingerprint(self.path)
+        for sample_on, audit_on, diagnostics_on in product((False, True), repeat=3):
+            if not any((sample_on, audit_on, diagnostics_on)):
+                continue
+            with self.subTest(sample=sample_on, audit=audit_on, diagnostics=diagnostics_on):
+                root = self.root / f'tasks_{sample_on}_{audit_on}_{diagnostics_on}'
+                args = SimpleNamespace(data=self.path, seed=31)
+                # 未启用任务不需要其专用参数，也不能读取其缓存。
+                if sample_on:
+                    args.sample_size = 43
+                if diagnostics_on:
+                    args.c2st_sample, args.permutations = 20, 1
+                switches = dict(sample_enabled=sample_on, audit_enabled=audit_on,
+                                diagnostics_enabled=diagnostics_on)
+                with patch.object(raw_scan.pd, 'read_csv', wraps=pd.read_csv) as read:
+                    first = preparation.prepare_sample(args, root=root, chunk_size=17,
+                                                       progress=lambda _: None, **switches)
+                self.assertEqual(sum('chunksize' in call.kwargs for call in read.call_args_list), 1)
+                with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
+                    second = preparation.prepare_sample(args, root=root, chunk_size=53,
+                                                        progress=lambda _: None, **switches)
+                for result in (first, second):
+                    self.assertEqual(result[0] is not None, sample_on)
+                    self.assertEqual(result[1] is not None, audit_on)
+                    self.assertEqual(result[3]['balance'] is not None, diagnostics_on)
+                    self.assertEqual(result[3]['c2st_sample'] is not None, diagnostics_on)
+                    self.assertEqual(result[3]['srm'] is not None, diagnostics_on)
+                    self.assertNotIn('sample', result[3])
+                if sample_on:
+                    pd.testing.assert_frame_equal(first[0], second[0], check_exact=True)
+                if audit_on:
+                    self.assertEqual(first[1], second[1])
+                if diagnostics_on:
+                    pd.testing.assert_frame_equal(first[3]['balance'], second[3]['balance'], check_exact=True)
+                    pd.testing.assert_frame_equal(first[3]['c2st_sample'], second[3]['c2st_sample'], check_exact=True)
+                    self.assertEqual(first[3]['srm'], second[3]['srm'])
+        self.assertEqual(preparation.fingerprint(self.path), before)
+
+    def test_all_eight_independent_cache_hit_patterns(self):
+        #-------------
+        # 逐一失效三个缓存，验证命中任务不重算、不改写，未命中任务共用一次扫描。
+        #-------------
+        for sample_hit, audit_hit, diagnostics_hit in product((False, True), repeat=3):
+            with self.subTest(sample=sample_hit, audit=audit_hit, diagnostics=diagnostics_hit):
+                root = self.root / f'hits_{sample_hit}_{audit_hit}_{diagnostics_hit}'
+                args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+                expected = preparation.prepare_sample(args, root=root, progress=lambda _: None)
+                cache = root / 'artifacts/cache'
+                manifests = [cache / 'sample_43_seed31.json', next(cache.glob('full_audit_*.json')),
+                             next(cache.glob('full_diagnostics_*.json'))]
+                hit_files = {}
+                for hit, manifest in zip((sample_hit, audit_hit, diagnostics_hit), manifests):
+                    if hit:
+                        for file in (manifest, manifest.with_suffix('.npz')):
+                            if file.exists():
+                                hit_files[file] = preparation.fingerprint(file)
+                    else:
+                        manifest.unlink()
+                with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan, \
+                     patch.object(raw_scan.pd, 'read_csv', wraps=pd.read_csv) as read:
+                    actual = preparation.prepare_sample(args, root=root, progress=lambda _: None)
+                misses = not all((sample_hit, audit_hit, diagnostics_hit))
+                self.assertEqual(scan.call_count, int(misses))
+                self.assertEqual(sum('chunksize' in c.kwargs for c in read.call_args_list), int(misses))
+                if misses:
+                    self.assertEqual(scan.call_args.kwargs['sample_size'], None if sample_hit else 43)
+                    self.assertEqual(scan.call_args.kwargs['audit_enabled'], not audit_hit)
+                    self.assertEqual(scan.call_args.kwargs['diagnostics_enabled'], not diagnostics_hit)
+                    self.assertEqual(scan.call_args.kwargs['per_arm'], None if diagnostics_hit else 10)
+                else:
+                    read.assert_not_called()
+                for file, before in hit_files.items():
+                    self.assertEqual(preparation.fingerprint(file), before)
+                pd.testing.assert_frame_equal(actual[0], expected[0], check_exact=True)
+                self.assert_audit_close(actual[1], expected[1])
+                pd.testing.assert_frame_equal(actual[3]['balance'], expected[3]['balance'], check_exact=True)
+                pd.testing.assert_frame_equal(actual[3]['c2st_sample'], expected[3]['c2st_sample'], check_exact=True)
+                self.assertEqual(actual[3]['srm'], expected[3]['srm'])
+
+    def test_fixed_pre_refactor_reference_and_c2st_results(self):
+        #-------------
+        # 与重构前保存的统计和行号逐项对照，并验证实际 C2ST 检验输出一致。
+        #-------------
+        reference = json.loads((Path(__file__).parent / 'fixtures/raw_scan_reference.json').read_text())
+        for chunk_size in (1, 17, 53, 160):
+            with self.subTest(chunk_size=chunk_size):
+                scanned = self.scan(chunk_size=chunk_size)
+                self.assertEqual(scanned['sample'].row_id.tolist(), reference['sample_ids'])
+                self.assertEqual(scanned['c2st_sample'].row_id.tolist(), reference['c2st_ids'])
+                self.assertEqual(scanned['audit'], reference['audit'])
+                pd.testing.assert_frame_equal(scanned['balance'].drop(columns='source_sha256'),
+                                              pd.DataFrame(reference['balance']), check_exact=True)
+                self.assertEqual({k: v for k, v in scanned['srm'].items() if k != 'source_sha256'}, reference['srm'])
+        # 基准行号来自旧实现；从原始 float64 表恢复相同输入，独立运行真实分类器。
+        expected_sample = self.raw.iloc[reference['c2st_ids']]
+        expected = diagnostics.c2st(expected_sample, FEATURES, sample_size=20, permutations=2, seed=31)
+        actual = diagnostics.c2st(scanned['c2st_sample'], FEATURES, sample_size=20, permutations=2, seed=31)
+        for key in ('summary', 'null_auc'):
+            pd.testing.assert_frame_equal(actual[key], expected[key], check_exact=True)
+
+    def test_diagnostics_cache_settings_and_payload_validation(self):
+        #-------------
+        # 诊断不依赖建模规模和置换次数，来源、抽样参数和缓存损坏会使其独立失效。
+        #-------------
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        args.sample_size, args.permutations = 57, 2
+        with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan:
+            preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertFalse(scan.call_args.kwargs['diagnostics_enabled'])
+        manifest = next((self.root / 'artifacts/cache').glob('full_diagnostics_*.json'))
+        valid = json.loads(manifest.read_text())
+        self.assertNotIn('diagnostics_cache_version', valid)
+        for invalid in ({**valid, 'seed': 99}, {**valid, 'sample_size': 40},
+                        {**valid, 'source': {'sha256': '无效来源'}}, {**valid, 'metadata': {}}):
+            manifest.write_text(json.dumps(invalid))
+            with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan:
+                preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+            self.assertIsNone(scan.call_args.kwargs['sample_size'])
+            self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+            self.assertTrue(scan.call_args.kwargs['diagnostics_enabled'])
+        manifest.with_suffix('.npz').write_bytes(b'corrupt')
+        with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan:
+            preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertTrue(scan.call_args.kwargs['diagnostics_enabled'])
+        args.c2st_sample = 40
+        with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan:
+            preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
+        self.assertEqual(scan.call_args.kwargs['per_arm'], 20)
+        self.assertIsNone(scan.call_args.kwargs['sample_size'])
+        self.assertFalse(scan.call_args.kwargs['audit_enabled'])
+
+    def test_diagnostics_cache_preserves_infinite_smd(self):
+        #-------------
+        # 分组内零方差、组间均值不同的无限 SMD 不应被 JSON 缓存变成空值。
+        #-------------
+        frame = self.raw.copy()
+        frame['f1'] = frame.treatment
+        frame.to_csv(self.path, index=False)
+        args = SimpleNamespace(data=self.path, seed=31, c2st_sample=20, permutations=1)
+        options = dict(root=self.root, sample_enabled=False, audit_enabled=False, progress=lambda _: None)
+        first = preparation.prepare_sample(args, **options)[3]
+        with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
+            cached = preparation.prepare_sample(args, **options)[3]
+        self.assertTrue(np.isinf(cached['balance'].set_index('feature').loc['f1', 'smd']))
+        pd.testing.assert_frame_equal(first['balance'], cached['balance'], check_exact=True)
+
+    def test_scan_resources_close_on_invalid_late_chunk(self):
+        #-------------
+        # 末尾非法行仍会失败，并关闭读取器和全部诊断临时文件，不改动来源。
+        #-------------
+        from tempfile import TemporaryFile
+        files, readers = [], []
+        original_read = pd.read_csv
+        def temporary_file():
+            file = TemporaryFile()
+            files.append(file)
+            return file
+        def read_csv(*args, **kwargs):
+            result = original_read(*args, **kwargs)
+            if 'chunksize' in kwargs:
+                readers.append(result)
+            return result
+        frame = self.raw.copy()
+        frame.loc[len(frame) - 1, 'conversion'] = 2
+        frame.to_csv(self.path, index=False)
+        before = preparation.fingerprint(self.path)
+        with patch.object(raw_scan, 'TemporaryFile', side_effect=temporary_file), \
+             patch.object(raw_scan.pd, 'read_csv', side_effect=read_csv):
+            with self.assertRaises(ValueError):
+                self.scan()
+        self.assertEqual(len(files), len(FEATURES) + 1)
+        self.assertTrue(all(file.closed for file in files))
+        self.assertTrue(all(reader.handles.handle.closed for reader in readers))
+        self.assertEqual(preparation.fingerprint(self.path), before)
+
+    def test_disabled_and_invalid_switches_fail_before_csv_parsing(self):
+        #-------------
+        # 非法开关、全关闭以及非法分块参数均在读取 CSV 前报错。
+        #-------------
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
+            for options in ({'sample_enabled': 1}, {'audit_enabled': '是'}, {'diagnostics_enabled': 0},
+                            {'sample_enabled': False, 'audit_enabled': False, 'diagnostics_enabled': False},
+                            {'chunk_size': 0}):
+                with self.subTest(options=options), self.assertRaises(ValueError):
+                    preparation.prepare_sample(args, root=self.root, **options)
 
 
 if __name__ == '__main__':

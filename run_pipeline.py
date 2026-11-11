@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""项目主流程：准备 → 诊断 → 训练/冻结 → Test → 稳定性 → 业务规划 → 报告。"""
+#-------------
+# 项目主流程：准备 → 诊断 → 训练/冻结 → Test → 稳定性 → 业务规划 → 报告。
+#-------------
 from criteo_uplift.config import configure_runtime, log
 configure_runtime()
 
@@ -20,14 +22,14 @@ from criteo_uplift.pipeline_io import safe_output, write_result
 
 
 def run(args):
-    """
-    函数名：run
-    功能：按既定顺序执行数据准备、诊断、ATE、模型训练验证、Test 评价、Stability、Planning 和最终报告生成。
-    输入参数：
-        - args：parse_args 生成的完整命令行参数对象。
-    输出参数：
-        - 本次实验输出目录 pathlib.Path。
-    """
+    #-------------
+    # 函数名：run
+    # 功能：按既定顺序执行数据准备、诊断、ATE、模型训练验证、Test 评价、Stability、Planning 和最终报告生成。
+    # 输入参数：
+    #     - args：parse_args 生成的完整命令行参数对象。
+    # 输出参数：
+    #     - 本次实验输出目录 pathlib.Path。
+    #-------------
     started = time.perf_counter()
 
     # 01. 一次规划全部输出；缓存共享，正式结果按实验隔离。
@@ -109,14 +111,14 @@ def run(args):
 
 
 def parse_args(argv=None):
-    """
-    函数名：parse_args
-    功能：解析 Pipeline 命令行参数，并检查抽样规模、预算、随机种子、Bootstrap 和 Stability 配置边界。
-    输入参数：
-        - argv：可选的命令行参数字符串列表；None 表示读取终端参数。
-    输出参数：
-        - 校验通过的 argparse.Namespace 参数对象。
-    """
+    #-------------
+    # 函数名：parse_args
+    # 功能：解析 Pipeline 命令行参数，并检查抽样规模、预算、随机种子、Bootstrap 和 Stability 配置边界。
+    # 输入参数：
+    #     - argv：可选的命令行参数字符串列表；None 表示读取终端参数。
+    # 输出参数：
+    #     - 校验通过的 argparse.Namespace 参数对象。
+    #-------------
     parser = argparse.ArgumentParser(description='完整 Criteo uplift 流程；原始 data 只读，输出拒绝覆盖。')
     parser.add_argument('--data', type=Path, default=DEFAULT_DATA)
     parser.add_argument('--sample-size', type=int, default=DEFAULT_SAMPLE_SIZE, help='0=全量')
@@ -146,14 +148,14 @@ def parse_args(argv=None):
 
 
 def main(argv=None):
-    """
-    函数名：main
-    功能：作为命令行入口解析参数并启动完整 Pipeline。
-    输入参数：
-        - argv：可选的命令行参数字符串列表；None 表示读取终端参数。
-    输出参数：
-        - run 返回的本次实验输出目录 pathlib.Path。
-    """
+    #-------------
+    # 函数名：main
+    # 功能：作为命令行入口解析参数并启动完整 Pipeline。
+    # 输入参数：
+    #     - argv：可选的命令行参数字符串列表；None 表示读取终端参数。
+    # 输出参数：
+    #     - run 返回的本次实验输出目录 pathlib.Path。
+    #-------------
     return run(parse_args(argv))
 
 

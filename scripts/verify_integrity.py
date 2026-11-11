@@ -8,14 +8,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def sha(path):
-    """
-    函数名：sha
-    功能：以分块方式读取文件并计算 SHA256 内容指纹。
-    输入参数：
-        - path：需要计算哈希的文件路径。
-    输出参数：
-        - 十六进制 SHA256 字符串。
-    """
+    #-------------
+    # 函数名：sha
+    # 功能：以分块方式读取文件并计算 SHA256 内容指纹。
+    # 输入参数：
+    #     - path：需要计算哈希的文件路径。
+    # 输出参数：
+    #     - 十六进制 SHA256 字符串。
+    #-------------
     h = hashlib.sha256()
     with path.open('rb') as f:
         for block in iter(lambda: f.read(8 * 1024 * 1024), b''):
@@ -24,14 +24,14 @@ def sha(path):
 
 
 def verify():
-    """
-    函数名：verify
-    功能：对照历史指纹核验原始 data 文件未变化，并检查 Markdown 笔记的授权修改和原始备份。
-    输入参数：
-        - 无显式业务参数（实例方法中的 self 表示当前对象）。
-    输出参数：
-        - 完整性核验报告字典；同时写入 input_integrity_authorized_notes.json。
-    """
+    #-------------
+    # 函数名：verify
+    # 功能：对照历史指纹核验原始 data 文件未变化，并检查 Markdown 笔记的授权修改和原始备份。
+    # 输入参数：
+    #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+    # 输出参数：
+    #     - 完整性核验报告字典；同时写入 input_integrity_authorized_notes.json。
+    #-------------
     before = json.loads((ROOT / 'artifacts/input_integrity_before.json').read_text())
     data_checks = []
     note_changes = []

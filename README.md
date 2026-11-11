@@ -64,7 +64,8 @@ criteo_uplift/
   config.py                 路径、列名、默认参数、运行环境与日志
   input_checks.py           二元标签、特征矩阵、行号的公共检查
   pipeline_io.py            指纹、路径保护、结果与缓存读写
-  preparation.py            单次流式扫描、审计、抽样、缓存、划分
+  preparation.py            三任务开关、独立缓存、统一调度、样本划分
+  raw_scan.py               单次流式读取、校验、抽样、审计及诊断任务
   diagnostics.py            SRM、SMD/KS、C2ST、Learnability
   models.py                 结果/效应模型工厂与通用 S/T/X
   training_validation.py    正式候选、Train 拟合、Validation 冻结
@@ -84,7 +85,7 @@ artifacts/                  本地缓存与实验结果，不发布
 
 每个实验目录下统一为 `data_preparation/`、`diagnostics/`、`models/`、`evaluation/`、`stability/`、`business/`、`figures/`、`manifest.json`、`report.html`。全量和 Test 的 ATE 都保存在 `evaluation/ate_summary.csv`，用 `scope` 与 `outcome` 区分。
 
-按最终重构指令，样本 NPZ/metadata 与全量 Audit 缓存均保留在 `artifacts/cache/`；它们只缓存输入准备结果，独立核验来源和版本。模型及实验评价不会写入全局缓存。
+Sample、Audit、Diagnostics 各自缓存在 `artifacts/cache/`，独立检查来源和所需参数。审计与诊断规则固定，不使用版本号；建模样本保留抽样规则校验。全部命中时不解析原始 CSV，任一任务未命中时最多执行一次共用的分块扫描。模型及实验评价不会写入全局缓存。
 
 详细说明见 [项目流程](docs/PROJECT_PIPELINE.md)、[结果阅读指南](docs/RESULTS_GUIDE.md)、[函数迁移与验收清单](docs/maintenance/FINAL_REFACTOR.md)。
 

@@ -1,4 +1,6 @@
-"""ATE、策略价值、分组校准与冻结模型的 Test 评价。"""
+#-------------
+# ATE、策略价值、分组校准与冻结模型的 Test 评价。
+#-------------
 from math import sqrt
 from typing import Mapping, Sequence
 import numpy as np
@@ -14,14 +16,14 @@ DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.50, 1.0)
 _Z_975 = 1.959963984540054
 
 def _normal_pvalue(z):
-    """
-    函数名：_normal_pvalue
-    功能：根据标准正态统计量计算双侧尾部概率，并保留极小概率的对数值和文本表示。
-    输入参数：
-        - z：标准正态检验统计量。
-    输出参数：
-        - 三元组：浮点 p 值、log(p) 和便于展示的 p 值文本。
-    """
+    #-------------
+    # 函数名：_normal_pvalue
+    # 功能：根据标准正态统计量计算双侧尾部概率，并保留极小概率的对数值和文本表示。
+    # 输入参数：
+    #     - z：标准正态检验统计量。
+    # 输出参数：
+    #     - 三元组：浮点 p 值、log(p) 和便于展示的 p 值文本。
+    #-------------
     log_p = float(np.log(2.0) + log_ndtr(-abs(z)))
     p = float(np.exp(log_p))
     if np.isnan(log_p):
@@ -38,21 +40,21 @@ def _normal_pvalue(z):
     return p, log_p, text
 
 def _ate_summary_from_counts(n0, n1, r0, r1):
-    """
-    函数名：_ate_summary_from_counts
-    功能：根据两组人数和正例人数计算差均值 ATE、标准误、置信区间及 pooled 零假设检验。
-    输入参数：
-        - n0：Control 组人数。
-        - n1：Treatment 组人数。
-        - r0：Control 组结果变量正例人数。
-        - r1：Treatment 组结果变量正例人数。
-    输出参数：
-        - ATE 统计字典：包含两组响应率、ATE、标准误、95% CI、p 值及相对增幅。
-    """
+    #-------------
+    # 函数名：_ate_summary_from_counts
+    # 功能：根据两组人数和正例人数计算差均值 ATE、标准误、置信区间及 pooled 零假设检验。
+    # 输入参数：
+    #     - n0：Control 组人数。
+    #     - n1：Treatment 组人数。
+    #     - r0：Control 组结果变量正例人数。
+    #     - r1：Treatment 组结果变量正例人数。
+    # 输出参数：
+    #     - ATE 统计字典：包含两组响应率、ATE、标准误、95% CI、p 值及相对增幅。
+    #-------------
     if any(isinstance(v, bool) or not isinstance(v, (int, np.integer)) for v in (n0, n1, r0, r1)):
-        raise ValueError("Audit counts must be valid integers")
+        raise ValueError("审计计数必须为有效整数")
     if not (n0 >= 0 and n1 >= 0 and n0 + n1 > 0 and 0 <= r0 <= n0 and 0 <= r1 <= n1):
-        raise ValueError("Audit counts must be valid integers within arm sizes")
+        raise ValueError("审计计数必须为有效整数，且不能超过对应处理臂人数")
     # 校准小分箱可能缺一组，此时保留 NaN，不伪造可估计的效果。
     p0, p1 = r0 / n0 if n0 else np.nan, r1 / n1 if n1 else np.nan
     ate = p1 - p0
@@ -72,37 +74,37 @@ def _ate_summary_from_counts(n0, n1, r0, r1):
 
 
 def ate_summary(y, t):
-    """
-    函数名：ate_summary
-    功能：从逐行二元结果变量和处理分配变量计算 ATE 统计摘要。
-    输入参数：
-        - y：逐行观测到的 0/1 结果变量。
-        - t：逐行 0/1 Treatment 分配变量。
-    输出参数：
-        - ATE 统计字典：包含两组响应率、ATE、标准误、95% CI、p 值及相对增幅。
-    """
+    #-------------
+    # 函数名：ate_summary
+    # 功能：从逐行二元结果变量和处理分配变量计算 ATE 统计摘要。
+    # 输入参数：
+    #     - y：逐行观测到的 0/1 结果变量。
+    #     - t：逐行 0/1 Treatment 分配变量。
+    # 输出参数：
+    #     - ATE 统计字典：包含两组响应率、ATE、标准误、95% CI、p 值及相对增幅。
+    #-------------
     y, t = _binary_inputs(y, t)
     return _ate_summary_from_counts(int((t == 0).sum()), int((t == 1).sum()),
                                     int(y[t == 0].sum()), int(y[t == 1].sum()))
 
 
 def ate_summary_from_audit(audit, outcome):
-    """
-    函数名：ate_summary_from_audit
-    功能：直接使用全量审计中的分组人数和正例计数计算全量 ATE，不重新读取原始数据。
-    输入参数：
-        - audit：Preparation 生成的全量审计字典。
-        - outcome：结果指标名称，支持 conversion 或 visit。
-    输出参数：
-        - 与 ate_summary 相同字段结构的 ATE 统计字典。
-    """
+    #-------------
+    # 函数名：ate_summary_from_audit
+    # 功能：直接使用全量审计中的分组人数和正例计数计算全量 ATE，不重新读取原始数据。
+    # 输入参数：
+    #     - audit：Preparation 生成的全量审计字典。
+    #     - outcome：结果指标名称，支持 conversion 或 visit。
+    # 输出参数：
+    #     - 与 ate_summary 相同字段结构的 ATE 统计字典。
+    #-------------
     if outcome not in ("conversion", "visit"):
-        raise ValueError("outcome must be conversion or visit")
+        raise ValueError("outcome 必须为 conversion 或 visit")
     groups = audit["groups"]
     n0, n1 = (groups[str(arm)]["n"] for arm in (0, 1))
     r0, r1 = (groups[str(arm)][outcome]["positive"] for arm in (0, 1))
     if n0 <= 0 or n1 <= 0:
-        raise ValueError("Audit counts must have both treatment arms")
+        raise ValueError("审计计数必须同时包含处理组和对照组")
     return _ate_summary_from_counts(n0, n1, r0, r1)
 
 
@@ -115,20 +117,20 @@ def evaluate_policies(
     bootstrap: int = 200,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """
-    函数名：evaluate_policies
-    功能：在给定预算下比较多种策略的 HT 增量价值，并计算组内配对 Bootstrap 置信区间。
-    输入参数：
-        - y：测试/评价样本的二元结果变量。
-        - t：对应样本的二元处理分配变量。
-        - score_dict：策略名称到逐行评分向量的映射。
-        - e：固定处理分配概率，用于 HT 结果加权。
-        - budgets：需要评价的触达比例序列。
-        - bootstrap：组内配对 Bootstrap 重抽样次数；0 表示不计算区间。
-        - seed：排序破同分和 Bootstrap 的随机种子。
-    输出参数：
-        - Policy Evaluation DataFrame：每种策略、每个预算的增量值、区间及相对随机/倾向基线的差值。
-    """
+    #-------------
+    # 函数名：evaluate_policies
+    # 功能：在给定预算下比较多种策略的 HT 增量价值，并计算组内配对 Bootstrap 置信区间。
+    # 输入参数：
+    #     - y：测试/评价样本的二元结果变量。
+    #     - t：对应样本的二元处理分配变量。
+    #     - score_dict：策略名称到逐行评分向量的映射。
+    #     - e：固定处理分配概率，用于 HT 结果加权。
+    #     - budgets：需要评价的触达比例序列。
+    #     - bootstrap：组内配对 Bootstrap 重抽样次数；0 表示不计算区间。
+    #     - seed：排序破同分和 Bootstrap 的随机种子。
+    # 输出参数：
+    #     - Policy Evaluation DataFrame：每种策略、每个预算的增量值、区间及相对随机/倾向基线的差值。
+    #-------------
     y, t = _binary_inputs(y, t)
     n = len(y)
     z = _ht_outcome(y, t, e)
@@ -140,14 +142,14 @@ def evaluate_policies(
         or np.any((budget < 0) | (budget > 1))
     ):
         raise ValueError(
-            "budgets must be a nonempty sequence of fractions between 0 and 1"
+            "budgets 必须为非空序列，各比例需介于 0 和 1 之间"
         )
     if not isinstance(bootstrap, (int, np.integer)) or bootstrap < 0 or bootstrap == 1:
-        raise ValueError("bootstrap must be zero or an integer of at least 2")
+        raise ValueError("bootstrap 必须为 0 或大于等于 2 的整数")
     if "random" in score_dict:
-        raise ValueError("'random' is reserved for the analytic random-policy baseline")
+        raise ValueError("'random' 为解析随机策略基线的保留名称")
     if any(not isinstance(name, str) or not name for name in score_dict):
-        raise ValueError("policy names must be nonempty strings")
+        raise ValueError("策略名称必须为非空字符串")
     k = np.floor(budget * n + 1e-12).astype(np.int64)
     fractions = k / n
     names = ["random", *score_dict]
@@ -234,21 +236,21 @@ def evaluate_policies(
     return result
 
 def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
-    """
-    函数名：calibration_table
-    功能：按预测 CATE 从低到高分箱，比较每箱平均预测效应与实际处理组/对照组结果率差。
-    输入参数：
-        - y：测试样本的二元结果变量。
-        - t：测试样本的二元处理分配变量。
-        - cate：每个样本的预测 CATE 分数。
-        - n_bins：等人数校准分箱数量。
-    输出参数：
-        - 校准结果 DataFrame：每箱的样本量、预测 CATE、观察 ATE 和置信区间。
-    """
+    #-------------
+    # 函数名：calibration_table
+    # 功能：按预测 CATE 从低到高分箱，比较每箱平均预测效应与实际处理组/对照组结果率差。
+    # 输入参数：
+    #     - y：测试样本的二元结果变量。
+    #     - t：测试样本的二元处理分配变量。
+    #     - cate：每个样本的预测 CATE 分数。
+    #     - n_bins：等人数校准分箱数量。
+    # 输出参数：
+    #     - 校准结果 DataFrame：每箱的样本量、预测 CATE、观察 ATE 和置信区间。
+    #-------------
     y, t = _binary_inputs(y, t)
     cate = _scores(cate, len(y))
     if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:
-        raise ValueError("n_bins must be a positive integer")
+        raise ValueError("n_bins 必须为正整数")
     order = _rank(-cate, seed=42)
     records = []
     for number, selected in enumerate(
@@ -289,23 +291,23 @@ def evaluate_test_set(
     progress=print,
     full_ate=None,
 ):
-    """
-    函数名：evaluate_test_set
-    功能：使用已经冻结的模型在 Test 集上生成 CATE 评分、排序指标、策略价值、校准结果和 ATE，并保存评价产物。
-    输入参数：
-        - test：独立 Test DataFrame，包含特征、treatment、结果和 row_id。
-        - models：已在训练集拟合并冻结的模型字典。
-        - outcome：本次模型训练和主要排序评价使用的结果列名。
-        - assignment_probability：用于 HT 评价的固定处理分配概率。
-        - seed：排序破同分和 Bootstrap 随机种子。
-        - bootstrap：评价区间的 Bootstrap 重抽样次数。
-        - primary_budget：Validation 阶段冻结的主要触达预算。
-        - out：本次实验的 evaluation 输出目录。
-        - progress：接收评价进度消息的回调函数。
-        - full_ate：由全量 Audit 计算得到的 ATE 记录列表。
-    输出参数：
-        - Test Policy Evaluation DataFrame；同时保存 ATE、曲线、排名、校准、区间和逐行预测缓存。
-    """
+    #-------------
+    # 函数名：evaluate_test_set
+    # 功能：使用已经冻结的模型在 Test 集上生成 CATE 评分、排序指标、策略价值、校准结果和 ATE，并保存评价产物。
+    # 输入参数：
+    #     - test：独立 Test DataFrame，包含特征、treatment、结果和 row_id。
+    #     - models：已在训练集拟合并冻结的模型字典。
+    #     - outcome：本次模型训练和主要排序评价使用的结果列名。
+    #     - assignment_probability：用于 HT 评价的固定处理分配概率。
+    #     - seed：排序破同分和 Bootstrap 随机种子。
+    #     - bootstrap：评价区间的 Bootstrap 重抽样次数。
+    #     - primary_budget：Validation 阶段冻结的主要触达预算。
+    #     - out：本次实验的 evaluation 输出目录。
+    #     - progress：接收评价进度消息的回调函数。
+    #     - full_ate：由全量 Audit 计算得到的 ATE 记录列表。
+    # 输出参数：
+    #     - Test Policy Evaluation DataFrame；同时保存 ATE、曲线、排名、校准、区间和逐行预测缓存。
+    #-------------
     out = safe_output(out)
     test_scores = predict_policy_scores(models, test[FEATURES])
 

@@ -33,22 +33,22 @@ def fit_and_select_models(
     out,
     progress=print,
 ):
-    """
-    函数名：fit_and_select_models
-    功能：使用 Train 拟合全部候选 S/T/X 模型，在 Validation 比较排序与策略价值，保存模型并冻结策略选择。
-    输入参数：
-        - train：用于模型拟合的训练集 DataFrame。
-        - validation：仅用于候选模型和策略选择的验证集 DataFrame。
-        - outcome：本次训练使用的二元结果列名。
-        - seed：模型及排序随机种子。
-        - trees：XGBoost 候选模型的树数量。
-        - primary_budget：用于 Validation 选型的主要触达预算。
-        - assignment_probability：用于 HT 指标的处理分配概率代入值。
-        - out：模型、验证指标和 selection.json 的输出目录。
-        - progress：接收模型训练进度的回调函数。
-    输出参数：
-        - 结果字典：包含拟合模型、模型参数/耗时 metadata 和冻结 selection。
-    """
+    #-------------
+    # 函数名：fit_and_select_models
+    # 功能：使用 Train 拟合全部候选 S/T/X 模型，在 Validation 比较排序与策略价值，保存模型并冻结策略选择。
+    # 输入参数：
+    #     - train：用于模型拟合的训练集 DataFrame。
+    #     - validation：仅用于候选模型和策略选择的验证集 DataFrame。
+    #     - outcome：本次训练使用的二元结果列名。
+    #     - seed：模型及排序随机种子。
+    #     - trees：XGBoost 候选模型的树数量。
+    #     - primary_budget：用于 Validation 选型的主要触达预算。
+    #     - assignment_probability：用于 HT 指标的处理分配概率代入值。
+    #     - out：模型、验证指标和 selection.json 的输出目录。
+    #     - progress：接收模型训练进度的回调函数。
+    # 输出参数：
+    #     - 结果字典：包含拟合模型、模型参数/耗时 metadata 和冻结 selection。
+    #-------------
     out = safe_output(out)
     models = {}
     model_metadata = {}

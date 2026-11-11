@@ -10,22 +10,22 @@ _NORMAL = NormalDist()
 def plan_policy_ab(
     p0, absolute_mde, allocation_ratio=1.0, budget=0.2, alpha=0.05, power=0.8
 ):
-    """
-    函数名：plan_policy_ab
-    功能：根据基线转化率、绝对 MDE、分配比例、显著性水平和功效估算策略 A/B 实验样本量。
-    输入参数：
-        - p0：假设的基线策略总体转化率。
-        - absolute_mde：需要检测的绝对转化率差异。
-        - allocation_ratio：策略 A 与策略 B 的样本分配比例。
-        - budget：假设的触达比例。
-        - alpha：双侧检验显著性水平。
-        - power：目标统计功效。
-    输出参数：
-        - 规划结果字典：包含两组样本量、总样本量、触达人数及近似实际功效。
-    """
+    #-------------
+    # 函数名：plan_policy_ab
+    # 功能：根据基线转化率、绝对 MDE、分配比例、显著性水平和功效估算策略 A/B 实验样本量。
+    # 输入参数：
+    #     - p0：假设的基线策略总体转化率。
+    #     - absolute_mde：需要检测的绝对转化率差异。
+    #     - allocation_ratio：策略 A 与策略 B 的样本分配比例。
+    #     - budget：假设的触达比例。
+    #     - alpha：双侧检验显著性水平。
+    #     - power：目标统计功效。
+    # 输出参数：
+    #     - 规划结果字典：包含两组样本量、总样本量、触达人数及近似实际功效。
+    #-------------
     values = (p0, absolute_mde, allocation_ratio, budget, alpha, power)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
-        raise ValueError('Inputs must be finite numeric scalars')
+        raise ValueError('输入必须为有限数值标量')
     p1, r = p0 + absolute_mde, allocation_ratio
     if not (
         0 < p0 < p1 < 1
@@ -35,7 +35,7 @@ def plan_policy_ab(
         and 0.5 < power < 1
     ):
         raise ValueError(
-            'Require 0<p0<p0+MDE<1, ratio>0, budget in (0,1], alpha in (0,.5), power in (.5,1)'
+            '参数需满足 0<p0<p0+MDE<1、ratio>0、budget 属于 (0,1]、alpha 属于 (0,.5)、power 属于 (.5,1)'
         )
     pbar = (p0 + r * p1) / (1 + r)
     za, zb = _NORMAL.inv_cdf(1 - alpha / 2), _NORMAL.inv_cdf(power)
@@ -80,37 +80,37 @@ def cost_value_scenario(
     ci_low=None,
     ci_high=None,
 ):
-    """
-    函数名：cost_value_scenario
-    功能：将每十万名符合条件人群的增量结果换算为假设收益、触达成本、净价值和条件性区间。
-    输入参数：
-        - incremental_per_100k：每十万名符合条件人群的增量结果数。
-        - budget：假设的触达比例。
-        - value_per_conversion：每次增量转化的假设贡献价值。
-        - contact_cost：每次触达的假设单位成本。
-        - eligible_n：符合触达条件的总人数。
-        - ci_low：可选的增量效果置信区间下界。
-        - ci_high：可选的增量效果置信区间上界。
-    输出参数：
-        - 经济情景字典：包含增量转化、收益、成本、净值、条件性区间及盈亏平衡触达成本。
-    """
+    #-------------
+    # 函数名：cost_value_scenario
+    # 功能：将每十万名符合条件人群的增量结果换算为假设收益、触达成本、净价值和条件性区间。
+    # 输入参数：
+    #     - incremental_per_100k：每十万名符合条件人群的增量结果数。
+    #     - budget：假设的触达比例。
+    #     - value_per_conversion：每次增量转化的假设贡献价值。
+    #     - contact_cost：每次触达的假设单位成本。
+    #     - eligible_n：符合触达条件的总人数。
+    #     - ci_low：可选的增量效果置信区间下界。
+    #     - ci_high：可选的增量效果置信区间上界。
+    # 输出参数：
+    #     - 经济情景字典：包含增量转化、收益、成本、净值、条件性区间及盈亏平衡触达成本。
+    #-------------
     values = (incremental_per_100k, budget, value_per_conversion, contact_cost)
     if not all(isinstance(v, (int, float)) and isfinite(v) for v in values):
-        raise ValueError('Inputs must be finite numeric scalars')
+        raise ValueError('输入必须为有限数值标量')
     if not (0 < budget <= 1 and value_per_conversion >= 0 and contact_cost >= 0):
-        raise ValueError('Require budget in (0,1], value and cost >=0')
+        raise ValueError('budget 必须属于 (0,1]，value 和 cost 必须大于等于 0')
     if (
         not isinstance(eligible_n, int)
         or isinstance(eligible_n, bool)
         or eligible_n <= 0
     ):
-        raise ValueError('eligible_n must be a positive integer')
+        raise ValueError('eligible_n 必须为正整数')
     if (ci_low is None) != (ci_high is None):
-        raise ValueError('Supply both effect CI endpoints or neither')
+        raise ValueError('效应置信区间的两个端点必须同时提供或同时省略')
     if ci_low is not None and (
         not isfinite(ci_low) or not isfinite(ci_high) or ci_low > ci_high
     ):
-        raise ValueError('CI endpoints must be finite and ordered')
+        raise ValueError('置信区间端点必须为有限值，且下界不能大于上界')
     contacts = floor(eligible_n * budget + 1e-12)
     scale = eligible_n / 100_000
     benefit = incremental_per_100k * scale * value_per_conversion
@@ -147,31 +147,31 @@ DEFAULT_PLANNING_ASSUMPTIONS = {
 
 
 def run_planning(policies, selection, out, *, assumptions=None):
-    """
-    函数名：run_planning
-    功能：读取冻结策略在主预算下的 Test 结果，按明确的业务假设生成 A/B 样本量规划和经济情景文件。
-    输入参数：
-        - policies：Test 阶段生成的各策略、各预算 Policy Evaluation 表。
-        - selection：Validation 阶段冻结的策略名称和主预算。
-        - out：本次实验的 business 输出目录。
-        - assumptions：可选的业务假设字典；未提供时使用 planning.py 中的教学情景。
-    输出参数：
-        - 无；保存 assumptions.json、hypothetical_ab_plans.csv 和 hypothetical_cost_scenarios.csv。
-    """
+    #-------------
+    # 函数名：run_planning
+    # 功能：读取冻结策略在主预算下的 Test 结果，按明确的业务假设生成 A/B 样本量规划和经济情景文件。
+    # 输入参数：
+    #     - policies：Test 阶段生成的各策略、各预算 Policy Evaluation 表。
+    #     - selection：Validation 阶段冻结的策略名称和主预算。
+    #     - out：本次实验的 business 输出目录。
+    #     - assumptions：可选的业务假设字典；未提供时使用 planning.py 中的教学情景。
+    # 输出参数：
+    #     - 无；保存 assumptions.json、hypothetical_ab_plans.csv 和 hypothetical_cost_scenarios.csv。
+    #-------------
     import pandas as pd
     import numpy as np
     from .pipeline_io import safe_output, write_result
 
     settings = dict(DEFAULT_PLANNING_ASSUMPTIONS if assumptions is None else assumptions)
     if set(settings) != set(DEFAULT_PLANNING_ASSUMPTIONS):
-        raise ValueError(f"Planning assumptions require exactly {list(DEFAULT_PLANNING_ASSUMPTIONS)}")
+        raise ValueError(f"规划假设必须恰好包含这些字段：{list(DEFAULT_PLANNING_ASSUMPTIONS)}")
     for key in ('absolute_mdes', 'values_per_conversion', 'contact_costs'):
         if not isinstance(settings[key], (list, tuple)) or not settings[key]:
-            raise ValueError(f'{key} must be a nonempty list')
+            raise ValueError(f'{key} 必须为非空列表')
     budget = selection['primary_budget']
     chosen = policies[(policies.policy == selection['selected_policy']) & np.isclose(policies.budget, budget)]
     if len(chosen) != 1:
-        raise ValueError('Expected one frozen policy result at the primary budget')
+        raise ValueError('主预算下必须恰好有一条冻结策略结果')
     row = chosen.iloc[0]
     plans = pd.DataFrame([
         plan_policy_ab(settings['p0'], delta, settings['allocation_ratio'], budget,

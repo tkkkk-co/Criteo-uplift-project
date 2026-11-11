@@ -42,14 +42,14 @@ SUFFIXES = {
 
 
 def publication_files(root=ROOT):
-    """
-    函数名：publication_files
-    功能：按允许发布的目录、顶层文件和扩展名枚举项目文件，并拒绝符号链接、越界文件和异常大文件。
-    输入参数：
-        - root：项目根目录。
-    输出参数：
-        - 排序后的可发布文件 pathlib.Path 列表。
-    """
+    #-------------
+    # 函数名：publication_files
+    # 功能：按允许发布的目录、顶层文件和扩展名枚举项目文件，并拒绝符号链接、越界文件和异常大文件。
+    # 输入参数：
+    #     - root：项目根目录。
+    # 输出参数：
+    #     - 排序后的可发布文件 pathlib.Path 列表。
+    #-------------
     root = Path(root).resolve()
     candidates = [root / name for name in TOP_FILES]
     for directory in DIRECTORIES:
@@ -70,23 +70,23 @@ def publication_files(root=ROOT):
             continue
         if p.is_symlink() or not p.resolve().is_relative_to(root):
             raise ValueError(
-                f'Symlink/out-of-project file excluded from publication: {rel}'
+                f'发布文件不能为符号链接或位于项目外：{rel}'
             )
         if p.stat().st_size > 10 * 1024 * 1024:
-            raise ValueError(f'Unexpected large publication file: {rel}')
+            raise ValueError(f'发布文件大小超出预期：{rel}')
         result.append(p)
     return sorted(set(result))
 
 
 def check(root=ROOT):
-    """
-    函数名：check
-    功能：校验公开聚合快照文件哈希、排除个体级/模型产物，并检查发布白名单范围。
-    输入参数：
-        - root：项目根目录。
-    输出参数：
-        - 发布核验摘要字典，包含快照文件数、发布文件数、总大小及数据范围标记。
-    """
+    #-------------
+    # 函数名：check
+    # 功能：校验公开聚合快照文件哈希、排除个体级/模型产物，并检查发布白名单范围。
+    # 输入参数：
+    #     - root：项目根目录。
+    # 输出参数：
+    #     - 发布核验摘要字典，包含快照文件数、发布文件数、总大小及数据范围标记。
+    #-------------
     root = Path(root).resolve()
     public = root / 'reports/published'
     manifest = json.loads((public / 'snapshot_manifest.json').read_text())
@@ -97,17 +97,17 @@ def check(root=ROOT):
     for record in manifest['files']:
         path = public / record['published']
         if not path.resolve().is_relative_to(public.resolve()):
-            raise ValueError('Snapshot path escapes public directory')
+            raise ValueError('快照路径超出公开目录')
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != record['published_sha256']:
-            raise ValueError(f'Published snapshot changed: {path}')
+            raise ValueError(f'已发布快照发生变化：{path}')
     for path in public.rglob('*'):
         if path.is_file() and (
             path.suffix in ('.npz', '.npy', '.joblib', '.pickle', '.pkl')
             or 'row_ids' in path.name
         ):
             raise ValueError(
-                f'Individual/model artifacts must not be published: {path}'
+                f'不得发布逐行数据或模型产物：{path}'
             )
     files = publication_files(root)
     assert not any(

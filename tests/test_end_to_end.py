@@ -23,14 +23,14 @@ from run_pipeline import run
 #-----------------------------------------------------------------------------------------------------------------------
 class EndToEndTests(unittest.TestCase):
     def test_complete_pipeline_outputs_and_frozen_selection(self):
-        """
-        函数名：EndToEndTests.test_complete_pipeline_outputs_and_frozen_selection
-        功能：验证合成数据能够贯通完整 Pipeline，生成预期结果文件，并在 Test 评价前冻结模型和策略选择。
-        输入参数：
-            - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        输出参数：
-            - 无；通过断言验证预期行为，失败时由测试框架报告。
-        """
+        #-------------
+        # 函数名：EndToEndTests.test_complete_pipeline_outputs_and_frozen_selection
+        # 功能：验证合成数据能够贯通完整 Pipeline，生成预期结果文件，并在 Test 评价前冻结模型和策略选择。
+        # 输入参数：
+        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        # 输出参数：
+        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #-------------
         with TemporaryDirectory() as folder:
             root = Path(folder)
             rng = np.random.default_rng(814)

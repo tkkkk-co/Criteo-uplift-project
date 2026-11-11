@@ -1,4 +1,6 @@
-"""从一个完整实验导出聚合快照；不发布逐行数据、行号、模型或缓存。"""
+#-------------
+# 从一个完整实验导出聚合快照；不发布逐行数据、行号、模型或缓存。
+#-------------
 from pathlib import Path
 import sys
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,37 +29,37 @@ BASE_FILES = (
 
 
 def sanitize_text(value):
-    """
-    函数名：sanitize_text
-    功能：从待发布文本中替换本机项目绝对路径和 Python 解释器路径，避免泄露本地环境信息。
-    输入参数：
-        - value：需要清理本机路径信息的文本内容。
-    输出参数：
-        - 完成路径脱敏后的文本字符串。
-    """
+    #-------------
+    # 函数名：sanitize_text
+    # 功能：从待发布文本中替换本机项目绝对路径和 Python 解释器路径，避免泄露本地环境信息。
+    # 输入参数：
+    #     - value：需要清理本机路径信息的文本内容。
+    # 输出参数：
+    #     - 完成路径脱敏后的文本字符串。
+    #-------------
     return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(sys.executable, 'python')
 
 
 def export(source, output):
-    """
-    函数名：export
-    功能：从完整实验目录复制明确允许的聚合结果和图像，生成带 SHA256 清单的公开快照。
-    输入参数：
-        - source：状态为 complete 的实验输出目录。
-        - output：新公开快照的目标目录，必须不存在。
-    输出参数：
-        - 生成的公开快照目录 pathlib.Path。
-    """
+    #-------------
+    # 函数名：export
+    # 功能：从完整实验目录复制明确允许的聚合结果和图像，生成带 SHA256 清单的公开快照。
+    # 输入参数：
+    #     - source：状态为 complete 的实验输出目录。
+    #     - output：新公开快照的目标目录，必须不存在。
+    # 输出参数：
+    #     - 生成的公开快照目录 pathlib.Path。
+    #-------------
     source, output = Path(source).resolve(), safe_output(output)
     if output.exists():
         raise FileExistsError(f'Use a new snapshot directory: {output}')
     manifest = json.loads((source / 'manifest.json').read_text())
     if manifest['status'] != 'complete':
-        raise ValueError('Only complete experiments can be published')
+        raise ValueError('只能发布已完成的实验')
     paths = [source / name for name in BASE_FILES] + sorted((source / 'figures').glob('*.png'))
     for path in paths:
         if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(source):
-            raise ValueError(f'Missing or unsafe export source: {path}')
+            raise ValueError(f'导出来源缺失或路径不安全：{path}')
     records = []
     for path in paths:
         relative = Path(source.name) / path.relative_to(source)
@@ -81,7 +83,7 @@ def export(source, output):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description='从一个完整实验导出聚合快照；不发布逐行数据、行号、模型或缓存。')
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--output', type=Path, default=ROOT / 'reports/published')
     args = parser.parse_args()
