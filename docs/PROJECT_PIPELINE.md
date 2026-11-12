@@ -56,8 +56,8 @@ artifacts/cache/
   sample_1000000_seed42.npz
   sample_1000000_seed42.json
   full_audit_<source_sha256>.json
-  full_diagnostics_<source_sha256>_n20000_seed42.npz
-  full_diagnostics_<source_sha256>_n20000_seed42.json
+  c2st_sample_n20000_seed42.npz
+  c2st_sample_n20000_seed42.json
 ```
 
 建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。说明与 NPZ 内容都校验通过才算命中；文件损坏、缺字段、形状或数据异常会在扫描计划形成前判为未命中，与其他待计算任务共用一次扫描重建样本和说明。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段与载荷指纹。审计和诊断均没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
@@ -66,7 +66,7 @@ artifacts/cache/
 
 ## 模型与评价
 
-`make_outcome_model()` 创建分类器，`make_effect_model()` 创建连续伪效应回归器，`make_uplift_model()` 组合 S/T/X。模型算法不依赖正式候选名单；名单只在 training_validation.py 中定义。
+`make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`make_uplift_model()` 组合 S/T/X。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。候选名单定义在 `training_validation.py` 中。
 
 X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。predict_outcomes 返回第一阶段概率；predict 返回加权 CATE。
 

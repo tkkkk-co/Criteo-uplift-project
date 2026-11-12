@@ -17,12 +17,12 @@ _XGB_DEFAULTS = dict(random_state=42, n_estimators=150, max_depth=4, learning_ra
                      tree_method="hist", n_jobs=4)
 
 
-def make_outcome_model(name, **params):
+def make_classifier_model(name, **params):
     #-------------
-    # 函数名：make_outcome_model
-    # 功能：根据名称创建用于预测二元结果变量 Y 的分类模型及其必要预处理。
+    # 函数名：make_classifier_model
+    # 功能：创建以 0/1 为训练标签、可输出结果概率的分类模型及其预处理。
     # 输入参数：
-    #     - name：结果模型名称，当前支持 logistic 和 xgboost。
+    #     - name：分类器名称，当前支持 logistic 和 xgboost。
     #     - **params：传递给对应分类器构造函数的参数。
     # 输出参数：
     #     - 未拟合的结果分类器或 Pipeline。
@@ -41,12 +41,12 @@ def make_outcome_model(name, **params):
     raise ValueError(f"不支持的结果模型：{name}")
 
 
-def make_effect_model(name, **params):
+def make_regression_model(name, **params):
     #-------------
-    # 函数名：make_effect_model
-    # 功能：根据名称创建用于拟合连续伪处理效应的回归模型及其必要预处理。
+    # 函数名：make_regression_model
+    # 功能：创建用于拟合 X-Learner 连续伪效应标签的回归模型及其预处理。
     # 输入参数：
-    #     - name：效应回归器名称，当前支持 linear 和 xgboost。
+    #     - name：回归器名称，linear 为线性回归，xgboost 为提升树回归。
     #     - **params：传递给对应回归器构造函数的参数。
     # 输出参数：
     #     - 未拟合的效应回归器或 Pipeline。
@@ -135,7 +135,7 @@ class _BaseUpliftLearner(BaseEstimator):
         # 输出参数：
         #     - 未拟合的 Outcome Model 分类器。
         #-------------
-        return make_outcome_model(self.outcome_model, **(self.outcome_params or {}))
+        return make_classifier_model(self.outcome_model, **(self.outcome_params or {}))
 
     def _new_regressor(self):
         #-------------
@@ -146,7 +146,7 @@ class _BaseUpliftLearner(BaseEstimator):
         # 输出参数：
         #     - 未拟合的 Effect Model 回归器。
         #-------------
-        return make_effect_model(self.effect_model, **(self.effect_params or {}))
+        return make_regression_model(self.effect_model, **(self.effect_params or {}))
 
     def _prepare_fit(self, X, t, y):
         #-------------

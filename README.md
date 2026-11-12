@@ -89,11 +89,11 @@ Sample、Audit、Diagnostics 各自缓存在 `artifacts/cache/`，独立检查�
 
 详细说明见 [项目流程](docs/PROJECT_PIPELINE.md)、[结果阅读指南](docs/RESULTS_GUIDE.md)、[函数迁移与验收清单](docs/maintenance/FINAL_REFACTOR.md)。
 
-## 重构兼容边界
+## 当前结果与缓存
 
-原始数据与旧实验结果保留。旧公开快照已原样归档到本地 `artifacts/archive/published_before_final_refactor/`，当前公开目录只有完整项目的正式报告。旧拆分 Notebook 的有效学习内容已合并并执行检查后清理。
+本地 `artifacts` 中的旧缓存和旧实验结果已清理，当前内容由现有代码完整重跑生成；公开聚合快照及 Notebook 输出也已同步刷新。原始 CSV 保持不变，不保留旧缓存迁移或旧模型兼容文件。
 
-固定组合类已按要求删除，因此旧类名保存的历史 joblib 需要使用原提交版本读取；新流程产生的模型支持当前独立打分入口，不添加隐藏的类名兼容层。旧 CSV/JSON 仍可阅读。经确认，ATE 两条输入路径统一采用原逐行的样本方差口径（n−1 修正），新全量 ATE 的 SE/CI 略有变化；其余模型预测、抽样、划分、策略评价与模型选择保持一致。
+C2ST 的 20,000 行 float64 样本保存在 `artifacts/cache/c2st_sample_n20000_seed42.npz`，同名 JSON 记录来源及校验信息。实验目录的 `diagnostics/` 保存检验结果，而非样本。独立的 [C2ST 敏感性分析](reports/analysis/c2st_sensitivity.md) 复用该缓存；[英文 Report 小节草稿](reports/analysis/c2st_sensitivity_report_section.md) 单独交付，没有替换正式主分析。
 
 ## 发布聚合快照
 

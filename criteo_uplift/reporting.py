@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import html
 import importlib.metadata
+import io
 import json
 import platform
 import sys
@@ -188,6 +189,38 @@ def _image(path: Path, alt: str, caption: str) -> str:
     )
 
 
+def _equation(expression: str, label: str) -> str:
+    #-------------
+    # 将数学表达式排版为内嵌矢量图，使报告离线打开时也能显示分式、积分和上下标。
+    # 输入参数：
+    #     - expression：Matplotlib MathText 支持的数学表达式，不包含美元分隔符。
+    #     - label：公式的中文标题，同时用于辅助阅读。
+    # 输出参数：
+    #     - 带标题、替代文本和横向滚动容器的 HTML 公式块。
+    #-------------
+    from matplotlib import rc_context
+    from matplotlib.figure import Figure
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.mathtext import MathTextParser
+
+    formula = f'${expression}$'
+    font = FontProperties(size=17, math_fontfamily='stix')
+    width, height, depth, _, _ = MathTextParser('path').parse(formula, dpi=72, prop=font)
+    with rc_context({'svg.hashsalt': 'criteo-report-math', 'svg.fonttype': 'path'}):
+        fig = Figure(figsize=((width + 12) / 72, (height + 16) / 72))
+        fig.text(6 / (width + 12), (depth + 8) / (height + 16), formula,
+                 fontproperties=font, color='#183c56')
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format='svg', transparent=True, metadata={'Date': None})
+    encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
+    return (
+        f'<div class="equation"><div class="equation-label">{html.escape(label)}</div>'
+        f'<div class="equation-scroll" tabindex="0" role="group" aria-label="{html.escape(label)}">'
+        f'<img class="math-equation" src="data:image/svg+xml;base64,{encoded}" '
+        f'alt="{html.escape(expression, quote=True)}"></div></div>'
+    )
+
+
 def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
     #-------------
     # 函数名：_errorbar
@@ -307,36 +340,113 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             plt.close(fig)
 
         ate = frames["ate_full"]
-        fig, axes = plt.subplots(
-            1, len(ate), figsize=(10.8, 3.4), squeeze=False, constrained_layout=True
+        # 从当前表格现场绘图；原始列保持比例单位，绘图副本转换为百分点（pp）。
+        from matplotlib.ticker import MaxNLocator
+
+        ate_plot = (
+            ate.set_index('outcome')
+            .loc[['conversion', 'visit'], ['ate', 'ci_low', 'ci_high']]
+            .mul(100)  # 转换为百分点。
         )
-        for ax, row in zip(axes[0], ate.itertuples()):
-            ax.axhline(0, color="#a7b3be", lw=1)
-            _errorbar(
-                ax,
-                np.array([row.ate * 100]),
-                np.array([row.ci_low * 100]),
-                np.array([row.ci_high * 100]),
-                np.array([0.0]),
-                color="#2171ad",
-            )
-            ax.set_xlim(-0.8, 0.8)
-            ax.set_xticks([0], [row.outcome.capitalize()])
-            ax.set_ylabel("Absolute effect (percentage points)")
-            ax.set_title(f"{row.outcome.capitalize()} | full public sample")
-            ax.grid(axis="y")
-            ax.text(
-                0.03,
-                0.96,
-                f"ATE {row.ate * 100:.3f} pp\n95% CI [{row.ci_low * 100:.3f}, {row.ci_high * 100:.3f}]",
-                transform=ax.transAxes,
-                va="top",
-                fontsize=9,
-            )
-            ax.margins(y=0.35)
-        save(fig, "ate_full")
 
+        with plt.rc_context(  # 临时使用 Notebook 的图片样式。
+            {
+                'font.family': 'DejaVu Sans',
+                'font.size': 11,
+                'axes.spines.top': False,
+                'axes.spines.right': False,
+                'axes.spines.left': False,
+                'axes.edgecolor': '#C8D0D8',
+                'axes.labelcolor': '#344454',
+                'text.color': '#23313F',
+                'figure.facecolor': 'white',
+                'axes.facecolor': 'white',
+            }
+        ):
+            fig, axes = plt.subplots(
+                2,
+                1,
+                figsize=(12, 6.2),
+                sharex=False,
+                dpi=130,
+                constrained_layout=True,
+            )
+            fig.suptitle(
+                'Absolute treatment effects in the full public sample\n'
+                '95% confidence intervals | Separate x-axis scales | Dashed line: zero effect',
+                fontsize=13,
+            )
 
+            for ax, (outcome, row), color in zip(
+                axes,
+                ate_plot.iterrows(),
+                ['#2166AC', '#087F8C'],
+            ):
+                ax.axvline(
+                    0,
+                    color='#536170',
+                    linestyle='--',
+                    linewidth=1.3,
+                    zorder=2,
+                )
+                ax.errorbar(
+                    x=[row['ate']],
+                    y=[0],
+                    xerr=[
+                        [row['ate'] - row['ci_low']],
+                        [row['ci_high'] - row['ate']],
+                    ],
+                    fmt='none',
+                    color=color,
+                    elinewidth=3.5,
+                    capsize=10,
+                    capthick=2.2,
+                    zorder=3,
+                )
+
+                # 单独绘制小型空心点，避免较窄的 Visit 区间被实心标记遮挡。
+                ax.plot(row['ate'], 0, marker='o', markersize=4.5,
+                        markerfacecolor='white', markeredgecolor=color,
+                        markeredgewidth=1.6, linestyle='none', zorder=4)
+
+                # 每个子图独立缩放，但始终包含零点、点估计和完整 CI；保持线性坐标。
+                left = min(0.0, row['ci_low'], row['ate'])
+                right = max(0.0, row['ci_high'], row['ate'])
+                span = right - left
+                padding = 0.08 * span if span > 0 else 0.01
+                ax.set_xlim(
+                    left - padding,
+                    right + padding,
+                )
+
+                ax.set_ylim(-0.45, 0.85)
+                ax.set_yticks(
+                    [0],
+                    [outcome.capitalize()],
+                )
+                ax.tick_params(axis='y', length=0, pad=12)
+                ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
+
+                ax.set_xlabel('Absolute treatment effect (percentage points, pp)')
+                ax.set_axisbelow(True)
+                ax.grid(axis='x', color='#E6EBEF', linewidth=0.8)
+
+                # 标注使用绘图区相对坐标，放在点和 CI 上方，避免遮挡。
+                ax.text(
+                    0.98,
+                    0.94,
+                    f"ATE = {row['ate']:+.4f} pp\n"
+                    f"95% CI: [{row['ci_low']:.4f}, {row['ci_high']:.4f}] pp",
+                    transform=ax.transAxes,
+                    ha='right',
+                    va='top',
+                    fontsize=12,
+                    fontweight='bold',
+                    color=color,
+                    linespacing=1.5,
+                )
+
+            save(fig, "ate_full")
 
         balance = frames["balance"].sort_values("abs_smd", ascending=True)
         full_balance = balance.get("scope", pd.Series(dtype=str)).eq("full_published_dataset").all() and "scope" in balance
@@ -683,7 +793,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _image(
             paths["ate_full"],
             "全量平均处理效应",
-            "点为差均值，线为 95% Wald 区间；两个指标采用各自纵轴尺度。",
+            "空心点为差均值，横线为 95% Wald 区间；两个指标采用各自横轴尺度，虚线表示零效应。",
         )
         + f'<p>独立测试集 {esc(outcome)} 的差均值 ATE 为 {_num(ate_test["ate"] * 100, 4)} 个百分点，'
         f'95% CI {_interval(ate_test, scale=100, digits=4)}。差均值 ATE 与下文固定 e 的 HT 估计是不同有限样本计算，数值不必完全一致。</p></section>',
@@ -729,21 +839,29 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _table(ranking_display)
         + '<p>主比较仍是固定主预算的政策增量；HT AUUC 汇总所有预算，传统 Qini score 用作辅助。'
         '二者尺度与归一化不同，不能与其他库的同名分数直接混用；HT 中心面积也不等于传统 Qini score。</p>'
-        '<div class="formula"><strong>本报告的计算定义</strong>'
-        '<p><code>zᵢ = TᵢYᵢ/e − (1−Tᵢ)Yᵢ/(1−e)</code></p>'
-        '<p><code>k = floor(qn), G_HT(q) = (1/n) Σᵢ∈top-k zᵢ</code>；每 10 万人增量 = <code>100000 × G_HT(q)</code>。</p>'
-        '<p>随机政策期望 = <code>(k/n) × mean(z)</code>；HT AUUC = <code>∫₀¹ G_HT(q) dq</code>；'
-        'HT 中心面积 = <code>HT AUUC − G_HT(1)/2</code>。</p>'
-        '<p>传统曲线 <code>Q_trad(q) = [R₁(q) − R₀(q) × N₁(q)/N₀(q)] / n</code>；'
-        '<code>Nₐ</code> 为已选前缀内各组人数，<code>Rₐ</code> 为对应正例数。传统 Qini score = '
-        '<code>∫₀¹ [Q_trad(q) − q × Q_trad(1)] dq</code>。当前 v2 从原点 (0,0) 开始，对所有 '
-        '<code>N₀(q) &gt; 0</code> 的前缀点作梯形积分，包括仅包含对照组时的零值点。'
-        '尚无对照组的前缀曲线值未定义，不作为积分节点；积分从原点线性连接到首个保留点，原始曲线仍保留相应缺失值。'
+        '<div class="formula" id="calculation-definitions"><h3>本报告的计算定义</h3>'
+        '<p class="formula-intro">先计算每行的 HT 伪结果，再按固定排名累计；以下定义与结果表使用同一口径。</p>'
+        + _equation(r'z_i=\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}', '01 · 单行 HT 伪结果')
+        + _equation(r'k=\lfloor qn\rfloor,\qquad G_{\mathrm{HT}}(q)=\frac{1}{n}\sum_{i\in\mathrm{top}\text{-}k}z_i',
+                    '02 · 预算与累计增量')
+        + _equation(r'\mathrm{Incremental\ responses\ per\ 100{,}000}=100{,}000\,G_{\mathrm{HT}}(q)',
+                    '每 10 万名可触达对象的增量')
+        + _equation(r'G_{\mathrm{random}}(q)=\frac{k}{n}\,\bar{z}', '03 · 随机政策的预期增量')
+        + _equation(r'A_{\mathrm{HT}}=\int_0^1 G_{\mathrm{HT}}(q)\,dq', '04 · HT AUUC')
+        + _equation(r'H_{\mathrm{HT}}=A_{\mathrm{HT}}-\frac{G_{\mathrm{HT}}(1)}{2}', 'HT 中心面积')
+        + _equation(r'Q_{\mathrm{trad}}(q)=\frac{1}{n}\left[R_1(q)-R_0(q)\frac{N_1(q)}{N_0(q)}\right]',
+                    '05 · 传统 Qini 曲线')
+        + _equation(r'\mathrm{Qini\ score}=\int_0^1\left[Q_{\mathrm{trad}}(q)-q\,Q_{\mathrm{trad}}(1)\right]dq',
+                    '06 · 传统 Qini score')
+        + '<p class="formula-note"><var>N<sub>a</sub></var> 为已选前缀内各组人数，'
+        '<var>R<sub>a</sub></var> 为对应正例数；<var>n</var> 为全体待评估人数，'
+        '<var>q</var> 为预算比例，<var>e</var> 为报告使用的处理分配概率估计。</p>'
+        '<p>曲线从原点 (0,0) 开始，对所有 <var>N<sub>0</sub>(q) &gt; 0</var> 的前缀点作梯形积分，'
+        '包括仅包含对照组时的零值点。尚无对照组的前缀曲线值未定义，不作为积分节点；'
+        '积分从原点线性连接到首个保留点，原始曲线仍保留相应缺失值。'
         '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 normalized Qini score。</p>'
-        '<p>版本说明：历史 v1 仅保留同时包含处理组和对照组的前缀作积分节点；当前 v2 保留所有已有对照组的前缀，'
-        '包括仅有对照组的零值点。历史基线与稳定性研究的 v1 结果保持原样，未因本次说明修订而按 v2 重算。</p>'
-        '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。'
-        '</p></div></section>',
+        '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。</p>'
+        '</div></section>',
         '<section><h2>Uplift Modeling · S/T/X 与 CATE 校准</h2>'
         f'<p>{calibration_note}</p>'
         + _image(
@@ -758,7 +876,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<section><h2>Conclusion · 推断边界与下一步</h2>'
         '<p>全量/分箱 ATE 区间使用未合并方差的正态近似；ATE 双侧 p 值使用零假设下合并比例的 z 检验，'
         '因此两者并非严格有限样本对偶，稀疏分箱尤其需要谨慎解释。p 值不表示零假设为真的概率。</p>'
-        '<p>C2ST 的 p 值是 AUC 上尾检验：<code>p = (1 + #{AUC_perm ≥ AUC_obs}) / (B + 1)</code>，'
+        '<p>C2ST 的 p 值使用 AUC 上尾置换检验：</p>'
+        + _equation(r'p=\frac{1+\sum_{b=1}^{B}\mathbf{1}\{\mathrm{AUC}^{(b)}_{\mathrm{perm}}\geq\mathrm{AUC}_{\mathrm{obs}}\}}{B+1}',
+                    '经验置换 P 值')
+        + '<p>'
         f'本次 B = {b}，未校正 p 的最小可能值为 {1/(b+1):.4g}，最大为 1；两模型使用 Holm 校正。'
         'ATE 的渐近 p 值不是该离散网格上的值。政策表只报告点估计和区间，没有把 bootstrap 区间换算为未经定义的 p 值。</p>'
         '<p>公开匿名样本的离线 ITT 结论不能直接外推到当前线上人群、曝光效果或盈利效果。实际收益还需要成本、转化价值、'
@@ -821,6 +942,9 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     main{max-width:1200px;margin:auto;padding:44px 28px 60px}header{margin:0 0 30px;padding:0 8px}.eyebrow{font-size:12px;letter-spacing:.16em;color:#2171ad;font-weight:700}h1{font-size:36px;line-height:1.25;margin:12px 0}.subtitle{color:#5e7180}
     section{background:#fff;border:1px solid #e2e9ef;border-radius:8px;padding:28px;margin:20px 0}h2{font-size:23px;margin:0 0 16px}h3{font-size:18px;margin-top:24px}p{margin:12px 0}.lead{border-top:4px solid #2171ad}.key{font-size:21px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.cards div{background:#f2f7fb;padding:16px;border-radius:5px}.cards span{display:block;color:#667887;font-size:13px}.cards strong{font-size:25px;font-weight:650}
     figure{margin:24px 0}img{width:100%;height:auto;display:block}figcaption{font-size:13px;color:#647887;margin-top:10px}.table-wrap{overflow-x:auto;margin:18px 0}table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}th{background:#eff5f9;text-align:left;padding:11px 12px;border-bottom:2px solid #d5e3ee}td{padding:9px 12px;border-bottom:1px solid #e8eef3}tr:nth-child(even) td{background:#fafcfe}.formula{background:#f3f7fb;border-left:3px solid #2171ad;padding:16px 20px;margin:22px 0}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;overflow-wrap:anywhere}.provenance{font-size:13px;color:#667887}.provenance h2{font-size:19px}li{margin:8px 0}
+    .formula{border:1px solid #dce7ef;border-left:4px solid #2171ad;border-radius:8px;padding:24px;background:#f6f9fc}.formula h3{margin:0 0 8px}.formula-intro,.formula-note{color:#586e80;font-size:14px}.equation{margin:18px 0;padding:16px 18px;background:#fff;border:1px solid #e2eaf1;border-radius:6px;break-inside:avoid}.equation-label{font-size:12px;font-weight:650;letter-spacing:.04em;color:#587286;margin-bottom:8px}.equation-scroll{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:2px 0}.equation-scroll:focus-visible{outline:2px solid #2171ad;outline-offset:3px}.math-equation{width:auto;max-width:none;height:auto;display:block}var{font-family:Georgia,"Times New Roman",serif}pre{overflow-x:auto}
+    @media(max-width:700px){.formula{padding:16px 12px}.equation{padding:12px 10px}}
+    @media print{.equation-scroll{overflow:visible}.math-equation{max-width:100%;height:auto}.equation{border-color:#ddd}}
     @media(max-width:700px){main{padding:24px 12px}section{padding:18px}h1{font-size:28px}.cards{grid-template-columns:1fr}.cards strong{font-size:23px}}@media print{body{background:white}main{padding:0;max-width:none}section{border:0;padding:12px 0;break-inside:auto}figure,.cards{break-inside:avoid}.table-wrap{overflow:visible}table{white-space:normal;font-size:10px}h2,h3{break-after:avoid}}
     """
     document = (

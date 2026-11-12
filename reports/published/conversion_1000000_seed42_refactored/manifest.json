@@ -41,7 +41,7 @@
           "random_state": 42
         }
       },
-      "seconds": 0.4598876249510795
+      "seconds": 0.4744088340085
     },
     "t_logistic": {
       "parameters": {
@@ -52,7 +52,7 @@
           "random_state": 42
         }
       },
-      "seconds": 0.459714625030756
+      "seconds": 0.47729895799420774
     },
     "t_xgboost": {
       "parameters": {
@@ -64,7 +64,7 @@
           "n_estimators": 150
         }
       },
-      "seconds": 0.798661750042811
+      "seconds": 0.7837477920111269
     },
     "x_xgboost": {
       "parameters": {
@@ -79,7 +79,7 @@
           "n_estimators": 150
         }
       },
-      "seconds": 1.4755767090246081
+      "seconds": 1.498503209091723
     }
   },
   "assumptions": [
@@ -146,5 +146,5 @@
     "matplotlib": "3.11.1",
     "joblib": "1.6.0"
   },
-  "elapsed_seconds": 96.8128908330109
+  "elapsed_seconds": 116.42729516606778
 }

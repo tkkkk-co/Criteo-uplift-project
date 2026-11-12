@@ -52,11 +52,11 @@ ATE 冲突已由用户确认统一为原逐行口径：两条路径均使用 n�
 | criteo_uplift/models.py | `_ConstantProbabilityClassifier` | criteo_uplift/models.py | `_ConstantProbabilityClassifier` | 保留 |
 | criteo_uplift/models.py | `_positive_probability` | criteo_uplift/models.py | `_positive_probability` | 保留 |
 | criteo_uplift/models.py | `_UpliftEstimator` | criteo_uplift/models.py | `_BaseUpliftLearner` | 迁移/合并 |
-| criteo_uplift/models.py | `_LogisticConfiguration` | criteo_uplift/models.py | `make_outcome_model` | 迁移/合并 |
+| criteo_uplift/models.py | `_LogisticConfiguration` | criteo_uplift/models.py | `make_classifier_model` | 迁移/合并 |
 | criteo_uplift/models.py | `SLearnerLogistic` | criteo_uplift/models.py | `SLearner` | 迁移/合并 |
 | criteo_uplift/models.py | `_TwoOutcomeModels` | criteo_uplift/models.py | `TLearner` | 迁移/合并 |
 | criteo_uplift/models.py | `TLearnerLogistic` | criteo_uplift/models.py | `TLearner` | 迁移/合并 |
-| criteo_uplift/models.py | `_XGBoostConfiguration` | criteo_uplift/models.py | `make_outcome_model / make_effect_model` | 迁移/合并 |
+| criteo_uplift/models.py | `_XGBoostConfiguration` | criteo_uplift/models.py | `make_classifier_model / make_regression_model` | 迁移/合并 |
 | criteo_uplift/models.py | `TLearnerXGBoost` | criteo_uplift/models.py | `TLearner` | 迁移/合并 |
 | criteo_uplift/models.py | `XLearnerXGBoost` | criteo_uplift/models.py | `XLearner` | 迁移/合并 |
 | criteo_uplift/models.py | `make_model` | criteo_uplift/models.py | `make_uplift_model` | 迁移/合并 |
@@ -240,8 +240,8 @@ artifacts/
 
 ### criteo_uplift/models.py
 
-- `make_outcome_model(name, **params)`
-- `make_effect_model(name, **params)`
+- `make_classifier_model(name, **params)`
+- `make_regression_model(name, **params)`
 - `class _ConstantProbabilityClassifier`
 - `_ConstantProbabilityClassifier.fit(self, X, y)`
 - `_ConstantProbabilityClassifier.predict_proba(self, X)`

@@ -1,7 +1,7 @@
 {
   "status": "complete",
-  "protocol_sha256": "8b6cc40a718f8549a8d7b56742b755e7df184e812b66666d3b9f6207c93f20a8",
-  "elapsed_seconds": 39.895023999968544,
+  "protocol_sha256": "920f5dbd71f7aefb670840778cdf61267a83d03a77372f0b8ff336601df530ea",
+  "elapsed_seconds": 41.35933579085395,
   "experiments": 12,
   "fitted_models": 48,
   "development_n": 800000,

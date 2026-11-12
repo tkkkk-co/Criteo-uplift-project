@@ -7,14 +7,14 @@
     {
       "source": "manifest.json",
       "published": "conversion_1000000_seed42_refactored/manifest.json",
-      "source_sha256": "30e7c743fa6cec286c9de2213a687bccb83b5f3ae9f77792c0147450ce00f445",
-      "published_sha256": "a6b84933aa5a041d5dbc835084a66a464f17e858f89a61b06fb742427c786fbc"
+      "source_sha256": "c7e18d453739ecb0eb9ce9f709a6fd7e4494cdea5cd60915dc010e9269bbd1a6",
+      "published_sha256": "b9ee308e89c28f14949dab3182ea911551476f44426277d420eefc2dd095093d"
     },
     {
       "source": "report.html",
       "published": "conversion_1000000_seed42_refactored/report.html",
-      "source_sha256": "26f64e22dab5e82f1412c83a9d4042834889089b3819aaac48dfcfd2a0e329f4",
-      "published_sha256": "26f64e22dab5e82f1412c83a9d4042834889089b3819aaac48dfcfd2a0e329f4"
+      "source_sha256": "da6de4882553056b3dee3fbf3c9a57aa3fadeaaf31dd4afaaabd67db49e56d4b",
+      "published_sha256": "da6de4882553056b3dee3fbf3c9a57aa3fadeaaf31dd4afaaabd67db49e56d4b"
     },
     {
       "source": "data_preparation/audit.json",
@@ -67,8 +67,8 @@
     {
       "source": "diagnostics/c2st_details.json",
       "published": "conversion_1000000_seed42_refactored/diagnostics/c2st_details.json",
-      "source_sha256": "ced8468398311b56f834701c5351e29d13061db0dd0be5f8011b2a6fa6e8860d",
-      "published_sha256": "2263c4af0b895da025b7805643751598c238aa7d97b94a1a3baaf6bde04dee02"
+      "source_sha256": "c64f11c26fda1fadc7776cff34f2de768d339e751df18a2b31b7eeed126550fe",
+      "published_sha256": "2af63e6162158ac1b2730ad14a8c9f4931051a70e128f458190067403e96b47c"
     },
     {
       "source": "diagnostics/learnability.csv",
@@ -151,20 +151,20 @@
     {
       "source": "stability/protocol.json",
       "published": "conversion_1000000_seed42_refactored/stability/protocol.json",
-      "source_sha256": "8b6cc40a718f8549a8d7b56742b755e7df184e812b66666d3b9f6207c93f20a8",
-      "published_sha256": "03a89e247777cfedc1a61965759ff86959e5271f51ecaaa481d273d6e00a224f"
+      "source_sha256": "920f5dbd71f7aefb670840778cdf61267a83d03a77372f0b8ff336601df530ea",
+      "published_sha256": "20f7f5673fa23d467973a89edaa84629401cdea801476f40be6bba7ed3e8c887"
     },
     {
       "source": "stability/report.json",
       "published": "conversion_1000000_seed42_refactored/stability/report.json",
-      "source_sha256": "3f44c38bb5255037b95246d9344a9308ae75f86cfbd77be45ee5c5124976dab8",
-      "published_sha256": "3f44c38bb5255037b95246d9344a9308ae75f86cfbd77be45ee5c5124976dab8"
+      "source_sha256": "9cf65bf3324570752e44a1c3a06369494d53739552f5ec7c652418e419b9d8f4",
+      "published_sha256": "9cf65bf3324570752e44a1c3a06369494d53739552f5ec7c652418e419b9d8f4"
     },
     {
       "source": "stability/longmetrics.csv",
       "published": "conversion_1000000_seed42_refactored/stability/longmetrics.csv",
-      "source_sha256": "97962c913c474b16384f1645856f4b0488058a637b67e05a9b3f8cfa194150cc",
-      "published_sha256": "97962c913c474b16384f1645856f4b0488058a637b67e05a9b3f8cfa194150cc"
+      "source_sha256": "84168a15c9d2f7ee69dcdca6723b8d6718836123153a2c12c568c1158b977a1f",
+      "published_sha256": "84168a15c9d2f7ee69dcdca6723b8d6718836123153a2c12c568c1158b977a1f"
     },
     {
       "source": "stability/split_audit.csv",
@@ -175,8 +175,8 @@
     {
       "source": "stability/aggregate.csv",
       "published": "conversion_1000000_seed42_refactored/stability/aggregate.csv",
-      "source_sha256": "954bb22de02f93014f8c918ce78c00b608e415acbe8b7863fdcddf94ec3ea341",
-      "published_sha256": "954bb22de02f93014f8c918ce78c00b608e415acbe8b7863fdcddf94ec3ea341"
+      "source_sha256": "fa6506d0f234dee316650949c0afcecfa56190e578f0d44994487772a6f7d451",
+      "published_sha256": "fa6506d0f234dee316650949c0afcecfa56190e578f0d44994487772a6f7d451"
     },
     {
       "source": "stability/selection_frequency.csv",
@@ -211,8 +211,8 @@
     {
       "source": "figures/ate_full.png",
       "published": "conversion_1000000_seed42_refactored/figures/ate_full.png",
-      "source_sha256": "63c1e15fff65d0182e2d3935e8d8b4de8dfc294e934bb608514a2387418a87b2",
-      "published_sha256": "63c1e15fff65d0182e2d3935e8d8b4de8dfc294e934bb608514a2387418a87b2"
+      "source_sha256": "ef33001625c9d0b36a16a7a25833672b51626cde5aff315a91ae8fe0fb44afb1",
+      "published_sha256": "ef33001625c9d0b36a16a7a25833672b51626cde5aff315a91ae8fe0fb44afb1"
     },
     {
       "source": "figures/balance.png",

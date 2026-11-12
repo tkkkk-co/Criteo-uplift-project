@@ -621,7 +621,7 @@ class UnifiedScanTests(unittest.TestCase):
                 expected = preparation.prepare_sample(args, root=root, progress=lambda _: None)
                 cache = root / 'artifacts/cache'
                 manifests = [cache / 'sample_43_seed31.json', next(cache.glob('full_audit_*.json')),
-                             next(cache.glob('full_diagnostics_*.json'))]
+                             next(cache.glob('c2st_sample_*.json'))]
                 hit_files = {}
                 for hit, manifest in zip((sample_hit, audit_hit, diagnostics_hit), manifests):
                     if hit:
@@ -713,7 +713,9 @@ class UnifiedScanTests(unittest.TestCase):
         with patch.object(preparation, 'scan_raw_data', wraps=raw_scan.scan_raw_data) as scan:
             preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertFalse(scan.call_args.kwargs['diagnostics_enabled'])
-        manifest = next((self.root / 'artifacts/cache').glob('full_diagnostics_*.json'))
+        manifest = self.root / 'artifacts/cache/c2st_sample_n20_seed31.json'
+        self.assertTrue(manifest.is_file())
+        self.assertTrue(manifest.with_suffix('.npz').is_file())
         valid = json.loads(manifest.read_text())
         self.assertNotIn('diagnostics_cache_version', valid)
         for invalid in ({**valid, 'seed': 99}, {**valid, 'sample_size': 40},
@@ -746,7 +748,7 @@ class UnifiedScanTests(unittest.TestCase):
         args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
         expected = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         directory = self.root / 'artifacts/cache'
-        payload = next(directory.glob('full_diagnostics_*.npz'))
+        payload = next(directory.glob('c2st_sample_*.npz'))
         manifest = payload.with_suffix('.json')
         preserved = {
             file: preparation.fingerprint(file)
@@ -891,7 +893,7 @@ class UnifiedScanTests(unittest.TestCase):
         with np.load(path, allow_pickle=False) as arrays:
             valid = {name: arrays[name] for name in arrays.files}
         audit_path = next(directory.glob('full_audit_*.json'))
-        diagnostic_path = next(directory.glob('full_diagnostics_*.json'))
+        diagnostic_path = next(directory.glob('c2st_sample_*.json'))
         source = preparation.fingerprint(self.path)
         cases = ('broken', 'truncated', 'missing', 'feature_shape', 'label_shape',
                  'nonfinite', 'binary', 'duplicate_ids', 'out_of_bounds', 'wrong_rows')

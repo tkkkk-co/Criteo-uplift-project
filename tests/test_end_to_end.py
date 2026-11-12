@@ -4,8 +4,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
+import base64
 import json
+import re
 import unittest
+from xml.etree import ElementTree
 import numpy as np
 import pandas as pd
 from criteo_uplift.config import FEATURES
@@ -149,6 +152,15 @@ class EndToEndTests(unittest.TestCase):
             self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
             self.assertEqual(json.loads((out / 'business/score_policy_status.json').read_text())['status'], 'not_run')
             html = (out / 'report.html').read_text()
+            # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
+            equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
+            self.assertEqual(len(equations), 9)
+            for encoded in equations:
+                svg = ElementTree.fromstring(base64.b64decode(encoded))
+                self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
+            self.assertNotIn('<script', html)
+            self.assertNotIn('G_HT(q)', html)
+            self.assertIn('各自横轴尺度', html)
             for section in ('Business Background', 'Data Preparation', 'Experiment Diagnostics', 'ATE / ITT',
                             'Uplift Modeling', 'Training &amp; Validation', 'Test Evaluation', 'Stability Analysis',
                             'Score Policy', 'Planning', 'Conclusion'):

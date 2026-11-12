@@ -275,6 +275,7 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
     sample_enabled, audit_enabled, diagnostics_enabled = switches
     if not any(switches):
         raise ValueError('至少启用一个数据准备任务')
+    
     chunk_size = getattr(args, 'chunk_size', 250_000) if chunk_size is None else chunk_size
     size = args.sample_size if sample_enabled else None
     diagnostic_size = args.c2st_sample if diagnostics_enabled else None
@@ -292,15 +293,17 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
         audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,
     )
     progress = progress if progress is not None else lambda message: print(message, flush=True)
+
     current = fingerprint(args.data)
     cache_dir = safe_output(Path(root) / 'artifacts/cache')
     sample_path = cache_dir / f'sample_{size}_seed{args.seed}.npz'
     audit_path = cache_dir / f'full_audit_{current["sha256"]}.json'
-    diagnostic_path = cache_dir / f'full_diagnostics_{current["sha256"]}_n{diagnostic_size}_seed{args.seed}.npz'
-
+    diagnostic_path = cache_dir / f'c2st_sample_n{diagnostic_size}_seed{args.seed}.npz'
     sample, report = _load_sample_cache(sample_path, current, size, args.seed) if sample_enabled else (None, None)
     audit = _audit_cache_result(audit_path, current) if audit_enabled else None
     diagnostics = _load_diagnostics_cache(diagnostic_path, current, diagnostic_size, args.seed) if diagnostics_enabled else None
+
+
     needs_sample = sample_enabled and report is None
     needs_audit = audit_enabled and audit is None
     needs_diagnostics = diagnostics_enabled and diagnostics is None
@@ -325,6 +328,8 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
             audit = scanned['audit']
         if needs_diagnostics:
             diagnostics = {key: scanned[key] for key in ('balance', 'c2st_sample', 'srm', 'metadata')}
+
+
     total = _validate_prepared_counts(sample, report, audit, diagnostics, scanned, size)
     if needs_sample:
         save_sample(sample, sample_path)
@@ -333,14 +338,17 @@ def prepare_sample(args, *, root: Path = ROOT, progress=None, sample_enabled=Non
         write_result({'source': current, 'audit': audit}, audit_path)
     if needs_diagnostics:
         _write_diagnostics_cache(diagnostics, diagnostic_path, current, diagnostic_size, args.seed)
+
     prepared = ({key: diagnostics[key] for key in ('balance', 'c2st_sample', 'srm')}
                 if diagnostics is not None else {'balance': None, 'c2st_sample': None, 'srm': None})
+    
     # 返回说明描述本次调用，而不是缓存生成时的开关。全量人数只使用已知的来源计数。
     population = scanned if scanned is not None else diagnostics
     if population is not None:
         counts = [population['metadata']['n_control'], population['metadata']['n_treatment']]
     else:
         counts = [audit['n_control'], audit['n_treatment']] if audit is not None else [None, None]
+        
     prepared['metadata'] = scan_metadata(
         total=total, counts=counts, source=current, seed=args.seed, chunk_size=chunk_size,
         per_arm=per_arm, audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,

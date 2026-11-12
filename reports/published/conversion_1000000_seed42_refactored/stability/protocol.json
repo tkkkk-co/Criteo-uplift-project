@@ -31,25 +31,25 @@
     "cache": {
       "path": "[PROJECT_ROOT]/artifacts/cache/sample_1000000_seed42.npz",
       "size": 9570318,
-      "mtime_ns": 1794296026604251231,
+      "mtime_ns": 1794390510487316973,
       "sha256": "407426c56bd0b92edce2e91652055af71fa0f3736efbc64081ced23cbcc0c2d8"
     },
     "cache_metadata": {
       "path": "[PROJECT_ROOT]/artifacts/cache/sample_1000000_seed42.json",
       "size": 1066,
-      "mtime_ns": 1794296026606329188,
+      "mtime_ns": 1794390510489267635,
       "sha256": "7010bd215ff5e0584082a6037a670e29743f7562fdc488eb0c6d55e06ea499d8"
     },
     "base_manifest": {
       "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42_refactored/manifest.json",
       "size": 982,
-      "mtime_ns": 1794312050004007355,
+      "mtime_ns": 1794390540512652895,
       "sha256": "65d57736985491574831cdc40a724a85e8240d2ac3b975b7584b328670e8c09d"
     },
     "old_test_id_file": {
       "path": "[PROJECT_ROOT]/artifacts/conversion_1000000_seed42_refactored/data_preparation/test_row_ids.csv",
       "size": 1641197,
-      "mtime_ns": 1794312027999184896,
+      "mtime_ns": 1794390511278229135,
       "sha256": "06e3fbbdbdd6d6978c4b9cb9a2d68e5db5ef361865cd82e0d7defa5a733fefe9"
     },
     "raw_source_sha256_from_existing_metadata": "e4d7c710ca1f38e523309d0f8a0745d1b53e7392d51f20d1088b6cfeaef222ef",
