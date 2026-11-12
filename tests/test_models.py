@@ -338,6 +338,9 @@ class ModelTests(unittest.TestCase):
             )
             self.assertEqual(result['model_bundle']['learner'], learner)
             self.assertEqual(result['model_bundle']['parameters']['outcome_params']['random_state'], 31)
+            self.assertNotIn('n_samples', result['model_bundle'])
+            self.assertNotIn('outcome_support', result['model_bundle'])
+            self.assertEqual('treatment_rate' in result['model_bundle'], learner == 'x')
             self.assertTrue(np.isfinite(result['cate']).all())
         with self.assertRaisesRegex(ValueError, '结果模型'):
             s_learner(self.X, X_train=self.X, t=self.t, y=self.y, outcome_model='unknown')

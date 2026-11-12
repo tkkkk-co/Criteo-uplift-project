@@ -51,6 +51,15 @@ def fit_and_select_models(
     models = {}
     validation_scores = {}
     model_metadata = {}
+    outcome_support = []
+    for arm in (0, 1):
+        labels = train.loc[train.treatment == arm, outcome]
+        positive = int(labels.sum())
+        n = len(labels)
+        outcome_support.append({
+            'treatment': arm, 'n': n, 'positive': positive,
+            'negative': n - positive, 'single_class': positive in (0, n),
+        })
 
     names = [candidate["name"] for candidate in MODEL_CANDIDATES]
     for candidate in MODEL_CANDIDATES:
@@ -69,7 +78,7 @@ def fit_and_select_models(
             propensity = result['mu1']
         model_metadata[name] = {
             "parameters": model_bundle['parameters'],
-            "outcome_support": model_bundle['outcome_support'],
+            "outcome_support": outcome_support,
             "seconds": result["fit_seconds"],
         }
         models[name] = model_bundle

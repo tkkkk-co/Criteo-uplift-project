@@ -57,9 +57,9 @@ def make_regression_model(name, **params):
 
 def _training_inputs_check(X_train, t, y):
     #-------------
-    # 检查训练数据，保留预测校验所需的特征信息。
+    # 检查训练数据并转换成模型输入数组。
     # 输入：训练特征 X_train、处理标签 t、结果 y。
-    # 输出：训练数组 X、t、y 和训练元数据。
+    # 输出：训练数组 X、t、y。
     #-------------
     check_feature_matrix(X_train, allow_nan=True)
     check_binary_vector(t, 't', len(X_train), require_both=True)
@@ -67,25 +67,7 @@ def _training_inputs_check(X_train, t, y):
 
     X_train_array = np.asarray(X_train)
     t, y = np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
-    outcome_support = []
-    for arm in (0, 1):
-        labels = y[t == arm]
-        positive = int(labels.sum())
-        outcome_support.append({
-            'treatment': arm,
-            'n': len(labels),
-            'positive': positive,
-            'negative': len(labels) - positive,
-            'single_class': positive in (0, len(labels)),
-        })
-    metadata = {
-        'n_features': X_train_array.shape[1],
-        'feature_names': list(X_train.columns) if hasattr(X_train, 'columns') else None,
-        'n_samples': len(X_train),
-        'treatment_rate': float(t.mean()),
-        'outcome_support': outcome_support,
-    }
-    return X_train_array, t, y, metadata
+    return X_train_array, t, y
 
 
 def _test_inputs_check(X, model_bundle, learner, model_keys):
@@ -95,7 +77,8 @@ def _test_inputs_check(X, model_bundle, learner, model_keys):
     # 输出：通过特征数量和列顺序检查的矩阵。
     #-------------
     if (not isinstance(model_bundle, dict) or model_bundle.get('learner') != learner
-            or not all(key in model_bundle for key in (*model_keys, 'n_features', 'treatment_rate'))):
+            or not all(key in model_bundle for key in (*model_keys, 'n_features'))
+            or (learner == 'x' and 'treatment_rate' not in model_bundle)):
         raise NotFittedError(f'需要已拟合的 {learner.upper()}-Learner 模型字典')
     check_feature_matrix(X, allow_nan=True, n_features=model_bundle['n_features'])
     if model_bundle.get('feature_names') is not None and hasattr(X, 'columns'):
@@ -114,7 +97,7 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     if model_bundle is None:
         started = perf_counter()
         # 训练一个结果模型，将 T 作为最后一列特征。
-        features, t, y, metadata = _training_inputs_check(X_train, t, y)
+        features, t, y = _training_inputs_check(X_train, t, y)
         classifier_params = (outcome_params or {}).copy()
         model = make_classifier_model(outcome_model, **classifier_params)
         # 单类别结果使用常数概率，不要求每组同时出现 Y=0 和 Y=1。
@@ -122,10 +105,13 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
             model = DummyClassifier(strategy='constant', constant=int(y[0]))
     
         fitted_model = model.fit(np.column_stack((features, t)), y)
-        model_bundle = dict(metadata, learner='s', fitted_model=fitted_model, parameters={
-            'outcome_model': outcome_model, 'outcome_params': classifier_params,
-            'effect_model': None, 'effect_params': None,
-        })
+        model_bundle = {
+            'learner': 's', 'fitted_model': fitted_model,
+            'n_features': features.shape[1],
+            'feature_names': list(X_train.columns) if hasattr(X_train, 'columns') else None,
+            'parameters': {'outcome_model': outcome_model, 'outcome_params': classifier_params,
+                           'effect_model': None, 'effect_params': None},
+        }
         fit_seconds = perf_counter() - started
     elif any(value is not None for value in (X_train, t, y)):
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
@@ -151,7 +137,7 @@ def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     if model_bundle is None:
         started = perf_counter()
         # 在两臂各用自己的 X 和 Y 训练一个结果模型。
-        features, t, y, metadata = _training_inputs_check(X_train, t, y)
+        features, t, y = _training_inputs_check(X_train, t, y)
         classifier_params = (outcome_params or {}).copy()
         control, treated = t == 0, t == 1
         X0, y0 = features[control], y[control]
@@ -164,10 +150,13 @@ def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         if np.unique(y1).size == 1:
             mu1_model = DummyClassifier(strategy='constant', constant=int(y1[0]))
         mu1_fitted_model = mu1_model.fit(X1, y1)
-        model_bundle = dict(metadata, learner='t', mu0_fitted_model=mu0_fitted_model, mu1_fitted_model=mu1_fitted_model, parameters={
-            'outcome_model': outcome_model, 'outcome_params': classifier_params,
-            'effect_model': None, 'effect_params': None,
-        })
+        model_bundle = {
+            'learner': 't', 'mu0_fitted_model': mu0_fitted_model, 'mu1_fitted_model': mu1_fitted_model,
+            'n_features': features.shape[1],
+            'feature_names': list(X_train.columns) if hasattr(X_train, 'columns') else None,
+            'parameters': {'outcome_model': outcome_model, 'outcome_params': classifier_params,
+                           'effect_model': None, 'effect_params': None},
+        }
         fit_seconds = perf_counter() - started
     elif any(value is not None for value in (X_train, t, y)):
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
@@ -191,7 +180,7 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     fit_seconds = None
     if model_bundle is None:
         started = perf_counter()
-        features, t, y, metadata = _training_inputs_check(X_train, t, y)
+        features, t, y = _training_inputs_check(X_train, t, y)
         classifier_params = (outcome_params or {}).copy()
         regressor_params = (effect_params or {}).copy()
         control, treated = t == 0, t == 1
@@ -220,11 +209,15 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         tau0_fitted_model = tau0_model.fit(X0, d0)
         tau1_model = make_regression_model(effect_model, **regressor_params)
         tau1_fitted_model = tau1_model.fit(X1, d1)
-        model_bundle = dict(metadata, learner='x', mu0_fitted_model=mu0_fitted_model, mu1_fitted_model=mu1_fitted_model,
-                      tau0_fitted_model=tau0_fitted_model, tau1_fitted_model=tau1_fitted_model, parameters={
-                          'outcome_model': outcome_model, 'outcome_params': classifier_params,
-                          'effect_model': effect_model, 'effect_params': regressor_params,
-                      })
+        model_bundle = {
+            'learner': 'x', 'mu0_fitted_model': mu0_fitted_model, 'mu1_fitted_model': mu1_fitted_model,
+            'tau0_fitted_model': tau0_fitted_model, 'tau1_fitted_model': tau1_fitted_model,
+            'n_features': features.shape[1],
+            'feature_names': list(X_train.columns) if hasattr(X_train, 'columns') else None,
+            'treatment_rate': float(t.mean()),
+            'parameters': {'outcome_model': outcome_model, 'outcome_params': classifier_params,
+                           'effect_model': effect_model, 'effect_params': regressor_params},
+        }
         fit_seconds = perf_counter() - started
     elif any(value is not None for value in (X_train, t, y)):
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
