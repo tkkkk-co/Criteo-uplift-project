@@ -67,11 +67,15 @@ def fit_and_select_models(
         progress("训练 " + name)
         params = {"random_state": seed, **({"n_estimators": trees} if "xgboost" in name else {})}
         result = LEARNERS[candidate["learner"]](
-            validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
+            validation[FEATURES], 
+            X_train=train[FEATURES],
+            t=train.treatment, 
+            y=train[outcome],
             **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
             outcome_params=params,
             **({'effect_params': params} if candidate['learner'] == 'x' else {}),
         )
+        
         model_bundle = result['model_bundle']
         validation_scores[name] = result['cate']
         if name == 't_xgboost':

@@ -139,17 +139,19 @@ def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         # 在两臂各用自己的 X 和 Y 训练一个结果模型。
         features, t, y = _training_inputs_check(X_train, t, y)
         classifier_params = (outcome_params or {}).copy()
-        control, treated = t == 0, t == 1
-        X0, y0 = features[control], y[control]
-        X1, y1 = features[treated], y[treated]
+        X0, y0 = features[t == 0], y[t == 0]
+        X1, y1 = features[t == 1], y[t == 1]
+
         mu0_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y0).size == 1:
             mu0_model = DummyClassifier(strategy='constant', constant=int(y0[0]))
         mu0_fitted_model = mu0_model.fit(X0, y0)
+
         mu1_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y1).size == 1:
             mu1_model = DummyClassifier(strategy='constant', constant=int(y1[0]))
         mu1_fitted_model = mu1_model.fit(X1, y1)
+
         model_bundle = {
             'learner': 't', 'mu0_fitted_model': mu0_fitted_model, 'mu1_fitted_model': mu1_fitted_model,
             'n_features': features.shape[1],
@@ -183,15 +185,15 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         features, t, y = _training_inputs_check(X_train, t, y)
         classifier_params = (outcome_params or {}).copy()
         regressor_params = (effect_params or {}).copy()
-        control, treated = t == 0, t == 1
-        X0, y0 = features[control], y[control]
-        X1, y1 = features[treated], y[treated]
+        X0, y0 = features[t == 0], y[t == 0]
+        X1, y1 = features[t == 1], y[t == 1]
 
         # 第一阶段：分别训练对照组和处理组的结果模型。
         mu0_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y0).size == 1:
             mu0_model = DummyClassifier(strategy='constant', constant=int(y0[0]))
         mu0_fitted_model = mu0_model.fit(X0, y0)
+        
         mu1_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y1).size == 1:
             mu1_model = DummyClassifier(strategy='constant', constant=int(y1[0]))
