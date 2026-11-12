@@ -63,11 +63,12 @@ def fit_and_select_models(
     for candidate in MODEL_CANDIDATES:
         name = candidate["name"]
         progress("训练 " + name)
-        kwargs = {"n_estimators": trees} if "xgboost" in name else {}
+        params = {"random_state": seed, **({"n_estimators": trees} if "xgboost" in name else {})}
         result = LEARNERS[candidate["learner"]](
             validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
             **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
-            random_state=seed, overlap=coverage['summary'], **kwargs,
+            outcome_params=params,
+            **({'effect_params': params} if candidate['learner'] == 'x' else {}),
         )
         model = result['model']
         validation_scores[name] = result['cate']
@@ -75,9 +76,6 @@ def fit_and_select_models(
             propensity = result['mu1']
         model_metadata[name] = {
             "parameters": model['parameters'],
-            "overlap_status": model['overlap']['status'],
-            "overlap_input_signature": model['overlap']['input_signature'],
-            "overlap_file": "diagnostics/overlap_positivity.json",
             "outcome_support": model['outcome_support'],
             "seconds": result["fit_seconds"],
         }

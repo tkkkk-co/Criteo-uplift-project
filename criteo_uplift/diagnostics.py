@@ -500,25 +500,6 @@ def run_diagnostics(
     return details
 
 
-def overlap_input_signature(X, t):
-    #-------------
-    # 功能：标识诊断使用的有序特征和处理标签，防止把另一训练集的结论复用到当前模型。
-    # 输入参数：
-    #     - X：特征矩阵或 DataFrame。
-    #     - t：同一行序的处理标签。
-    # 输出参数：
-    #     - 数据内容、形状、类型和列名的 SHA256 摘要。
-    #-------------
-    values = np.asarray(X)
-    digest = hashlib.sha256()
-    digest.update(str((values.shape, values.dtype.str, list(X.columns) if hasattr(X, 'columns') else None)).encode())
-    # 按列处理，避免为整份大型特征矩阵额外生成连续内存副本。
-    for column in values.T:
-        digest.update(np.ascontiguousarray(column).tobytes())
-    digest.update(np.asarray(t, dtype=np.int8).tobytes())
-    return digest.hexdigest()
-
-
 def diagnose_overlap(X, t, features=None, expected_treatment_rate=None, *,
                      probability_source=None, bins=10, min_arm_count=20, scope='train'):
     #-------------
@@ -592,7 +573,7 @@ def diagnose_overlap(X, t, features=None, expected_treatment_rate=None, *,
     weak = strata.insufficient_arm_count | strata.missing_arm
     observed = float(treatment.mean())
     summary = {
-        'scope': scope, 'features': names, 'input_signature': overlap_input_signature(X, t),
+        'scope': scope, 'features': names,
         'n': len(treatment), 'n_control': int((treatment == 0).sum()), 'n_treatment': int(treatment.sum()),
         'observed_treatment_rate': observed, 'observed_control_rate': 1-observed,
         'expected_treatment_rate': expected_treatment_rate,

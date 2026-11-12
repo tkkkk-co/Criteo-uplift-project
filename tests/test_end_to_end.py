@@ -125,9 +125,6 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(coverage['scope'], 'train')
             self.assertEqual(coverage['n'], len(train_ids))
             self.assertEqual(coverage['design_positivity'], 'not_verified')
-            for info in manifest['models'].values():
-                self.assertEqual(info['overlap_input_signature'], coverage['input_signature'])
-                self.assertEqual(info['overlap_status'], coverage['status'])
             audit = json.loads(((out / 'data_preparation' / 'audit.json')).read_text())
             sample_report = json.loads(((out / 'data_preparation' / 'sample_report.json')).read_text())
             self.assertNotIn('audit', sample_report)

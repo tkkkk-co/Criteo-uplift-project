@@ -506,16 +506,15 @@ def run_stability(
                 # 每个实际训练子集只检查一次，四个候选共用；不借用原 Train 的诊断。
                 coverage = diagnose_overlap(train[FEATURES], train.treatment)['summary']
                 audit['overlap_status'] = coverage['status']
-                audit['overlap_input_signature'] = coverage['input_signature']
                 audit['overlap_weak_bins'] = coverage['weak_bins']
                 for candidate in MODEL_CANDIDATES:
                     name = candidate["name"]
                     result = LEARNERS[candidate["learner"]](
                         validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
-                        overlap=coverage,
                         **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
-                        random_state=seed,
-                        **({"n_estimators": trees} if "xgboost" in name else {}),
+                        outcome_params={"random_state": seed, **({"n_estimators": trees} if "xgboost" in name else {})},
+                        **({'effect_params': {"random_state": seed, "n_estimators": trees}}
+                           if candidate['learner'] == 'x' else {}),
                     )
                     fit_seconds[name] = result['fit_seconds']
                     score_dict[name] = result['cate']

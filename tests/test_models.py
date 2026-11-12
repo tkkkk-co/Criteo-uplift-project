@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.exceptions import NotFittedError
 
 from criteo_uplift.models import (
-    LEARNERS, predict_positive_probability, s_learner, t_learner, x_learner,
+    LEARNERS, s_learner, t_learner, x_learner,
 )
 
 
@@ -154,7 +154,6 @@ class ModelTests(unittest.TestCase):
                 key = 'model' if estimator['learner'] == 's' else 'mu0_model'
                 self.assertIsNot(estimator[key], other[key])
                 self.assertEqual(estimator['parameters'], other['parameters'])
-                self.assertEqual(estimator['overlap']['status'], 'not_checked')
 
     def test_s_learner_has_only_additive_treatment_feature(self):
         #-------------
@@ -201,14 +200,24 @@ class ModelTests(unittest.TestCase):
         X = np.arange(16, dtype=float).reshape(8, 2)
         t = np.array([0, 0, 0, 0, 1, 1, 1, 1])
         for name in ('logistic', 'xgboost'):
-            result = t_learner(X[:2], X_train=X, t=t, y=t, outcome_model=name)
-            mu0, mu1 = result['mu0'], result['mu1']
-            np.testing.assert_array_equal(mu0, [0, 0])
-            np.testing.assert_array_equal(mu1, [1, 1])
-            np.testing.assert_array_equal(result['cate'], [1, 1])
-        for outcome in (np.zeros(8), np.ones(8)):
-            result = s_learner(X[:2], X_train=X, t=t, y=outcome)
-            np.testing.assert_array_equal(result['cate'], [0, 0])
+            for learner in (s_learner, t_learner, x_learner):
+                for value0, value1 in ((0, 0), (0, 1), (1, 0), (1, 1)):
+                    with self.subTest(model=name, learner=learner.__name__, arms=(value0, value1)):
+                        y = np.where(t == 0, value0, value1)
+                        params = {'outcome_params': {'n_estimators': 3}} if name == 'xgboost' else {}
+                        if learner is x_learner:
+                            params['effect_model'] = 'linear'
+                        result = learner(X[:2], X_train=X, t=t, y=y, outcome_model=name, **params)
+                        if learner is not s_learner or value0 == value1:
+                            np.testing.assert_array_equal(result['mu0'], [value0, value0])
+                            np.testing.assert_array_equal(result['mu1'], [value1, value1])
+                            np.testing.assert_allclose(result['cate'], value1 - value0, atol=1e-15)
+                        else:
+                            self.assertTrue(np.isfinite(result['cate']).all())
+                        restored = pickle.loads(pickle.dumps(result['model']))
+                        prediction = learner(X[:2], fitted=restored)
+                        for key in ('mu0', 'mu1', 'cate'):
+                            np.testing.assert_array_equal(prediction[key], result[key])
 
     def test_probability_selection_uses_class_label(self):
         #-------------
@@ -241,9 +250,16 @@ class ModelTests(unittest.TestCase):
                 #-------------
                 return np.tile([0.8, 0.2], (len(X), 1))
 
-        np.testing.assert_allclose(
-            predict_positive_probability(ReversedClasses(), self.X[:2]), 0.8
-        )
+        for learner in (s_learner, t_learner, x_learner):
+            result = learner(self.X[:2], X_train=self.X, t=self.t, y=self.y,
+                             outcome_model='logistic', **(
+                                 {'effect_model': 'linear'} if learner is x_learner else {}))
+            fitted = result['model']
+            for key in ('model',) if learner is s_learner else ('mu0_model', 'mu1_model'):
+                fitted[key] = ReversedClasses()
+            prediction = learner(self.X[:2], fitted=fitted)
+            np.testing.assert_allclose(prediction['mu0'], 0.8)
+            np.testing.assert_allclose(prediction['mu1'], 0.8)
 
     def test_x_learner_cross_arm_targets_and_weight_direction(self):
         #-------------
@@ -312,12 +328,13 @@ class ModelTests(unittest.TestCase):
             ("t", "xgboost", None), ("x", "xgboost", "xgboost"),
             ("s", "xgboost", None), ("x", "logistic", "linear"),
         ]:
-            params = {"n_estimators": 3} if outcome == "xgboost" else {}
+            params = {'outcome_params': {'random_state': 31, **({"n_estimators": 3} if outcome == "xgboost" else {})}}
             if effect is not None:
                 params['effect_model'] = effect
+                params['effect_params'] = {'random_state': 31, **({"n_estimators": 3} if effect == "xgboost" else {})}
             result = LEARNERS[learner](
                 self.X, X_train=self.X, t=self.t, y=self.y,
-                outcome_model=outcome, random_state=31, **params,
+                outcome_model=outcome, **params,
             )
             self.assertEqual(result['model']['learner'], learner)
             self.assertEqual(result['model']['parameters']['outcome_params']['random_state'], 31)
@@ -330,42 +347,35 @@ class ModelTests(unittest.TestCase):
 
 class FunctionalModelTests(unittest.TestCase):
     #-------------
-    # 验证函数式接口新增的共享诊断、配置透传和模型保存契约。
+    # 验证函数式接口的配置透传、特征顺序和模型保存。
     #-------------
-    def test_shared_overlap_and_feature_order_validation(self):
+    def test_feature_order_validation(self):
         #-------------
-        # 功能：共享诊断必须来自同一训练数据，预测阶段不重复诊断。
+        # 功能：预测阶段保持训练特征顺序，不执行诊断。
         # 输入参数：
         #     - self：测试实例。
         # 输出参数：
-        #     - 无；检查共享对象、来源匹配及列顺序。
+        #     - 无；检查预测形状及列顺序。
         #-------------
         import pandas as pd
-        from criteo_uplift.diagnostics import diagnose_overlap
         x = pd.DataFrame({'a': np.arange(24.), 'b': np.tile([0., 1., 2.], 8)})
         t, y = np.tile([0, 1], 12), np.tile([0, 0, 1, 1], 6)
-        summary = diagnose_overlap(x, t, bins=2, min_arm_count=1)['summary']
         models = [
-            s_learner(x, X_train=x, t=t, y=y, overlap=summary)['model'],
-            t_learner(x, X_train=x, t=t, y=y, overlap=summary)['model'],
+            s_learner(x, X_train=x, t=t, y=y)['model'],
+            t_learner(x, X_train=x, t=t, y=y)['model'],
             x_learner(x, X_train=x, t=t, y=y, outcome_model='logistic',
-                      effect_model='linear', overlap=summary)['model'],
+                      effect_model='linear')['model'],
         ]
         with patch('criteo_uplift.diagnostics.diagnose_overlap', side_effect=AssertionError('预测时不可诊断')):
             for model in models:
-                self.assertIs(model['overlap'], summary)
                 learner = LEARNERS[model['learner']]
                 self.assertEqual(learner(x, fitted=model)['cate'].shape, (24,))
                 with self.assertRaisesRegex(ValueError, '顺序'):
                     learner(x[['b', 'a']], fitted=model)
-        with self.assertRaisesRegex(ValueError, '不匹配'):
-            t_learner(x, X_train=x + 1, t=t, y=y, overlap=summary)
-        with self.assertRaisesRegex(ValueError, '不匹配'):
-            t_learner(x, X_train=x, t=1-t, y=y, overlap=summary)
 
-    def test_fit_counts_and_parameter_overrides(self):
+    def test_fit_counts_and_stage_parameters(self):
         #-------------
-        # 功能：S 只训练一个分类器，T 两个分类器独立；阶段参数覆盖公共参数。
+        # 功能：S 只训练一个分类器，T 两个分类器独立；两阶段参数分别传入。
         # 输入参数：
         #     - self：测试实例。
         # 输出参数：
@@ -373,7 +383,7 @@ class FunctionalModelTests(unittest.TestCase):
         #-------------
         x, t, y = np.arange(24.).reshape(8, 3), np.tile([0, 1], 4), np.tile([0, 0, 1, 1], 2)
         with patch('criteo_uplift.models.make_classifier_model', return_value=_FixedProbabilityModel(.4)) as factory:
-            s = s_learner(x, X_train=x, t=t, y=y, C=.5, outcome_params={'C': 2.})['model']
+            s = s_learner(x, X_train=x, t=t, y=y, outcome_params={'C': 2.})['model']
             self.assertEqual(factory.call_count, 1)
             self.assertEqual(factory.call_args.kwargs['C'], 2.)
             np.testing.assert_array_equal(s['model'].fit_X, np.column_stack((x, t)))
@@ -383,7 +393,7 @@ class FunctionalModelTests(unittest.TestCase):
             self.assertIsNot(fitted['mu0_model'], fitted['mu1_model'])
             np.testing.assert_array_equal(fitted['mu0_model'].fit_X, x[t == 0])
             np.testing.assert_array_equal(fitted['mu1_model'].fit_X, x[t == 1])
-        fitted = x_learner(x, X_train=x, t=t, y=y, n_estimators=3,
+        fitted = x_learner(x, X_train=x, t=t, y=y,
                            outcome_params={'n_estimators': 4}, effect_params={'n_estimators': 2})['model']
         self.assertEqual(fitted['mu0_model'].get_params()['n_estimators'], 4)
         self.assertEqual(fitted['tau0_model'].get_params()['n_estimators'], 2)
@@ -412,11 +422,15 @@ class FunctionalModelTests(unittest.TestCase):
                 learner = LEARNERS[candidate['learner']]
                 config = {k: v for k, v in candidate.items() if k not in {'name', 'learner'}}
                 params = {'n_estimators': 3} if candidate['outcome_model'] == 'xgboost' else {}
-                before = learner(x, X_train=x, t=t, y=y, **config, **params)
+                before = learner(x, X_train=x, t=t, y=y, **config, outcome_params=params,
+                                 **({'effect_params': params} if candidate['learner'] == 'x' else {}))
                 path = Path(folder) / 'model.joblib'
                 joblib.dump(before['model'], path)
                 fitted = joblib.load(path)
-                with patch('criteo_uplift.models.fit_binary_model', side_effect=AssertionError('重复训练')), patch(
+                for key in ('model', 'mu0_model', 'mu1_model', 'tau0_model', 'tau1_model'):
+                    if key in fitted:
+                        fitted[key].fit = unittest.mock.Mock(side_effect=AssertionError('预测时不可拟合'))
+                with patch('criteo_uplift.models.make_classifier_model', side_effect=AssertionError('重复训练')), patch(
                     'criteo_uplift.models.make_regression_model', side_effect=AssertionError('重复训练')
                 ):
                     after = learner(x, fitted=fitted)
