@@ -97,19 +97,10 @@ Robust 的 P 值是探索性结果，**没有并入原两模型 Holm 校正，�
 
 对随机化质量的判断不变：当前公开样本存在弱的可观测处理组可区分性，应在 Report 中披露并调查数据构成与设计；这不是随机化失败或因果估计失效的证明。业务解释应同时报告区分强度和统计证据，不把显著性直接等同于业务偏差，也不以“不显著”为优化目标。
 
-## 代码、复核与刷新结果
+## 历史复核记录
 
-独立代码：[`scripts/analyze_c2st_sensitivity.py`](../../scripts/analyze_c2st_sensitivity.py)。仅这一新增 Python 脚本承担调查，不修改主 Pipeline 或其诊断算法。完整聚合输出位于本地 `artifacts/c2st_sensitivity/`：`summary.csv`、`coefficients.csv`、`tails.csv`、`null_auc.csv`、`correlations.csv`、`winsor_thresholds.csv`、`metadata.json`。没有导出个体数据。
+本项探索性敏感性分析已经完成，原分析使用固定的 20,000 行 C2ST 诊断样本、499 次置换与预处理敏感性检查；方法、数值和结论保留在本页，未更改正式模型、ATE 或策略选择。
 
-```bash
-python scripts/analyze_c2st_sensitivity.py \
-  --run artifacts/conversion_1000000_seed42_refactored \
-  --cache artifacts/cache/c2st_sample_n20000_seed42.npz \
-  --output artifacts/c2st_sensitivity_repeat --winsorize
-```
+为使面试项目只保留端到端研究的主线，原独立分析脚本已从正式源码中清理。这份历史分析不在主 Pipeline 中重跑；未来如需复查，可按本文的方法在原实验环境中重现。
 
-输出目录必须不存在。脚本在缺失/无效缓存、行号哈希不符、基线不复现或 Logistic 不收敛时停止，不自动重扫或降低标准。`metadata.json` 记录软件版本、模型配置、脚本/诊断代码哈希、缓存哈希与划分哈希。
-
-本次完整 Pipeline 使用默认百万行建模、seed=42、499 次诊断置换、150 轮正式 XGBoost、200 次 Bootstrap、全部 12 个 Stability 配置。106 项单元测试通过；公开 Notebook 的 29 个代码单元已重新执行并保存；原始 CSV 的 SHA256、大小、mtime 不变；新 Sample/Audit/Diagnostics 缓存均校验通过，再调用时全部命中且不扫描 CSV。正式模型选择和主预算策略值未改变。
-
-英文小节见 [`c2st_sensitivity_report_section.md`](c2st_sensitivity_report_section.md)，未自动写入整个项目 Report。
+英文小节见 [`c2st_sensitivity_report_section.md`](c2st_sensitivity_report_section.md)，没有替换正式 Report。

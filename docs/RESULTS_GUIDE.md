@@ -14,6 +14,7 @@
 | diagnostics/balance.csv | 全量 float64 的 SMD、KS | 同时看效应量与统计显著性 |
 | diagnostics/c2st*.csv/json | 两组各 1 万行的 C2ST、置换零分布、来源 | 两个模型完整重拟合置换，Holm 校正；不能证明分布相同 |
 | diagnostics/learnability.csv | Train 拟合、Validation 评价的结果可预测性 | 不选择正式 uplift 策略 |
+| diagnostics/overlap_positivity.json、overlap_strata.csv | Train 的逐特征分箱与两臂支持 | 新 Pipeline 在 Diagnostics 阶段保存；历史快照如缺失则按原状态展示 |
 | models/*.joblib | 四种候选的拟合模型 | 只在本地用于冻结模型的 Test 预测 |
 | models/validation_*.csv | Validation 排序与主预算策略值 | 选择依据仅来自 Validation |
 | models/selection.json | 主预算、候选、冻结策略与最佳 uplift 候选 | 最佳 uplift 不一定是最终策略 |

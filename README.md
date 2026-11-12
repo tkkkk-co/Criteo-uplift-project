@@ -74,13 +74,13 @@ artifacts/                  本地缓存与实验结果，不发布
 
 Sample、Audit、Diagnostics 各自缓存在 `artifacts/cache/`，独立检查来源和所需参数。审计与诊断规则固定，不使用版本号；缓存保留来源、规模、种子及必要数组校验。全部命中时不解析原始 CSV，任一任务未命中时最多执行一次共用的分块扫描。模型及实验评价不会写入全局缓存。
 
-详细说明见 [项目流程](docs/PROJECT_PIPELINE.md)、[结果阅读指南](docs/RESULTS_GUIDE.md)、[函数迁移与验收清单](docs/maintenance/FINAL_REFACTOR.md)。
+详细说明见 [项目流程](docs/PROJECT_PIPELINE.md)、[结果阅读指南](docs/RESULTS_GUIDE.md)、[轻量化重构验收记录](docs/maintenance/FINAL_REFACTOR.md)。
 
 ## 当前结果与缓存
 
 公开统计结果保留原正式实验数值。本轮轻量化通过合成数据完整 Pipeline 及逐值对照验证，不重新训练百万行正式实验。Notebook 只读取公开结果；缓存和模型只在本地使用。
 
-C2ST 的 20,000 行 float64 样本保存在 `artifacts/cache/c2st_sample_n20000_seed42.npz`，同名 JSON 记录来源及校验信息。实验目录的 `diagnostics/` 保存检验结果，而非样本。独立的 [C2ST 敏感性分析](reports/analysis/c2st_sensitivity.md) 复用该缓存；[英文 Report 小节草稿](reports/analysis/c2st_sensitivity_report_section.md) 单独交付，没有替换正式主分析。
+C2ST 的 20,000 行 float64 样本保存在 `artifacts/cache/c2st_sample_n20000_seed42.npz`，同名 JSON 记录来源及校验信息。实验目录的 `diagnostics/` 保存检验结果，而非样本。此前完成的 [C2ST 敏感性分析记录](reports/analysis/c2st_sensitivity.md) 和 [英文摘要](reports/analysis/c2st_sensitivity_report_section.md) 作为研究补充保留，不属于主 Pipeline 的执行入口。
 
 ## 发布聚合快照
 

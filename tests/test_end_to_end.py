@@ -68,7 +68,7 @@ class EndToEndTests(unittest.TestCase):
             with patch('run_pipeline.ROOT', root), patch(
                 'criteo_uplift.diagnostics.pd.read_csv', wraps=pd.read_csv,
             ) as read_csv, patch(
-                'criteo_uplift.training_validation.diagnose_overlap', wraps=diagnose_overlap,
+                'criteo_uplift.diagnostics.diagnose_overlap', wraps=diagnose_overlap,
             ) as overlap_check:
                 out = run(args)
             self.assertEqual(overlap_check.call_count, 1)

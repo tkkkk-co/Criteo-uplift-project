@@ -497,6 +497,11 @@ def run_diagnostics(
     records = [learnability(train, validation, FEATURES, outcome, seed=seed)
                for outcome in ("visit", "conversion")]
     write_result(pd.concat(records), out / 'learnability.csv')
+
+    # 对当前 Train 做一次经验 Overlap 诊断，并保存结果供后续报告使用。
+    coverage = diagnose_overlap(train[FEATURES], train.treatment)
+    write_result(coverage['summary'], out / 'overlap_positivity.json')
+    write_result(coverage['strata'], out / 'overlap_strata.csv')
     return details
 
 

@@ -70,6 +70,6 @@ def export(source, output):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='从一个完整实验导出聚合快照；不发布逐行数据、行号、模型或缓存。')
     parser.add_argument('--source', type=Path, required=True)
-    parser.add_argument('--output', type=Path, default=ROOT / 'reports/published')
+    parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     export(args.source, args.output)

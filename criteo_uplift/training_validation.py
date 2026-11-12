@@ -10,7 +10,6 @@ from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 from .metrics import ranking_metrics
 from .models import LEARNERS
-from .diagnostics import diagnose_overlap
 
 MODEL_CANDIDATES = [
     {"name": "s_logistic", "learner": "s", "outcome_model": "logistic"},
@@ -52,12 +51,6 @@ def fit_and_select_models(
     models = {}
     validation_scores = {}
     model_metadata = {}
-
-    # 在任何模型拟合之前，仅对当前 Train 执行一次经验覆盖诊断。
-    coverage = diagnose_overlap(train[FEATURES], train.treatment)
-    diagnostics_out = out.parent / 'diagnostics'
-    write_result(coverage['summary'], diagnostics_out / 'overlap_positivity.json')
-    write_result(coverage['strata'], diagnostics_out / 'overlap_strata.csv')
 
     names = [candidate["name"] for candidate in MODEL_CANDIDATES]
     for candidate in MODEL_CANDIDATES:
@@ -127,6 +120,5 @@ def fit_and_select_models(
     return {
         "models": models,
         "model_metadata": model_metadata,
-        "overlap": coverage["summary"],
         "selection": selection,
     }
