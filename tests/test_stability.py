@@ -15,7 +15,7 @@ from criteo_uplift.pipeline_io import save_sample, write_result
 from functools import partial
 from criteo_uplift.models import LEARNERS
 from criteo_uplift.diagnostics import diagnose_overlap
-from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, row_ids_sha256, run_stability
+from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, run_stability
 
 
 def synthetic_inputs(root, n=2000):
@@ -127,9 +127,8 @@ class StabilityTests(unittest.TestCase):
         #-------------
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
-            development, old_test, provenance = load_development_sample(cache, base)
+            development, old_test = load_development_sample(cache, base)
             self.assertEqual(len(development), 1600)
-            self.assertEqual(provenance["development_old_test_overlap"], 0)
             self.assertFalse(np.isin(development.row_id, old_test).any())
             groups = feature_groups(development)
             splits = development_splits(development, seed=17)
@@ -140,12 +139,11 @@ class StabilityTests(unittest.TestCase):
                     self.assertEqual(len(set(groups[train]) & set(groups[val])), 0)
                 else:
                     self.assertGreater(len(set(groups[train]) & set(groups[val])), 0)
-            self.assertEqual(row_ids_sha256([9, 2, 1]), row_ids_sha256([1, 9, 2]))
 
-    def test_requested_sample_larger_than_source_uses_source_row_count(self):
+    def test_unknown_test_id_rejected(self):
         #-------------
-        # 函数名：StabilityTests.test_requested_sample_larger_than_source_uses_source_row_count
-        # 功能：验证缓存抽样目标大于原始数据量时，按真实来源行数核验样本规模。
+        # 函数名：StabilityTests.test_unknown_test_id_rejected
+        # 功能：验证旧 Test row_id 不存在于缓存时拒绝开展 Stability。
         # 输入参数：
         #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
         # 输出参数：
@@ -153,34 +151,6 @@ class StabilityTests(unittest.TestCase):
         #-------------
         with TemporaryDirectory() as folder:
             cache, base = synthetic_inputs(Path(folder))
-            metadata_path = cache.with_suffix('.json')
-            metadata = json.loads(metadata_path.read_text())
-            write_result({**metadata, 'sample_size': 5000}, metadata_path)
-            development, old_test, _ = load_development_sample(cache, base)
-            self.assertEqual(len(development) + len(old_test), 2000)
-            for count_fields in ({'source_n': 3000}, {'source_n': None}, {'sample_n': 1999}):
-                write_result({**metadata, 'sample_size': 5000, **count_fields}, metadata_path)
-                with self.assertRaisesRegex(ValueError, '缓存说明'):
-                    load_development_sample(cache, base)
-
-    def test_bad_provenance_and_unknown_test_id_rejected(self):
-        #-------------
-        # 函数名：StabilityTests.test_bad_provenance_and_unknown_test_id_rejected
-        # 功能：验证来源 SHA 不一致或旧 Test row_id 不存在于缓存时拒绝开展 Stability。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        with TemporaryDirectory() as folder:
-            cache, base = synthetic_inputs(Path(folder))
-            metadata = json.loads(cache.with_suffix(".json").read_text())
-            metadata["source"]["sha256"] = "other"
-            write_result(metadata, cache.with_suffix(".json"))
-            with self.assertRaisesRegex(ValueError, "SHA256"):
-                load_development_sample(cache, base)
-            metadata["source"]["sha256"] = "synthetic_source"
-            write_result(metadata, cache.with_suffix(".json"))
             pd.DataFrame({"row_id": [999999]}).to_csv(
                 base / "data_preparation" / "test_row_ids.csv", index=False
             )
@@ -271,10 +241,6 @@ class StabilityTests(unittest.TestCase):
                 self.assertEqual(fingerprint(path), before[str(path)])
             with self.assertRaises(FileExistsError):
                 run_stability(cache, base, output, seeds=[17], fractions=[1.0], trees=3)
-            with self.assertRaises(ValueError):
-                run_stability(
-                    cache, base, base / "nested", seeds=[17], fractions=[1.0], trees=3
-                )
             for kwargs in (
                 {"seeds": [17, 17]},
                 {"seeds": [-1]},

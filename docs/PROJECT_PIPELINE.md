@@ -26,21 +26,12 @@ Score Policy 独立运行。它面对未来仅有 X 的数据，因此不属于�
 
 ## 一次扫描与独立缓存
 
-`preparation.prepare_sample()` 负责三个独立开关、缓存检查、读取和写入，以及返回值组装。`sample_enabled`、`audit_enabled`、`diagnostics_enabled` 可以任意组合，默认全部开启；全部关闭会明确报错。开关可作为关键字参数传入，也可放在 `args` 的同名属性中，显式参数优先。关闭的任务不读取缓存、不计算，不要求提供其专用参数。
-
-```python
-sample, audit, source, prepared = prepare_sample(
-    args, sample_enabled=True, audit_enabled=True,
-    diagnostics_enabled=False, chunk_size=250_000,
-)
-```
-
-只新增 `raw_scan.py`，所有扫描任务都集中于该文件。`scan_raw_data()` 与调度入口一样，使用显式的 `sample_enabled`、`audit_enabled`、`diagnostics_enabled`；`sample_size=None` 不再关闭 Sample。Diagnostics 同时负责全量统计及 C2ST，`per_arm` 仅指定每臂规模（默认 10,000），不作为任务开关：
+`preparation.prepare_sample()` 固定准备建模样本、全量审计和诊断输入。外部没有任务开关或两种参数传入方式；只需传入主流程的参数对象。各自缓存缺失时，由底层 `scan_raw_data()` 的内部任务标记决定计算范围，多个任务共用一次 CSV 扫描。
 
 | 函数或类 | 职责 |
 |---|---|
 | `scan_raw_data()` | 建立读取器和临时资源，执行一次读取循环，分发当前数据块 |
-| `validate_scan_options()`、`validate_chunk()` | 参数及逐块输入校验；不删除非法行 |
+| `validate_chunk()` | 逐块输入校验；不删除非法行 |
 | `ModelSampler` | 建模随机优先级蓄水池，最终特征为 float32 |
 | `BalancedSampler` | 两臂独立的等量 C2ST 抽样，特征保持 float64 |
 | `AuditAccumulator` | 全量重复指纹、标签计数、异常计数及稳定的分组矩统计 |
@@ -60,9 +51,9 @@ artifacts/cache/
   c2st_sample_n20000_seed42.json
 ```
 
-建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。说明与 NPZ 内容都校验通过才算命中；文件损坏、缺字段、形状或数据异常会在扫描计划形成前判为未命中，与其他待计算任务共用一次扫描重建样本和说明。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段与载荷指纹。审计和诊断均没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
+建模缓存依赖来源、规模、种子及抽样规则，沿用原文件名和报告结构。说明与 NPZ 内容都校验通过才算命中；文件损坏、缺字段、形状或数据异常会在扫描计划形成前判为未命中，与其他待计算任务共用一次扫描重建样本和说明。Audit 依赖来源和统计字段完整性；Diagnostics 依赖来源、C2ST 规模、种子、统计字段和必要数组校验。缓存没有规则版本字段。诊断 NPZ 保存 float64 样本及平衡统计，避免 JSON 丢失无限 SMD 或特征精度。置换次数不影响诊断输入缓存；真实 C2ST 拟合仍由 `run_diagnostics()` 执行。
 
-`prepare_sample()` 的四元组接口和实验结果目录不变，第四项不重复持有建模大表。未启用任务返回 `None`。返回的 Metadata 描述本次请求的三个开关，`task_status` 分别记录 `computed`、`cache` 或 `disabled`，不会沿用诊断缓存生成时的开关；仅使用建模缓存时，来源说明中未知的全量两臂人数为 `None`，不以样本人数冒充全量人数。`split_sample()` 保留原有分层划分及互斥检查。不存在旧扫描入口或缓存迁移分支。
+`prepare_sample()` 返回建模样本、全量审计、来源指纹和诊断字典。`task_status` 仅记录各任务是重新计算还是读取缓存。`split_sample()` 保留 60/20/20 分层划分和来源行互斥检查。
 
 ## 模型与评价
 
@@ -82,7 +73,7 @@ metrics.py 保留完整排序前缀、原点、传统 Qini 的仅对照组零值
 
 ATE 的逐行和 Audit 两条路径共用 `_ate_summary_from_counts()`。经用户确认，区间统一为原逐行样本方差；p 值仍为 pooled-null 双侧检验，并保留极小概率的对数与文本表示。全量 SE/CI 相对历史 Audit 口径略变，不更改历史文件。当前估计按分配，不能称为 ATT。
 
-Stability 运行期间核验输入指纹与冻结 protocol。嵌入主流程时读取 status=models_frozen 的阶段 manifest；最终报告完成后主 manifest 才标记 complete。因此 protocol 中 base_manifest 指纹记录的是稳定性启动时的阶段快照，不能误读为最终 manifest 的指纹。
+Stability 直接读取当前建模样本并排除原 Test 行号，不再比较缓存说明、阶段清单或文件哈希。`protocol.json` 保存实验的种子、训练比例和统计口径；不再进行协议指纹自校验。行号和特征分组的实际交集检查保留，以防直接数据泄漏。
 
 ## 运行与展示
 

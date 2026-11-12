@@ -549,63 +549,6 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertEqual(len(list((self.root / 'artifacts/cache').glob('full_audit_*.json'))), 2)
 
 
-    def test_preparation_all_seven_task_combinations(self):
-        #-------------
-        # 七种开关组合各自冷启动一次，随后只读取已启用任务的缓存。
-        # 输入参数：
-        #     - self：当前测试实例，提供临时原始数据和缓存目录。
-        # 输出参数：
-        #     - 无返回值；通过断言验证预期行为，失败时抛出 AssertionError。
-        #-------------
-        before = preparation.fingerprint(self.path)
-        for sample_on, audit_on, diagnostics_on in product((False, True), repeat=3):
-            if not any((sample_on, audit_on, diagnostics_on)):
-                continue
-            with self.subTest(sample=sample_on, audit=audit_on, diagnostics=diagnostics_on):
-                root = self.root / f'tasks_{sample_on}_{audit_on}_{diagnostics_on}'
-                args = SimpleNamespace(data=self.path, seed=31)
-                # 未启用任务不需要其专用参数，也不能读取其缓存。
-                if sample_on:
-                    args.sample_size = 43
-                if diagnostics_on:
-                    args.c2st_sample, args.permutations = 20, 1
-                switches = dict(sample_enabled=sample_on, audit_enabled=audit_on,
-                                diagnostics_enabled=diagnostics_on)
-                with patch.object(raw_scan.pd, 'read_csv', wraps=pd.read_csv) as read:
-                    first = preparation.prepare_sample(args, root=root, chunk_size=17,
-                                                       progress=lambda _: None, **switches)
-                self.assertEqual(sum('chunksize' in call.kwargs for call in read.call_args_list), 1)
-                with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
-                    second = preparation.prepare_sample(args, root=root, chunk_size=53,
-                                                        progress=lambda _: None, **switches)
-                for result, status in ((first, 'computed'), (second, 'cache')):
-                    metadata = result[3]['metadata']
-                    for name, enabled in switches.items():
-                        self.assertEqual(metadata[name], enabled)
-                    self.assertEqual(metadata['model_sample_enabled'], sample_on)
-                    self.assertEqual(metadata['c2st_sample_enabled'], diagnostics_on)
-                    self.assertEqual(metadata['task_status'], {
-                        name: status if enabled else 'disabled'
-                        for name, enabled in zip(('sample', 'audit', 'diagnostics'),
-                                                 (sample_on, audit_on, diagnostics_on))
-                    })
-                    self.assertEqual(metadata['sample_n'], 20 if diagnostics_on else None)
-                    self.assertEqual(result[0] is not None, sample_on)
-                    self.assertEqual(result[1] is not None, audit_on)
-                    self.assertEqual(result[3]['balance'] is not None, diagnostics_on)
-                    self.assertEqual(result[3]['c2st_sample'] is not None, diagnostics_on)
-                    self.assertEqual(result[3]['srm'] is not None, diagnostics_on)
-                    self.assertNotIn('sample', result[3])
-                if sample_on:
-                    pd.testing.assert_frame_equal(first[0], second[0], check_exact=True)
-                if audit_on:
-                    self.assertEqual(first[1], second[1])
-                if diagnostics_on:
-                    pd.testing.assert_frame_equal(first[3]['balance'], second[3]['balance'], check_exact=True)
-                    pd.testing.assert_frame_equal(first[3]['c2st_sample'], second[3]['c2st_sample'], check_exact=True)
-                    self.assertEqual(first[3]['srm'], second[3]['srm'])
-        self.assertEqual(preparation.fingerprint(self.path), before)
-
     def test_all_eight_independent_cache_hit_patterns(self):
         #-------------
         # 逐一失效三个缓存，验证命中任务不重算、不改写，未命中任务共用一次扫描。
@@ -739,7 +682,7 @@ class UnifiedScanTests(unittest.TestCase):
 
     def test_diagnostics_cache_zlib_error_rebuilds_only_diagnostics(self):
         #-------------
-        # 损坏压缩数据但保持载荷指纹匹配，验证真实 zlib 解压异常触发独立重建。
+        # 损坏缓存压缩数据，验证真实 zlib 解压异常触发独立重建。
         # 输入参数：
         #     - self：当前测试实例，提供临时原始数据和缓存目录。
         # 输出参数：
@@ -767,7 +710,6 @@ class UnifiedScanTests(unittest.TestCase):
         data[compressed_start] = (data[compressed_start] & ~6) | 6
         payload.write_bytes(data)
         saved = json.loads(manifest.read_text())
-        saved['payload_sha256'] = preparation.fingerprint(payload)['sha256']
         manifest.write_text(json.dumps(saved))
         with np.load(payload, allow_pickle=False) as arrays:
             with self.assertRaises(ZlibError):
@@ -802,8 +744,8 @@ class UnifiedScanTests(unittest.TestCase):
         frame = self.raw.copy()
         frame['f1'] = frame.treatment
         frame.to_csv(self.path, index=False)
-        args = SimpleNamespace(data=self.path, seed=31, c2st_sample=20, permutations=1)
-        options = dict(root=self.root, sample_enabled=False, audit_enabled=False, progress=lambda _: None)
+        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
+        options = dict(root=self.root, progress=lambda _: None)
         first = preparation.prepare_sample(args, **options)[3]
         with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
             cached = preparation.prepare_sample(args, **options)[3]
@@ -857,23 +799,6 @@ class UnifiedScanTests(unittest.TestCase):
         self.assertTrue(all(file.closed for file in files))
         self.assertTrue(all(reader.handles.handle.closed for reader in readers))
         self.assertEqual(preparation.fingerprint(self.path), before)
-
-    def test_disabled_and_invalid_switches_fail_before_csv_parsing(self):
-        #-------------
-        # 非法开关、全关闭以及非法分块参数均在读取 CSV 前报错。
-        # 输入参数：
-        #     - self：当前测试实例，提供临时原始数据和缓存目录。
-        # 输出参数：
-        #     - 无返回值；通过断言验证预期行为，失败时抛出 AssertionError。
-        #-------------
-        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应解析 CSV')):
-            for options in ({'sample_enabled': 1}, {'audit_enabled': '是'}, {'diagnostics_enabled': 0},
-                            {'sample_enabled': False, 'audit_enabled': False, 'diagnostics_enabled': False},
-                            {'chunk_size': 0}):
-                with self.subTest(options=options), self.assertRaises(ValueError):
-                    preparation.prepare_sample(args, root=self.root, **options)
-
 
     def test_sample_npz_corruption_recovers_in_one_shared_scan(self):
         #-------------
@@ -951,37 +876,6 @@ class UnifiedScanTests(unittest.TestCase):
                 with patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('重建后应全部命中')):
                     preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
         self.assertEqual(preparation.fingerprint(self.path), source)
-
-    def test_metadata_uses_current_switches_when_reusing_previous_results(self):
-        #-------------
-        # 先生成全任务缓存，再切换七种组合，返回说明必须反映本次开关，且不改写缓存。
-        # 输入参数：
-        #     - self：当前测试实例，提供临时原始数据和缓存目录。
-        # 输出参数：
-        #     - 无返回值；通过断言验证预期行为，失败时抛出 AssertionError。
-        #-------------
-        args = SimpleNamespace(data=self.path, sample_size=43, seed=31, c2st_sample=20, permutations=1)
-        preparation.prepare_sample(args, root=self.root, progress=lambda _: None)
-        files = {p: preparation.fingerprint(p) for p in (self.root / 'artifacts/cache').iterdir()}
-        for enabled in product((False, True), repeat=3):
-            if not any(enabled):
-                continue
-            switches = dict(zip(('sample_enabled', 'audit_enabled', 'diagnostics_enabled'), enabled))
-            with self.subTest(**switches), patch.object(raw_scan.pd, 'read_csv', side_effect=AssertionError('不应扫描')):
-                for name, value in switches.items():
-                    setattr(args, name, value)
-                prepared = preparation.prepare_sample(args, root=self.root, progress=lambda _: None)[3]
-            metadata = prepared['metadata']
-            for name, value in switches.items():
-                self.assertEqual(metadata[name], value)
-            self.assertEqual(metadata['task_status'], {
-                name: 'cache' if value else 'disabled'
-                for name, value in zip(('sample', 'audit', 'diagnostics'), enabled)
-            })
-            self.assertEqual(metadata['c2st_sample_enabled'], enabled[2])
-            self.assertEqual(metadata['sample_n'], 20 if enabled[2] else None)
-        for file, before in files.items():
-            self.assertEqual(preparation.fingerprint(file), before)
 
     def test_scan_requires_explicit_task_switches(self):
         #-------------

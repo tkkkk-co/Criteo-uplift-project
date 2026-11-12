@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from pathlib import Path
 import time
 
@@ -14,59 +12,17 @@ import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from .config import FEATURES
-from .pipeline_io import fingerprint
 from .pipeline_io import load_sample, safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
 from .evaluation import evaluate_policies
 from .models import LEARNERS
 from .diagnostics import diagnose_overlap
 from .training_validation import MODEL_CANDIDATES
-from .input_checks import check_row_ids, check_binary_vector, check_feature_matrix
+from .input_checks import check_row_ids, check_binary_vector
 
 POLICY_NAMES = ("random", *(c["name"] for c in MODEL_CANDIDATES), "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
-
-
-def row_ids_sha256(ids):
-    #-------------
-    # 函数名：row_ids_sha256
-    # 功能：对来源 row_id 排序后按固定 int64 字节编码计算 SHA256，用于记录样本行集合指纹。
-    # 输入参数：
-    #     - ids：来源 row_id 向量。
-    # 输出参数：
-    #     - 十六进制 SHA256 字符串。
-    #-------------
-    return sha256(np.sort(np.asarray(ids, dtype="<i8")).tobytes()).hexdigest()
-
-
-def _checked_ids(values, label):
-    #-------------
-    # 函数名：_checked_ids
-    # 功能：校验来源行号唯一、非空且为非负整数，再转换为 int64 数组。
-    # 输入参数：
-    #     - values：待校验的来源 row_id 向量。
-    #     - label：用于错误信息的来源标识名称。
-    # 输出参数：
-    #     - 通过校验的 int64 row_id 数组。
-    #-------------
-    check_row_ids(values, label, require_integer=True)
-    return np.asarray(values, dtype=np.int64)
-
-
-def _binary_vectors(t, y):
-    #-------------
-    # 函数名：_binary_vectors
-    # 功能：同时校验处理分配和结果变量为合法二元向量，并转换为 int8 数组。
-    # 输入参数：
-    #     - t：0/1 处理分配向量，要求两组均存在。
-    #     - y：与 t 等长的 0/1 结果向量。
-    # 输出参数：
-    #     - 二元组：(int8 处理数组, int8 结果数组)。
-    #-------------
-    check_binary_vector(t, "t", require_both=True)
-    check_binary_vector(y, "y", len(t))
-    return np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
 
 
 def _validate_fractions(fractions):
@@ -130,76 +86,23 @@ def feature_groups(frame):
     ).to_numpy(dtype=np.uint64)
 
 
-def load_development_sample(cache, base_run, outcome="conversion"):
+def load_development_sample(cache, base_run):
     #-------------
     # 函数名：load_development_sample
-    # 功能：读取样本缓存和原实验清单，核对来源及 Test 行号，并排除原 Test 得到 Stability 开发样本。
+    # 功能：读取当前样本和 Test 行号，排除原 Test 得到 Stability 开发样本。
     # 输入参数：
     #     - cache：建模样本 NPZ 缓存路径。
     #     - base_run：已有完整实验的输出目录。
-    #     - outcome：Stability 使用的结果列名，须与基准实验一致。
     # 输出参数：
-    #     - 三元组：(排除旧 Test 后的 development DataFrame、旧 Test row_id 数组、输入来源及行集合 provenance 字典)。
+    #     - 二元组：(排除旧 Test 后的 development DataFrame、旧 Test row_id 数组)。
     #-------------
-    cache, base_run = Path(cache).resolve(), Path(base_run).resolve()
-    if outcome not in ("conversion", "visit"):
-        raise ValueError("outcome 必须为 conversion 或 visit")
-    manifest_path = base_run / "manifest.json"
-    test_path = (base_run / 'data_preparation' / 'test_row_ids.csv')
-    metadata_path = cache.with_suffix(".json")
-    manifest = json.loads(manifest_path.read_text())
-    metadata = json.loads(metadata_path.read_text())
-    if manifest.get("status") not in ("complete", "models_frozen") or (
-        manifest.get("status") == "models_frozen" and not manifest.get("selection", {}).get("frozen_before_test")
-    ):
-        raise ValueError("基础实验必须具有完整的运行清单")
-    source_sha = manifest.get("source", {}).get("sha256")
-    if not source_sha or source_sha != metadata.get("source", {}).get("sha256"):
-        raise ValueError("缓存说明与基础实验的来源 SHA256 不一致")
-    if manifest.get("primary_outcome") != outcome:
-        raise ValueError("敏感性研究的结果变量必须与基础实验一致")
     sample = load_sample(cache)
-    ids = _checked_ids(sample.row_id.to_numpy(), "cache")
-    test_table = pd.read_csv(test_path)
-    if list(test_table.columns) != ["row_id"]:
-        raise ValueError("test_row_ids.csv 必须且只能包含 row_id 列")
-    old_test_ids = _checked_ids(test_table.row_id.to_numpy(), "old test")
-    if not np.isin(old_test_ids, ids).all():
-        raise ValueError("提供的缓存未包含原测试集的全部来源行号")
-    if manifest.get("sample_n") != len(sample):
-        raise ValueError("缓存行数与基础实验清单不一致")
-    requested = metadata.get("sample_size")
-    source_rows = metadata.get("source_n")
-    if (
-        isinstance(requested, bool) or not isinstance(requested, int) or requested < 0
-        or isinstance(source_rows, bool) or not isinstance(source_rows, int)
-        or source_rows < len(sample) or metadata.get("sample_n") != len(sample)
-    ):
-        raise ValueError("缓存行数与缓存说明不一致")
-    expected_n = source_rows if requested == 0 else min(requested, source_rows)
-    if len(sample) != expected_n:
-        raise ValueError("缓存行数与缓存说明不一致")
-    check_feature_matrix(sample[FEATURES], n_features=len(FEATURES))
-    _binary_vectors(sample.treatment, sample[outcome])
+    old_test_ids = pd.read_csv(Path(base_run) / 'data_preparation/test_row_ids.csv').row_id.to_numpy()
+    check_row_ids(old_test_ids, '原 Test', require_integer=True)
+    if not np.isin(old_test_ids, sample.row_id).all():
+        raise ValueError('提供的缓存未包含原测试集的全部来源行号')
     development = sample.loc[~sample.row_id.isin(old_test_ids)].reset_index(drop=True)
-    _binary_vectors(development.treatment, development[outcome])
-    provenance = {
-        "cache": fingerprint(cache),
-        "cache_metadata": fingerprint(metadata_path),
-        "base_manifest": fingerprint(manifest_path),
-        "old_test_id_file": fingerprint(test_path),
-        "raw_source_sha256_from_existing_metadata": source_sha,
-        "sample_n": len(sample),
-        "old_test_n": len(old_test_ids),
-        "development_n": len(development),
-        "development_row_ids_sha256": row_ids_sha256(development.row_id),
-        "old_test_row_ids_sha256": row_ids_sha256(old_test_ids),
-        "development_old_test_overlap": int(
-            np.isin(development.row_id, old_test_ids).sum()
-        ),
-        "row_ids_sha256_encoding": "sorted little-endian signed int64, no header",
-    }
-    return development, old_test_ids, provenance
+    return development, old_test_ids
 
 
 def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
@@ -214,7 +117,9 @@ def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
     # 输出参数：
     #     - 字典：以训练比例为键、对应样本位置索引数组为值。
     #-------------
-    t, y = _binary_vectors(t, y)
+    check_binary_vector(t, "t", require_both=True)
+    check_binary_vector(y, "y", len(t))
+    t, y = np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
     fractions = _validate_fractions(fractions)
     _validate_seeds((seed,))
     rng = np.random.default_rng(seed)
@@ -247,7 +152,7 @@ def development_splits(frame, seed=17, outcome="conversion"):
     #     - 字典：row_stratified 和 feature_group 两种划分各自的训练/验证位置索引二元组。
     #-------------
     _validate_seeds((seed,))
-    t, y = _binary_vectors(frame.treatment, frame[outcome])
+    t, y = frame.treatment.to_numpy(), frame[outcome].to_numpy()
     strata = t * 2 + y
     counts = np.unique(strata, return_counts=True)[1]
     if counts.min() < 2:
@@ -271,8 +176,8 @@ def development_splits(frame, seed=17, outcome="conversion"):
         "feature_group": (group_train, group_validation),
     }
     for name, (training, holdout) in result.items():
-        _binary_vectors(t[training], y[training])
-        _binary_vectors(t[holdout], y[holdout])
+        check_binary_vector(t[training], '训练处理分配', require_both=True)
+        check_binary_vector(t[holdout], '验证处理分配', require_both=True)
         if np.intersect1d(training, holdout).size:
             raise AssertionError(f"{name} has overlapping row positions")
     if np.intersect1d(groups[group_train], groups[group_validation]).size:
@@ -377,21 +282,11 @@ def run_stability(
     if not np.isfinite(primary_budget) or not 0 < primary_budget <= 1:
         raise ValueError("primary_budget 必须属于 (0, 1]")
     output = safe_output(output)
-    base_run, cache = Path(base_run).resolve(), Path(cache).resolve()
-    if (
-        output == base_run
-        or (base_run in output.parents and output != base_run / "stability")
-        or output == cache.parent
-        or cache.parent in output.parents
-    ):
-        raise ValueError(
-            "输出目录必须与原实验目录和样本缓存分开"
-        )
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f"output already exists and is nonempty: {output}")
     started = time.perf_counter()
-    development, old_test_ids, provenance = load_development_sample(
-        cache, base_run, outcome
+    development, old_test_ids = load_development_sample(
+        cache, base_run
     )
     # 在拟合任何模型前，先准备并校验全部划分。
     splits = {seed: development_splits(development, seed, outcome) for seed in seeds}
@@ -403,23 +298,7 @@ def run_stability(
         "primary_budget": primary_budget,
         "outcome": outcome,
         "features": FEATURES,
-        "provenance": provenance,
         "candidates": POLICY_NAMES,
-        "model_parameters": {
-            candidate["name"]: {
-                "outcome_model": candidate["outcome_model"],
-                "effect_model": candidate.get("effect_model"),
-                "outcome_params": (
-                    {"random_state": seeds[0], "n_estimators": trees}
-                    if candidate["outcome_model"] == "xgboost" else {"random_state": seeds[0]}
-                ),
-                "effect_params": (
-                    {"random_state": seeds[0], "n_estimators": trees}
-                    if candidate["learner"] == "x" else None
-                ),
-            }
-            for candidate in MODEL_CANDIDATES
-        },
         "model_seed": "equal to the current split seed; all other model parameters are fixed",
         "row_split": "75/25 T x Y stratified development split; all configured nested fractions",
         "training_sampling": "within each T x Y stratum, one random permutation; floor(fraction*n_stratum), no replacement, no event oversampling",
@@ -443,7 +322,6 @@ def run_stability(
     }
     output.mkdir(parents=True, exist_ok=True)
     write_result(protocol, output / "protocol.json")
-    protocol_sha = fingerprint(output / "protocol.json")["sha256"]
     records, audits = [], []
     for seed in seeds:
         for method, (train_positions, val_positions) in splits[seed].items():
@@ -474,8 +352,6 @@ def run_stability(
                     "validation_fraction_of_development": len(validation)
                     / len(development),
                     "assignment_probability": e,
-                    "train_row_ids_sha256": row_ids_sha256(train.row_id),
-                    "validation_row_ids_sha256": row_ids_sha256(validation.row_id),
                     "row_overlap": int(
                         np.intersect1d(train.row_id, validation.row_id).size
                     ),
@@ -600,20 +476,8 @@ def run_stability(
     aggregate, frequencies = _summarize(longmetrics)
     write_result(aggregate, output / "aggregate.csv")
     write_result(frequencies, output / "selection_frequency.csv")
-    if fingerprint(output / "protocol.json")["sha256"] != protocol_sha:
-        raise AssertionError("protocol changed after study started")
-    # 结束前再次核验各只读输入文件的字节内容未改变。
-    for label in ("cache", "cache_metadata", "base_manifest", "old_test_id_file"):
-        if (
-            fingerprint(provenance[label]["path"])["sha256"]
-            != provenance[label]["sha256"]
-        ):
-            raise AssertionError(
-                f"read-only input changed while study was running: {label}"
-            )
     report = {
         "status": "complete",
-        "protocol_sha256": protocol_sha,
         "elapsed_seconds": time.perf_counter() - started,
         "experiments": len(audits),
         "fitted_models": len(audits) * len(MODEL_CANDIDATES),

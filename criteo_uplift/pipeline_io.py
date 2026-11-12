@@ -101,7 +101,7 @@ def write_result(value, path):
 def save_sample(sample, path):
     #-------------
     # 函数名：save_sample
-    # 功能：校验建模样本的列、特征、row_id 和标签后，将其压缩保存为 NPZ 缓存。
+    # 功能：将扫描已验证的建模样本压缩保存为 NPZ 缓存。
     # 输入参数：
     #     - sample：包含 row_id、FEATURES 和 LABELS 的建模样本 DataFrame。
     #     - path：NPZ 样本缓存目标路径。
@@ -109,13 +109,6 @@ def save_sample(sample, path):
     #     - 无；在 path 保存压缩样本数组。
     #-------------
     path = safe_output(path)
-    required = {"row_id", *FEATURES, *LABELS}
-    if not required.issubset(sample.columns):
-        raise ValueError(f"样本缺少列：{sorted(required - set(sample.columns))}")
-    check_feature_matrix(sample[FEATURES], n_features=len(FEATURES))
-    check_row_ids(sample.row_id, n_rows=len(sample), require_integer=True)
-    for label in LABELS:
-        check_binary_vector(sample[label], label, len(sample))
     path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         path,

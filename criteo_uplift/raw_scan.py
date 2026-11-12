@@ -11,43 +11,10 @@ import numpy as np
 import pandas as pd
 
 from .config import COLUMNS, DEFAULT_DATA, FEATURES, LABELS
-from .input_checks import check_binary_vector, check_feature_matrix, check_row_ids
+from .input_checks import check_binary_vector, check_feature_matrix
 from .pipeline_io import fingerprint
 from .diagnostics import covariate_balance, srm_summary
 
-SAMPLE_CACHE_VERSION = 1
-
-
-def validate_scan_options(sample_size, chunk_size, per_arm, *, sample_enabled,
-                          audit_enabled, diagnostics_enabled):
-    #-------------
-    # 校验三个显式开关及已启用任务的参数；关闭任务的规模参数不参与校验。
-    # 输入参数：
-    #     - sample_size：建模目标样本行数；0 表示保留全部原始行。
-    #     - chunk_size：每次解析原始 CSV 的行数，必须为正整数。
-    #     - per_arm：Diagnostics 中每个处理臂的 C2ST 目标样本行数。
-    #     - sample_enabled：是否启用建模抽样任务。
-    #     - audit_enabled：是否启用全量审计任务。
-    #     - diagnostics_enabled：是否启用全量诊断和两臂 C2ST 抽样任务。
-    # 输出参数：
-    #     - 无返回值；任一已启用任务参数或开关非法时抛出 ValueError。
-    #-------------
-    for name, enabled in (('sample_enabled', sample_enabled), ('audit_enabled', audit_enabled),
-                          ('diagnostics_enabled', diagnostics_enabled)):
-        if not isinstance(enabled, bool):
-            raise ValueError(f'{name} 必须为布尔值')
-    if not any((sample_enabled, audit_enabled, diagnostics_enabled)):
-        raise ValueError('至少启用一个扫描任务')
-    if sample_enabled and (
-        isinstance(sample_size, bool) or not isinstance(sample_size, int) or sample_size < 0
-    ):
-        raise ValueError('sample_size 必须为大于等于 0 的整数')
-    if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size < 1:
-        raise ValueError('chunk_size 必须为正整数')
-    if diagnostics_enabled and (
-        isinstance(per_arm, bool) or not isinstance(per_arm, int) or per_arm < 2
-    ):
-        raise ValueError('per_arm 必须为大于等于 2 的整数')
 
 
 def validate_chunk(chunk, offset):
@@ -64,7 +31,6 @@ def validate_chunk(chunk, offset):
     for label in LABELS:
         check_binary_vector(chunk[label], label, len(chunk))
     ids = np.arange(offset, offset + len(chunk), dtype=np.int64)
-    check_row_ids(ids, n_rows=len(chunk), require_integer=True)
     return values, ids, chunk.treatment.to_numpy(dtype=np.int8)
 
 
@@ -90,10 +56,22 @@ def scan_raw_data(
     # 输出参数：
     #     - 包含建模样本、抽样说明、审计、平衡表、C2ST 样本、SRM、元数据及来源的字典。
     #-------------
-    validate_scan_options(
-        sample_size, chunk_size, per_arm, sample_enabled=sample_enabled,
-        audit_enabled=audit_enabled, diagnostics_enabled=diagnostics_enabled,
-    )
+    for name, enabled in (('sample_enabled', sample_enabled), ('audit_enabled', audit_enabled),
+                          ('diagnostics_enabled', diagnostics_enabled)):
+        if not isinstance(enabled, bool):
+            raise ValueError(f'{name} 必须为布尔值')
+    if not any((sample_enabled, audit_enabled, diagnostics_enabled)):
+        raise ValueError('至少启用一个扫描任务')
+    if sample_enabled and (
+        isinstance(sample_size, bool) or not isinstance(sample_size, int) or sample_size < 0
+    ):
+        raise ValueError('sample_size 必须为大于等于 0 的整数')
+    if isinstance(chunk_size, bool) or not isinstance(chunk_size, int) or chunk_size < 1:
+        raise ValueError('chunk_size 必须为正整数')
+    if diagnostics_enabled and (
+        isinstance(per_arm, bool) or not isinstance(per_arm, int) or per_arm < 2
+    ):
+        raise ValueError('per_arm 必须为大于等于 2 的整数')
     per_arm = per_arm if diagnostics_enabled else None
     path = Path(path)
     source = fingerprint(path) if source is None else source
@@ -356,7 +334,6 @@ def sample_report(sample, *, sample_size, seed, source, total):
     #-------------
     sample_report = {
         'scope': 'modeling_sample',
-        'sample_cache_version': SAMPLE_CACHE_VERSION,
         'source': source,
         'source_n': total,
         'sample_size': sample_size,

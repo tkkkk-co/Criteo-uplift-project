@@ -79,11 +79,6 @@ def run(args):
     fitted = fit_and_select_models(train, validation, outcome=args.outcome, seed=args.seed,
                                   trees=args.trees, primary_budget=args.primary_budget,
                                   assignment_probability=e, out=models_out, progress=log)
-    # 为后续稳定性核验记录当前阶段；正式报告成功后才标记 complete。
-    write_result({'status': 'models_frozen', 'source': source, 'sample_n': sample_n,
-                  'primary_outcome': args.outcome, 'features': FEATURES, 'seed': args.seed,
-                  'selection': fitted['selection']}, manifest_path)
-
     # 06. 固定模型评价 Test；统一保存两种 scope、两种 outcome 的 ATE。
     policies = evaluate_test_set(test, fitted['models'], outcome=args.outcome,
                                  assignment_probability=e, seed=args.seed, bootstrap=args.bootstrap,
