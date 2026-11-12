@@ -64,6 +64,7 @@ def _training_inputs_check(X_train, t, y):
     check_feature_matrix(X_train, allow_nan=True)
     check_binary_vector(t, 't', len(X_train), require_both=True)
     check_binary_vector(y, 'y', len(X_train))
+
     X_train_array = np.asarray(X_train)
     t, y = np.asarray(t, dtype=np.int8), np.asarray(y, dtype=np.int8)
     outcome_support = []
@@ -71,8 +72,11 @@ def _training_inputs_check(X_train, t, y):
         labels = y[t == arm]
         positive = int(labels.sum())
         outcome_support.append({
-            'treatment': arm, 'n': len(labels), 'positive': positive,
-            'negative': len(labels) - positive, 'single_class': positive in (0, len(labels)),
+            'treatment': arm,
+            'n': len(labels),
+            'positive': positive,
+            'negative': len(labels) - positive,
+            'single_class': positive in (0, len(labels)),
         })
     metadata = {
         'n_features': X_train_array.shape[1],
@@ -116,6 +120,7 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         # 单类别结果使用常数概率，不要求每组同时出现 Y=0 和 Y=1。
         if np.unique(y).size == 1:
             model = DummyClassifier(strategy='constant', constant=int(y[0]))
+    
         model.fit(np.column_stack((features, t)), y)
         model_bundle = dict(metadata, learner='s', model=model, parameters={
             'outcome_model': outcome_model, 'outcome_params': classifier_params,
