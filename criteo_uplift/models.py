@@ -81,7 +81,7 @@ def fit_binary_model(X, y, outcome_model, outcome_params=None):
     return model.fit(X, y)
 
 
-def _training_inputs(X_train, t, y, overlap):
+def _training_inputs_check(X_train, t, y, overlap):
     #-------------
     # 检查训练数据和共享诊断，保留预测校验所需的特征信息。
     # 输入：训练特征 X_train、处理标签 t、结果 y、可选 Overlap 摘要。
@@ -117,7 +117,7 @@ def _training_inputs(X_train, t, y, overlap):
     return X_train_array, t, y, metadata
 
 
-def _prediction_features(X, fitted, learner, model_keys):
+def _test_inputs_check(X, fitted, learner, model_keys):
     #-------------
     # 检查已拟合模型及预测特征，返回 NumPy 矩阵。
     # 输入：预测特征 X、模型字典 fitted、预期类型 learner、所需模型键 model_keys。
@@ -143,7 +143,7 @@ def s_learner(X, *, X_train=None, t=None, y=None, fitted=None,
     if fitted is None:
         started = perf_counter()
         # 训练一个结果模型，将 T 作为最后一列特征。
-        features, t, y, fitted = _training_inputs(X_train, t, y, overlap)
+        features, t, y, fitted = _training_inputs_check(X_train, t, y, overlap)
         classifier_params = {**params, **(outcome_params or {})}
         model = fit_binary_model(np.column_stack((features, t)), y, outcome_model, classifier_params)
         fitted.update(learner='s', model=model, parameters={
@@ -155,7 +155,7 @@ def s_learner(X, *, X_train=None, t=None, y=None, fitted=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 固定 X，分别令 T=0 和 T=1，再用预测概率之差估计 CATE。
-    features = _prediction_features(X, fitted, 's', ('model',))
+    features = _test_inputs_check(X, fitted, 's', ('model',))
     mu0 = predict_positive_probability(fitted['model'], np.column_stack((features, np.zeros(len(features)))))
     mu1 = predict_positive_probability(fitted['model'], np.column_stack((features, np.ones(len(features)))))
     return dict(model=fitted, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
@@ -171,7 +171,7 @@ def t_learner(X, *, X_train=None, t=None, y=None, fitted=None,
     if fitted is None:
         started = perf_counter()
         # 在两臂各用自己的 X 和 Y 训练一个结果模型。
-        features, t, y, fitted = _training_inputs(X_train, t, y, overlap)
+        features, t, y, fitted = _training_inputs_check(X_train, t, y, overlap)
         classifier_params = {**params, **(outcome_params or {})}
         control, treated = t == 0, t == 1
         mu0_model = fit_binary_model(features[control], y[control], outcome_model, classifier_params)
@@ -185,7 +185,7 @@ def t_learner(X, *, X_train=None, t=None, y=None, fitted=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 将同一个 X 分别交给两个结果模型，再相减。
-    features = _prediction_features(X, fitted, 't', ('mu0_model', 'mu1_model'))
+    features = _test_inputs_check(X, fitted, 't', ('mu0_model', 'mu1_model'))
     mu0 = predict_positive_probability(fitted['mu0_model'], features)
     mu1 = predict_positive_probability(fitted['mu1_model'], features)
     return dict(model=fitted, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
@@ -201,7 +201,7 @@ def x_learner(X, *, X_train=None, t=None, y=None, fitted=None,
     fit_seconds = None
     if fitted is None:
         started = perf_counter()
-        features, t, y, fitted = _training_inputs(X_train, t, y, overlap)
+        features, t, y, fitted = _training_inputs_check(X_train, t, y, overlap)
         classifier_params = {**params, **(outcome_params or {})}
         regressor_params = {**params, **(effect_params or {})}
         control, treated = t == 0, t == 1
@@ -229,7 +229,7 @@ def x_learner(X, *, X_train=None, t=None, y=None, fitted=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 返回第一阶段概率，最终 CATE 用训练集处理比例加权两组效应预测。
-    features = _prediction_features(X, fitted, 'x', ('mu0_model', 'mu1_model', 'tau0_model', 'tau1_model'))
+    features = _test_inputs_check(X, fitted, 'x', ('mu0_model', 'mu1_model', 'tau0_model', 'tau1_model'))
     mu0 = predict_positive_probability(fitted['mu0_model'], features)
     mu1 = predict_positive_probability(fitted['mu1_model'], features)
     tau0 = np.asarray(fitted['tau0_model'].predict(features), dtype=float)
