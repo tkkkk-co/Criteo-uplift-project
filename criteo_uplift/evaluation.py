@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.special import log_ndtr
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
-from .models import predict_policy_scores
+from .models import LEARNERS
 from .metrics import (_binary_inputs, _scores, _ht_outcome, _rank, _prefix_values,
                       ranking_metrics, ranking_confidence_intervals, uplift_curve)
 
@@ -309,7 +309,13 @@ def evaluate_test_set(
     #     - Test Policy Evaluation DataFrame；同时保存 ATE、曲线、排名、校准、区间和逐行预测缓存。
     #-------------
     out = safe_output(out)
-    test_scores = predict_policy_scores(models, test[FEATURES])
+    test_scores = {}
+    for name, model in models.items():
+        result = LEARNERS[model['learner']](test[FEATURES], fitted=model)
+        test_scores[name] = result['cate']
+        if name == 't_xgboost':
+            propensity = result['mu1']
+    test_scores['propensity'] = propensity
 
     rankings = []
     curves = []

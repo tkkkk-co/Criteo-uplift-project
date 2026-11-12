@@ -12,7 +12,8 @@ import pandas as pd
 from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import fingerprint
 from criteo_uplift.pipeline_io import save_sample, write_result
-from criteo_uplift.models import fit_uplift_model
+from functools import partial
+from criteo_uplift.models import LEARNERS
 from criteo_uplift.diagnostics import diagnose_overlap
 from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, row_ids_sha256, run_stability
 
@@ -207,26 +208,24 @@ class StabilityTests(unittest.TestCase):
             ]
             before = {str(p): fingerprint(p) for p in paths}
             original_fit_calls = []
+            learners = LEARNERS.copy()
 
-            def checked_fit_model(X, t, y, **kwargs):
+            def checked_learner(learner, X, **kwargs):
                 #-------------
-                # 功能：确认训练前已冻结协议，并记录每次实际拟合。
-                # 输入参数：
-                #     - X：当前训练子集特征。
-                #     - t：处理标签。
-                #     - y：结果标签。
-                #     - **kwargs：学习器配置和共用诊断。
-                # 输出参数：
-                #     - 已拟合模型字典。
+                # 确认训练前已冻结协议，并记录每次拟合。
+                # 输入：Learner 类型、预测特征 X、训练参数。
+                # 输出：拟合和预测结果。
                 #-------------
                 self.assertTrue((output / 'protocol.json').exists())
                 protocol = json.loads((output / 'protocol.json').read_text())
                 self.assertEqual(protocol['status'], 'frozen_before_model_fits')
-                original_fit_calls.append(kwargs['learner'] + '_' + kwargs['outcome_model'])
-                return fit_uplift_model(X, t, y, **kwargs)
+                self.assertIn('X_train', kwargs)
+                original_fit_calls.append(learner + '_' + kwargs['outcome_model'])
+                return learners[learner](X, **kwargs)
 
-            with patch(
-                "criteo_uplift.stability.fit_uplift_model", side_effect=checked_fit_model
+            with patch.dict(
+                'criteo_uplift.stability.LEARNERS',
+                {name: partial(checked_learner, name) for name in LEARNERS},
             ), patch('criteo_uplift.stability.diagnose_overlap', wraps=diagnose_overlap) as coverage_check:
                 result = run_stability(
                     cache, base, output, seeds=[17], fractions=[0.5, 1.0], trees=3

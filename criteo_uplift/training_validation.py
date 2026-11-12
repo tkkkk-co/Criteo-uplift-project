@@ -2,8 +2,6 @@
 # Notebook 03 的核心实现：fit_and_select_models。
 # 输出 validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
-import time
-
 import joblib
 import pandas as pd
 
@@ -11,7 +9,7 @@ from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 from .metrics import ranking_metrics
-from .models import fit_uplift_model, predict_policy_scores
+from .models import LEARNERS
 from .diagnostics import diagnose_overlap
 
 MODEL_CANDIDATES = [
@@ -52,6 +50,7 @@ def fit_and_select_models(
     #-------------
     out = safe_output(out)
     models = {}
+    validation_scores = {}
     model_metadata = {}
 
     # 在任何模型拟合之前，仅对当前 Train 执行一次经验覆盖诊断。
@@ -65,22 +64,27 @@ def fit_and_select_models(
         name = candidate["name"]
         progress("训练 " + name)
         kwargs = {"n_estimators": trees} if "xgboost" in name else {}
-        started = time.perf_counter()
-        model = fit_uplift_model(train[FEATURES], train.treatment, train[outcome],
-                                 **{k: v for k, v in candidate.items() if k != "name"},
-                                 random_state=seed, overlap=coverage['summary'], **kwargs)
+        result = LEARNERS[candidate["learner"]](
+            validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
+            **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
+            random_state=seed, overlap=coverage['summary'], **kwargs,
+        )
+        model = result['model']
+        validation_scores[name] = result['cate']
+        if name == 't_xgboost':
+            propensity = result['mu1']
         model_metadata[name] = {
             "parameters": model['parameters'],
             "overlap_status": model['overlap']['status'],
             "overlap_input_signature": model['overlap']['input_signature'],
             "overlap_file": "diagnostics/overlap_positivity.json",
             "outcome_support": model['outcome_support'],
-            "seconds": time.perf_counter() - started,
+            "seconds": result["fit_seconds"],
         }
         models[name] = model
         joblib.dump(model, safe_output(out / f'{name}.joblib'))
 
-    validation_scores = predict_policy_scores(models, validation[FEATURES])
+    validation_scores['propensity'] = propensity
     validation_ranking = [
         {
             "policy": name,

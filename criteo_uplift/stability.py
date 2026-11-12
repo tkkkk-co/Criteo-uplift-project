@@ -18,7 +18,7 @@ from .pipeline_io import fingerprint
 from .pipeline_io import load_sample, safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
 from .evaluation import evaluate_policies
-from .models import fit_uplift_model, uplift_model_parameters, predict_policy_scores
+from .models import LEARNERS
 from .diagnostics import diagnose_overlap
 from .training_validation import MODEL_CANDIDATES
 from .input_checks import check_row_ids, check_binary_vector, check_feature_matrix
@@ -406,11 +406,18 @@ def run_stability(
         "provenance": provenance,
         "candidates": POLICY_NAMES,
         "model_parameters": {
-            candidate["name"]: uplift_model_parameters(
-                **{k: v for k, v in candidate.items() if k != "name"},
-                random_state=seeds[0],
-                **({"n_estimators": trees} if candidate["outcome_model"] == "xgboost" else {}),
-            )
+            candidate["name"]: {
+                "outcome_model": candidate["outcome_model"],
+                "effect_model": candidate.get("effect_model"),
+                "outcome_params": (
+                    {"random_state": seeds[0], "n_estimators": trees}
+                    if candidate["outcome_model"] == "xgboost" else {"random_state": seeds[0]}
+                ),
+                "effect_params": (
+                    {"random_state": seeds[0], "n_estimators": trees}
+                    if candidate["learner"] == "x" else None
+                ),
+            }
             for candidate in MODEL_CANDIDATES
         },
         "model_seed": "equal to the current split seed; all other model parameters are fixed",
@@ -496,7 +503,6 @@ def run_stability(
                     raise AssertionError("feature group leakage detected")
                 audits.append(audit)
                 score_dict, fit_seconds, ranks = {}, {}, {}
-                fitted_models = {}
                 # 每个实际训练子集只检查一次，四个候选共用；不借用原 Train 的诊断。
                 coverage = diagnose_overlap(train[FEATURES], train.treatment)['summary']
                 audit['overlap_status'] = coverage['status']
@@ -504,21 +510,19 @@ def run_stability(
                 audit['overlap_weak_bins'] = coverage['weak_bins']
                 for candidate in MODEL_CANDIDATES:
                     name = candidate["name"]
-                    fit_started = time.perf_counter()
-                    model = fit_uplift_model(
-                        train[FEATURES], train.treatment, train[outcome],
+                    result = LEARNERS[candidate["learner"]](
+                        validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
                         overlap=coverage,
-                        **{k: v for k, v in candidate.items() if k != "name"},
+                        **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
                         random_state=seed,
                         **({"n_estimators": trees} if "xgboost" in name else {}),
                     )
-                    fit_seconds[name] = time.perf_counter() - fit_started
-                    fitted_models[name] = model
-                score_dict = predict_policy_scores(fitted_models, validation[FEATURES])
-                del fitted_models, model
-                score_dict = {
-                    name: score_dict[name] for name in POLICY_NAMES if name != "random"
-                }
+                    fit_seconds[name] = result['fit_seconds']
+                    score_dict[name] = result['cate']
+                    if name == 't_xgboost':
+                        propensity = result['mu1']
+                    del result
+                score_dict['propensity'] = propensity
                 for name, scores in score_dict.items():
                     ranks[name] = ranking_metrics(
                         validation[outcome], validation.treatment, scores, e, seed

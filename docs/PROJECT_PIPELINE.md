@@ -66,15 +66,15 @@ artifacts/cache/
 
 ## 模型与评价
 
-`make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`fit_s_learner()`、`fit_t_learner()`、`fit_x_learner()` 分别执行完整算法；`fit_uplift_model()` 按候选配置分发训练。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。候选名单定义在 `training_validation.py` 中。
+`make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`s_learner()`、`t_learner()`、`x_learner()` 各自实现完整的拟合和预测。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。候选名单定义在 `training_validation.py` 中。
 
-X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。`predict_outcomes(fitted, X)` 返回第一阶段概率；`predict_x_learner(fitted, X)` 返回加权 CATE。所有训练结果为普通字典，保存底层模型、参数、特征顺序、训练处理比例及诊断摘要；`predict_uplift(fitted, X)` 提供统一预测入口。
+X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。以 X 为例，`x_learner(X_val, X_train=X_train, t=t_train, y=y_train)` 返回拟合模型和验证预测。`x_learner(X_test, fitted=result["model"])` 复用模型进行预测。三个函数均返回 `model`、`mu0`、`mu1`、`cate` 及 `fit_seconds`。X 的 `mu0`、`mu1` 来自第一阶段，`cate` 来自两组效应回归的加权预测。
 
 `training_validation.fit_and_select_models()` 在四个候选拟合前调用一次 `diagnostics.diagnose_overlap()`，仅对 Train 的处理前特征做逐列分位数分箱。默认最多 10 箱，重复分位点合并、缺失值单列；每箱任一臂少于 20 人时警告，这只是经验阈值。结果写入 `diagnostics/overlap_positivity.json` 和 `diagnostics/overlap_strata.csv`，与检查划分重复特征的 `data_preparation/feature_overlap.json` 不同。每个候选记录同一诊断指纹；独立调用训练函数而未提供诊断时为 `not_checked`，仍检查整体两臂非空。Stability 对每个实际训练子集检查一次，不能复用不同样本的结论。
 
 当前流程没有核实原始实验每行的设计分配概率，诊断默认不填预期值，只报告 Train 观察比例；单独调用可传参考比例及其来源。`checked_no_major_warning` 只代表预设单变量分箱未发现主要警告，不能证明高维联合正值性、无混杂、一致性或无干扰。局部缺臂也可能是有限样本波动。Outcome 单类别使用 sklearn `DummyClassifier` 保持原有常数概率行为，并在模型元数据中记录两臂正负例数，这不是因果不可识别的判定。
 
-新模型字典支持 joblib 保存、重载和 X-only 打分；不再提供旧 Learner 类或 `.fit/.predict/get_params` 包装。旧类 joblib 无法直接在新接口加载：保留旧运行环境，或在新的输出目录重新训练，不覆盖冻结实验。参数记录改用 `uplift_model_parameters()` 或训练字典的 `parameters`。
+新模型字典支持 joblib 保存、重载和 X-only 打分；不再提供旧 Learner 类或 `.fit/.predict/get_params` 包装。旧类 joblib 无法直接在新接口加载：保留旧运行环境，或在新的输出目录重新训练，不覆盖冻结实验。现有函数式 joblib 字典可直接传给新接口的 `fitted`，模型参数从字典的 `parameters` 读取。
 
 HTML Diagnostics 会嵌入已保存的 C2ST 置换 AUC 直方图，展示真实标签的 AUC、原始 p、Holm p 和 0.5 参考线，不重新执行置换。旧聚合快照若没有 Overlap 文件，展示 `not_checked`，不能伪造通过状态。
 

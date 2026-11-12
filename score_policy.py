@@ -22,7 +22,7 @@ from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import safe_output
 from criteo_uplift.input_checks import check_feature_matrix
 from criteo_uplift.training_validation import MODEL_CANDIDATES
-from criteo_uplift.models import predict_uplift, predict_outcomes
+from criteo_uplift.models import LEARNERS
 
 UPLIFT_POLICIES = {candidate["name"] for candidate in MODEL_CANDIDATES}
 MAX_CHUNK_SIZE = 100_000
@@ -183,11 +183,10 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
             check_feature_matrix(X, n_features=len(FEATURES))
             if policy == "random":
                 score = score_rng.random(len(X))
-            elif policy == "propensity":
-                # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
-                score = predict_outcomes(model, X)[1]
             else:
-                score = predict_uplift(model, X)
+                result = LEARNERS[model['learner']](X, fitted=model)
+                # 响应概率基线使用处理状态下的结果概率。
+                score = result['mu1'] if policy == "propensity" else result['cate']
             score = np.asarray(score, dtype=np.float64)
             if score.shape != (len(X),) or not np.isfinite(score).all():
                 raise ValueError(f"模型在输入行偏移 {offset} 返回非法 score。")
