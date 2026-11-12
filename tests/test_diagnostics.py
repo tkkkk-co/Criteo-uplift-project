@@ -302,7 +302,8 @@ class PublicDiagnosticsTests(unittest.TestCase):
             raw = directory / 'raw.csv'
             frame = self.frame()
             frame.to_csv(raw, index=False)
-            diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json', 'learnability.csv']
+            diagnostic_names = ['srm.json', 'balance.csv', 'c2st.csv', 'c2st_null.csv', 'c2st_details.json', 'learnability.csv',
+                                'overlap_positivity.json', 'overlap_strata.csv']
             for name in diagnostic_names:
                 (directory / 'diagnostics' / name).write_text('old diagnostic')
             protected = (directory / 'evaluation' / 'predictions.npz')
