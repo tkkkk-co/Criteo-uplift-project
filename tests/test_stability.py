@@ -13,7 +13,7 @@ from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import fingerprint
 from criteo_uplift.pipeline_io import save_sample, write_result
 from functools import partial
-from criteo_uplift.models import LEARNERS
+from criteo_uplift.models import s_learner, t_learner, x_learner
 from criteo_uplift.diagnostics import diagnose_overlap
 from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, run_stability
 
@@ -178,7 +178,7 @@ class StabilityTests(unittest.TestCase):
             ]
             before = {str(p): fingerprint(p) for p in paths}
             original_fit_calls = []
-            learners = LEARNERS.copy()
+            learners = {'s': s_learner, 't': t_learner, 'x': x_learner}
 
             def checked_learner(learner, X, **kwargs):
                 #-------------
@@ -193,10 +193,10 @@ class StabilityTests(unittest.TestCase):
                 original_fit_calls.append(learner + '_' + kwargs['outcome_model'])
                 return learners[learner](X, **kwargs)
 
-            with patch.dict(
-                'criteo_uplift.stability.LEARNERS',
-                {name: partial(checked_learner, name) for name in LEARNERS},
-            ), patch('criteo_uplift.stability.diagnose_overlap', wraps=diagnose_overlap) as coverage_check:
+            with patch('criteo_uplift.stability.s_learner', side_effect=partial(checked_learner, 's')), \
+                 patch('criteo_uplift.stability.t_learner', side_effect=partial(checked_learner, 't')), \
+                 patch('criteo_uplift.stability.x_learner', side_effect=partial(checked_learner, 'x')), \
+                 patch('criteo_uplift.stability.diagnose_overlap', wraps=diagnose_overlap) as coverage_check:
                 result = run_stability(
                     cache, base, output, seeds=[17], fractions=[0.5, 1.0], trees=3
                 )

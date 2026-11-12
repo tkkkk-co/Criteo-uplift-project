@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.exceptions import NotFittedError
 
 from criteo_uplift.models import (
-    LEARNERS, s_learner, t_learner, x_learner,
+    s_learner, t_learner, x_learner,
 )
 
 
@@ -323,20 +323,23 @@ class ModelTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        for learner, outcome, effect in [
-            ("s", "logistic", None), ("t", "logistic", None),
-            ("t", "xgboost", None), ("x", "xgboost", "xgboost"),
-            ("s", "xgboost", None), ("x", "logistic", "linear"),
+        for learner_name, learner, outcome, effect in [
+            ("s", s_learner, "logistic", None),
+            ("t", t_learner, "logistic", None),
+            ("t", t_learner, "xgboost", None),
+            ("x", x_learner, "xgboost", "xgboost"),
+            ("s", s_learner, "xgboost", None),
+            ("x", x_learner, "logistic", "linear"),
         ]:
             params = {'outcome_params': {'random_state': 31, **({"n_estimators": 3} if outcome == "xgboost" else {})}}
             if effect is not None:
                 params['effect_model'] = effect
                 params['effect_params'] = {'random_state': 31, **({"n_estimators": 3} if effect == "xgboost" else {})}
-            result = LEARNERS[learner](
+            result = learner(
                 self.X, X_train=self.X, t=self.t, y=self.y,
                 outcome_model=outcome, **params,
             )
-            self.assertEqual(result['model_bundle']['learner'], learner)
+            self.assertEqual(result['model_bundle']['learner'], learner_name)
             self.assertEqual(result['model_bundle']['parameters']['outcome_params']['random_state'], 31)
             self.assertNotIn('n_samples', result['model_bundle'])
             self.assertNotIn('outcome_support', result['model_bundle'])
@@ -370,8 +373,7 @@ class FunctionalModelTests(unittest.TestCase):
                       effect_model='linear')['model_bundle'],
         ]
         with patch('criteo_uplift.diagnostics.diagnose_overlap', side_effect=AssertionError('预测时不可诊断')):
-            for model in models:
-                learner = LEARNERS[model['learner']]
+            for learner, model in zip((s_learner, t_learner, x_learner), models):
                 self.assertEqual(learner(x, model_bundle=model)['cate'].shape, (24,))
                 with self.assertRaisesRegex(ValueError, '顺序'):
                     learner(x[['b', 'a']], model_bundle=model)
@@ -414,19 +416,24 @@ class FunctionalModelTests(unittest.TestCase):
         from pathlib import Path
         from tempfile import TemporaryDirectory
         import joblib
-        from criteo_uplift.training_validation import MODEL_CANDIDATES
         rng = np.random.default_rng(16)
         x = rng.normal(size=(80, 3))
         x[::5, 0] = np.nan
         x[:, 2] = np.nan
         t, y = np.tile([0, 1], 40), np.tile([0, 0, 1, 1], 20)
         with TemporaryDirectory() as folder:
-            for candidate in MODEL_CANDIDATES:
-                learner = LEARNERS[candidate['learner']]
-                config = {k: v for k, v in candidate.items() if k not in {'name', 'learner'}}
-                params = {'n_estimators': 3} if candidate['outcome_model'] == 'xgboost' else {}
-                before = learner(x, X_train=x, t=t, y=y, **config, outcome_params=params,
-                                 **({'effect_params': params} if candidate['learner'] == 'x' else {}))
+            for learner, outcome_model, effect_model in (
+                (s_learner, 'logistic', None),
+                (t_learner, 'logistic', None),
+                (t_learner, 'xgboost', None),
+                (x_learner, 'xgboost', 'xgboost'),
+            ):
+                params = {'n_estimators': 3} if outcome_model == 'xgboost' else {}
+                before = learner(
+                    x, X_train=x, t=t, y=y, outcome_model=outcome_model,
+                    outcome_params=params,
+                    **({'effect_model': effect_model, 'effect_params': params} if effect_model else {}),
+                )
                 path = Path(folder) / 'model.joblib'
                 joblib.dump(before['model_bundle'], path)
                 model_bundle = joblib.load(path)

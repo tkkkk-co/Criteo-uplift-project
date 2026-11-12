@@ -56,7 +56,7 @@ artifacts/cache/
 
 ## 模型与评价
 
-`make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`s_learner()`、`t_learner()`、`x_learner()` 各自实现完整的拟合和预测。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。候选名单定义在 `training_validation.py` 中。分类器参数统一通过 `outcome_params` 传入，第二阶段通过 `effect_params` 传入，不再接受公共参数覆盖层。
+`make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`s_learner()`、`t_learner()`、`x_learner()` 各自实现完整的拟合和预测。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。四个固定候选在 `training_validation.py` 中逐一调用。分类器参数统一通过 `outcome_params` 传入，第二阶段通过 `effect_params` 传入，不再接受公共参数覆盖层。
 
 X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。以 X 为例，`x_learner(X_val, X_train=X_train, t=t_train, y=y_train)` 返回拟合模型和验证预测。`x_learner(X_test, model_bundle=result["model_bundle"])` 复用模型进行预测。三个函数均返回 `model_bundle`、`mu0`、`mu1`、`cate` 及 `fit_seconds`。X 的 `mu0`、`mu1` 来自第一阶段，`cate` 来自两组效应回归的加权预测。
 

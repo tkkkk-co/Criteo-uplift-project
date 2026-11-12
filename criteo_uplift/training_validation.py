@@ -9,15 +9,7 @@ from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 from .metrics import ranking_metrics
-from .models import LEARNERS
-
-MODEL_CANDIDATES = [
-    {"name": "s_logistic", "learner": "s", "outcome_model": "logistic"},
-    {"name": "t_logistic", "learner": "t", "outcome_model": "logistic"},
-    {"name": "t_xgboost", "learner": "t", "outcome_model": "xgboost"},
-    {"name": "x_xgboost", "learner": "x", "outcome_model": "xgboost", "effect_model": "xgboost"},
-]
-
+from .models import s_learner, t_learner, x_learner
 
 def fit_and_select_models(
     train,
@@ -48,47 +40,39 @@ def fit_and_select_models(
     #     - 结果字典：包含拟合模型、模型参数/耗时 metadata 和冻结 selection。
     #-------------
     out = safe_output(out)
-    models = {}
-    validation_scores = {}
-    model_metadata = {}
-    outcome_support = []
-    for arm in (0, 1):
-        labels = train.loc[train.treatment == arm, outcome]
-        positive = int(labels.sum())
-        n = len(labels)
-        outcome_support.append({
-            'treatment': arm, 'n': n, 'positive': positive,
-            'negative': n - positive, 'single_class': positive in (0, n),
-        })
+    # 固定四种候选：逐个直接调用 Learner，Train 拟合、Validation 预测。
+    X_train, X_val = train[FEATURES], validation[FEATURES]
+    t_train, y_train = train.treatment, train[outcome]
+    logistic_params = {'random_state': seed}
+    xgb_params = {'random_state': seed, 'n_estimators': trees}
+    results = {}
 
-    names = [candidate["name"] for candidate in MODEL_CANDIDATES]
-    for candidate in MODEL_CANDIDATES:
-        name = candidate["name"]
-        progress("训练 " + name)
-        params = {"random_state": seed, **({"n_estimators": trees} if "xgboost" in name else {})}
-        result = LEARNERS[candidate["learner"]](
-            validation[FEATURES], 
-            X_train=train[FEATURES],
-            t=train.treatment, 
-            y=train[outcome],
-            **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
-            outcome_params=params,
-            **({'effect_params': params} if candidate['learner'] == 'x' else {}),
-        )
-        
-        model_bundle = result['model_bundle']
-        validation_scores[name] = result['cate']
-        if name == 't_xgboost':
-            propensity = result['mu1']
-        model_metadata[name] = {
-            "parameters": model_bundle['parameters'],
-            "outcome_support": outcome_support,
-            "seconds": result["fit_seconds"],
-        }
-        models[name] = model_bundle
-        joblib.dump(model_bundle, safe_output(out / f'{name}.joblib'))
+    progress('训练 s_logistic')
+    results['s_logistic'] = s_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='logistic', outcome_params=logistic_params,
+    )
+    progress('训练 t_logistic')
+    results['t_logistic'] = t_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='logistic', outcome_params=logistic_params,
+    )
+    progress('训练 t_xgboost')
+    results['t_xgboost'] = t_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='xgboost', outcome_params=xgb_params,
+    )
+    progress('训练 x_xgboost')
+    results['x_xgboost'] = x_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='xgboost', effect_model='xgboost',
+        outcome_params=xgb_params, effect_params=xgb_params,
+    )
 
-    validation_scores['propensity'] = propensity
+    validation_scores = {name: result['cate'] for name, result in results.items()}
+    # 传统转化倾向：预测 T=1 的 Y=1 概率，与 Treatment Propensity 区分。
+    validation_scores['propensity'] = results['t_xgboost']['mu1']
+    names = list(results)
     validation_ranking = [
         {
             "policy": name,
@@ -129,6 +113,27 @@ def fit_and_select_models(
             "no train+validation refit."
         ),
     }
+    # 把用于报告与 Test 的保存逻辑集中在末尾。
+    outcome_support = []
+    for arm in (0, 1):
+        labels = train.loc[train.treatment == arm, outcome]
+        positive, n = int(labels.sum()), len(labels)
+        outcome_support.append({
+            'treatment': arm, 'n': n, 'positive': positive,
+            'negative': n - positive, 'single_class': positive in (0, n),
+        })
+    models = {name: result['model_bundle'] for name, result in results.items()}
+    model_metadata = {
+        name: {
+            'parameters': result['model_bundle']['parameters'],
+            'outcome_support': outcome_support,
+            'seconds': result['fit_seconds'],
+        }
+        for name, result in results.items()
+    }
+    for name, model_bundle in models.items():
+        joblib.dump(model_bundle, safe_output(out / f'{name}.joblib'))
+
     write_result(selection, (out / 'selection.json'))
     return {
         "models": models,

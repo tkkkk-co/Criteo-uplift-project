@@ -8,7 +8,7 @@ import pandas as pd
 from scipy.special import log_ndtr
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
-from .models import LEARNERS
+from .models import s_learner, t_learner, x_learner
 from .metrics import (_binary_inputs, _scores, _ht_outcome, _rank, _prefix_values,
                       ranking_metrics, ranking_confidence_intervals, uplift_curve)
 
@@ -311,7 +311,14 @@ def evaluate_test_set(
     out = safe_output(out)
     test_scores = {}
     for name, model_bundle in models.items():
-        result = LEARNERS[model_bundle['learner']](test[FEATURES], model_bundle=model_bundle)
+        if model_bundle['learner'] == 's':
+            result = s_learner(test[FEATURES], model_bundle=model_bundle)
+        elif model_bundle['learner'] == 't':
+            result = t_learner(test[FEATURES], model_bundle=model_bundle)
+        elif model_bundle['learner'] == 'x':
+            result = x_learner(test[FEATURES], model_bundle=model_bundle)
+        else:
+            raise ValueError('未知的 Learner 类型')
         test_scores[name] = result['cate']
         if name == 't_xgboost':
             propensity = result['mu1']

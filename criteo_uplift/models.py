@@ -236,5 +236,3 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     return dict(model_bundle=model_bundle, mu0=mu0, mu1=mu1, cate=e * tau0 + (1 - e) * tau1,
                 fit_seconds=fit_seconds)
 
-
-LEARNERS = {'s': s_learner, 't': t_learner, 'x': x_learner}

@@ -15,12 +15,11 @@ from .config import FEATURES
 from .pipeline_io import load_sample, safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
 from .evaluation import evaluate_policies
-from .models import LEARNERS
+from .models import s_learner, t_learner, x_learner
 from .diagnostics import diagnose_overlap
-from .training_validation import MODEL_CANDIDATES
 from .input_checks import check_row_ids, check_binary_vector
 
-POLICY_NAMES = ("random", *(c["name"] for c in MODEL_CANDIDATES), "propensity")
+POLICY_NAMES = ("random", "s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
@@ -378,31 +377,45 @@ def run_stability(
                 if method == "feature_group" and group_overlap:
                     raise AssertionError("feature group leakage detected")
                 audits.append(audit)
-                score_dict, fit_seconds, ranks = {}, {}, {}
-                # 每个实际训练子集只检查一次，四个候选共用；不借用原 Train 的诊断。
+                # 每个训练子集独立检查 Overlap，所有候选共享这次诊断。
                 coverage = diagnose_overlap(train[FEATURES], train.treatment)['summary']
                 audit['overlap_status'] = coverage['status']
                 audit['overlap_weak_bins'] = coverage['weak_bins']
-                for candidate in MODEL_CANDIDATES:
-                    name = candidate["name"]
-                    result = LEARNERS[candidate["learner"]](
-                        validation[FEATURES], X_train=train[FEATURES], t=train.treatment, y=train[outcome],
-                        **{k: v for k, v in candidate.items() if k not in {"name", "learner"}},
-                        outcome_params={"random_state": seed, **({"n_estimators": trees} if "xgboost" in name else {})},
-                        **({'effect_params': {"random_state": seed, "n_estimators": trees}}
-                           if candidate['learner'] == 'x' else {}),
-                    )
-                    fit_seconds[name] = result['fit_seconds']
-                    score_dict[name] = result['cate']
-                    if name == 't_xgboost':
-                        propensity = result['mu1']
-                    del result
-                score_dict['propensity'] = propensity
+
+                X_train, X_val = train[FEATURES], validation[FEATURES]
+                t_train, y_train = train.treatment, train[outcome]
+                logistic_params = {'random_state': seed}
+                xgb_params = {'random_state': seed, 'n_estimators': trees}
+                # 四个固定模型直接拟合，避免候选表和 Learner 映射两层跳转。
+                results = {
+                    's_logistic': s_learner(
+                        X_val, X_train=X_train, t=t_train, y=y_train,
+                        outcome_model='logistic', outcome_params=logistic_params,
+                    ),
+                    't_logistic': t_learner(
+                        X_val, X_train=X_train, t=t_train, y=y_train,
+                        outcome_model='logistic', outcome_params=logistic_params,
+                    ),
+                    't_xgboost': t_learner(
+                        X_val, X_train=X_train, t=t_train, y=y_train,
+                        outcome_model='xgboost', outcome_params=xgb_params,
+                    ),
+                    'x_xgboost': x_learner(
+                        X_val, X_train=X_train, t=t_train, y=y_train,
+                        outcome_model='xgboost', effect_model='xgboost',
+                        outcome_params=xgb_params, effect_params=xgb_params,
+                    ),
+                }
+                score_dict = {name: result['cate'] for name, result in results.items()}
+                score_dict['propensity'] = results['t_xgboost']['mu1']
+                fit_seconds = {name: result['fit_seconds'] for name, result in results.items()}
+                del results
+                ranks = {}
                 for name, scores in score_dict.items():
                     ranks[name] = ranking_metrics(
                         validation[outcome], validation.treatment, scores, e, seed
                     )
-                ate = ranks[MODEL_CANDIDATES[0]["name"]]["ate_ht"]
+                ate = ranks["s_logistic"]["ate_ht"]
                 ranks["random"] = {
                     "n": len(validation),
                     "ate_ht": ate,
@@ -480,7 +493,7 @@ def run_stability(
         "status": "complete",
         "elapsed_seconds": time.perf_counter() - started,
         "experiments": len(audits),
-        "fitted_models": len(audits) * len(MODEL_CANDIDATES),
+        "fitted_models": len(audits) * 4,
         "development_n": len(development),
         "old_test_n_excluded": len(old_test_ids),
         "all_old_test_row_overlaps_zero": all(
