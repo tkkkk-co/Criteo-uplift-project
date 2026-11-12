@@ -6,7 +6,6 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import argparse
-import hashlib
 import json
 from criteo_uplift.pipeline_io import safe_output
 
@@ -15,6 +14,7 @@ BASE_FILES = (
     'data_preparation/audit.json', 'data_preparation/sample_report.json',
     'data_preparation/split_summary.csv', 'data_preparation/feature_overlap.json',
     'diagnostics/balance.csv', 'diagnostics/srm.json', 'diagnostics/c2st.csv',
+    'diagnostics/overlap_positivity.json', 'diagnostics/overlap_strata.csv',
     'diagnostics/c2st_null.csv', 'diagnostics/c2st_details.json', 'diagnostics/learnability.csv',
     'models/selection.json', 'models/validation_policies.csv', 'models/validation_ranking.csv',
     'evaluation/ate_summary.csv', 'evaluation/test_policies.csv', 'evaluation/test_ranking.csv',
@@ -24,26 +24,17 @@ BASE_FILES = (
     'stability/protocol.json', 'stability/report.json', 'stability/longmetrics.csv',
     'stability/split_audit.csv', 'stability/aggregate.csv', 'stability/selection_frequency.csv',
     'business/assumptions.json', 'business/hypothetical_ab_plans.csv',
-    'business/hypothetical_cost_scenarios.csv', 'business/score_policy_status.json',
+    'business/hypothetical_cost_scenarios.csv',
+    'figures/sample_features.png', 'figures/c2st_null.png', 'figures/balance.png',
+    'figures/ate_full.png', 'figures/policy.png', 'figures/ranking.png',
+    'figures/calibration.png', 'figures/stability.png',
 )
-
-
-def sanitize_text(value):
-    #-------------
-    # 函数名：sanitize_text
-    # 功能：从待发布文本中替换本机项目绝对路径和 Python 解释器路径，避免泄露本地环境信息。
-    # 输入参数：
-    #     - value：需要清理本机路径信息的文本内容。
-    # 输出参数：
-    #     - 完成路径脱敏后的文本字符串。
-    #-------------
-    return value.replace(str(ROOT), '[PROJECT_ROOT]').replace(sys.executable, 'python')
 
 
 def export(source, output):
     #-------------
     # 函数名：export
-    # 功能：从完整实验目录复制明确允许的聚合结果和图像，生成带 SHA256 清单的公开快照。
+    # 功能：从完整实验目录复制明确允许的聚合结果和图像，生成供 Report 和 Notebook 使用的公开结果。
     # 输入参数：
     #     - source：状态为 complete 的实验输出目录。
     #     - output：新公开快照的目标目录，必须不存在。
@@ -52,33 +43,27 @@ def export(source, output):
     #-------------
     source, output = Path(source).resolve(), safe_output(output)
     if output.exists():
-        raise FileExistsError(f'Use a new snapshot directory: {output}')
+        raise FileExistsError(f'请使用新的公开结果目录：{output}')
     manifest = json.loads((source / 'manifest.json').read_text())
     if manifest['status'] != 'complete':
         raise ValueError('只能发布已完成的实验')
-    paths = [source / name for name in BASE_FILES] + sorted((source / 'figures').glob('*.png'))
+    paths = [source / name for name in BASE_FILES]
     for path in paths:
         if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(source):
             raise ValueError(f'导出来源缺失或路径不安全：{path}')
-    records = []
     for path in paths:
         relative = Path(source.name) / path.relative_to(source)
         destination = output / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         data = path.read_bytes()
-        destination.write_bytes(data if path.suffix == '.png' else sanitize_text(data.decode()).encode())
-        records.append({'source': str(path.relative_to(source)), 'published': str(relative),
-                        'source_sha256': hashlib.sha256(data).hexdigest(),
-                        'published_sha256': hashlib.sha256(destination.read_bytes()).hexdigest()})
-    (output / 'snapshot_manifest.json').write_text(json.dumps({
-        'scope': 'aggregate-only public snapshot', 'selection_changed': False,
-        'raw_rows_exported': False, 'license_for_dataset_derived_outputs': 'CC BY-NC-SA-4.0',
-        'files': records,
-    }, ensure_ascii=False, indent=2))
-    (output / 'README.md').write_text('# Published aggregate snapshot\n\n'
-        f'正式展示来自 `{source.name}`。不含原始行、行号列表、逐行预测或模型。\n'
-        '唯一 HTML 为该实验的 report.html；来源及文件哈希见 snapshot_manifest.json。\n')
-    print(f'Exported {len(records)} aggregate files to {output}')
+        if path.suffix != '.png':
+            data = (data.decode().replace(str(ROOT), '[PROJECT_ROOT]')
+                    .replace(str(source.parent), '[RESULTS_ROOT]').replace(sys.executable, 'python').encode())
+        destination.write_bytes(data)
+    (output / 'README.md').write_text('# 公开聚合结果\n\n'
+        f'展示来自 `{source.name}`，不含原始行、行号列表、逐行预测、模型或缓存。\n'
+        '数据衍生成果遵循 CC BY-NC-SA-4.0；实验参数及来源见 manifest.json。\n')
+    print(f'已导出 {len(paths)} 个聚合结果文件：{output}')
     return output
 
 

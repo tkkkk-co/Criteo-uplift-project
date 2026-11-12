@@ -865,7 +865,7 @@
     </tr>
   </tbody>
 </table></div></section>
-<section><h2>Score Policy · 新人群打分接口</h2><p>未提供外部 X-only 数据，尚未执行真实新人群打分。</p><p>独立入口 score_policy.py 只要求 f0–f11，分块读取并使用冻结模型。输出 source_row_id、score、selected；按预算选择 Top-k。X-only 数据不能计算已观测 ATE/ATT/ITT，也不代表已经投放广告。</p></section>
+
 <section><h2>Planning · A/B 规划与假设经济情景</h2><p>以下业务参数全部为假设，沿用原项目教学情景，不是 Criteo 已验证的线上转化率、收入或 ROI。价值区间只是在固定成本、固定转化价值、效果可迁移假设下换算离线效果区间。</p><pre>{
   &quot;p0&quot;: 0.003,
   &quot;absolute_mdes&quot;: [

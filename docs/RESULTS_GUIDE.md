@@ -1,6 +1,6 @@
 # 结果阅读指南
 
-正式结果目录是 `artifacts/conversion_1000000_seed42_refactored/`；发布副本在 `reports/published/conversion_1000000_seed42_refactored/`。两者使用同一份完整报告。Notebook 默认读取这次实验。
+正式结果目录是 `artifacts/conversion_1000000_seed42_refactored/`；发布副本在 `reports/published/conversion_1000000_seed42_refactored/`。Notebook 直接读取公开目录中的这次实验。
 
 | 文件/目录 | 内容 | 阅读要点 |
 |---|---|---|
@@ -14,7 +14,7 @@
 | diagnostics/balance.csv | 全量 float64 的 SMD、KS | 同时看效应量与统计显著性 |
 | diagnostics/c2st*.csv/json | 两组各 1 万行的 C2ST、置换零分布、来源 | 两个模型完整重拟合置换，Holm 校正；不能证明分布相同 |
 | diagnostics/learnability.csv | Train 拟合、Validation 评价的结果可预测性 | 不选择正式 uplift 策略 |
-| models/*.joblib | 四种候选的拟合模型 | 新类保存的模型可用于当前 score_policy |
+| models/*.joblib | 四种候选的拟合模型 | 只在本地用于冻结模型的 Test 预测 |
 | models/validation_*.csv | Validation 排序与主预算策略值 | 选择依据仅来自 Validation |
 | models/selection.json | 主预算、候选、冻结策略与最佳 uplift 候选 | 最佳 uplift 不一定是最终策略 |
 | evaluation/ate_summary.csv | full_dataset/test × conversion/visit 的统一 ATE | 同一套统计字段；ITT 分配口径，不是 ATT |
@@ -27,11 +27,10 @@
 | stability/ | protocol、逐配置指标、隔离审计、聚合和选择频率 | 排除原 Test；重复开发结果不是独立 Test 结论 |
 | business/assumptions.json | 全部业务假设与冻结策略来源 | 不把假设成本、价值写成观察事实 |
 | business/hypothetical_*.csv | A/B 所需样本量与经济敏感性情景 | 价值区间条件于固定经济假设与可迁移效果 |
-| business/score_policy_status.json | 本轮未执行真实新人群打分的说明 | 独立打分请用 README 命令；不伪造部署 |
 | figures/、report.html | 结果图与完整展示报告 | HTML 图片内嵌，可离线打开 |
 
 固定评分 Bootstrap 在两臂内分层，同一次重抽样用于各策略，每次重新选 Top-k。相对 response 的配对区间包含零，应说“证据不足”，不能据此宣布没有差异，也不能按点估计重新选择策略。
 
 公开样本上的分配效果不等于真实广告曝光效果。匿名特征、公开数据筛选机制、稀疏转化、控制组规模、未知用户依赖与效果可迁移性仍限制外推。线上验证需要新的预先冻结 A/B。
 
-历史实验与旧公开快照未覆盖。历史 joblib 使用已删除的固定组合类，需在原提交环境读取；当前正式交付使用新流程重新生成的结果。详见 [迁移与验收记录](maintenance/FINAL_REFACTOR.md)。
+正式实验的统计表保留原数值。轻量化只清理代码接口和展示中的废弃功能；逐批验收见 [重构记录](maintenance/FINAL_REFACTOR.md)。

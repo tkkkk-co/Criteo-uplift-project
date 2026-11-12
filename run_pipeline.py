@@ -93,9 +93,6 @@ def run(args):
 
     # 08. 使用明确的假设做线上 A/B 规划和条件性经济价值测算。
     run_planning(policies, fitted['selection'], business_out, assumptions=assumptions)
-    write_result({'status': 'not_run', 'reason': '未提供外部 X-only 数据，尚未执行真实新人群打分。',
-                  'entrypoint': 'score_policy.py'}, business_out / 'score_policy_status.json')
-
     # 09. 汇总已有结果，生成唯一正式 HTML，成功后标记实验完成。
     finalize_run(manifest_path=manifest_path, report_path=report_path, args=args, source=source,
                  sample_n=sample_n, assignment_probability=e, fitted=fitted,

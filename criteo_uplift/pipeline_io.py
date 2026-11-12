@@ -5,12 +5,11 @@
 from pathlib import Path
 import hashlib
 import json
-import os
 
 import numpy as np
 import pandas as pd
 
-from .config import DATA_ROOT, FEATURES, LABELS, ROOT
+from .config import DATA_ROOT, FEATURES, LABELS
 from .input_checks import check_binary_vector, check_feature_matrix, check_row_ids
 
 def fingerprint(path):
@@ -139,34 +138,3 @@ def load_sample(path):
             frame[c] = z['labels'][:, j]
         frame.insert(0, 'row_id', z['row_id'])
     return frame
-
-
-
-def result_directory(name, root=ROOT):
-    #-------------
-    # 函数名：result_directory
-    # 功能：按结果模式在本地 artifacts 或已发布快照目录中定位指定实验结果目录。
-    # 输入参数：
-    #     - name：实验结果目录名称，必须是单层目录名。
-    #     - root：项目根目录，默认使用配置中的 ROOT。
-    # 输出参数：
-    #     - 找到的实验目录 pathlib.Path；不存在时抛出 FileNotFoundError。
-    #-------------
-    if (
-        not isinstance(name, str)
-        or not name
-        or Path(name).name != name
-        or name in ('.', '..')
-    ):
-        raise ValueError('name 必须为单层结果目录名称')
-    root = Path(root)
-    mode = os.environ.get('CRITEO_RESULTS_MODE', 'auto')
-    if mode not in ('auto', 'published'):
-        raise ValueError('CRITEO_RESULTS_MODE 必须为 auto 或 published')
-    candidates = [root / 'reports/published' / name]
-    if mode == 'auto':
-        candidates.insert(0, root / 'artifacts' / name)
-    for directory in candidates:
-        if directory.is_dir():
-            return directory
-    raise FileNotFoundError(f'No saved results for {name}; see docs/PROJECT_PIPELINE.md and docs/RESULTS_GUIDE.md')

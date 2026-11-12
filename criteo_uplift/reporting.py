@@ -98,19 +98,6 @@ def save_c2st_plot(out):
     return path
 
 
-def _json(out: Path, name: str) -> dict:
-    #-------------
-    # 函数名：_json
-    # 功能：从实验结果目录读取指定 JSON 文件并解析为 Python 对象。
-    # 输入参数：
-    #     - out：实验结果目录或对应子目录。
-    #     - name：相对于 out 的 JSON 文件名。
-    # 输出参数：
-    #     - 解析后的 JSON 字典。
-    #-------------
-    return json.loads((out / name).read_text(encoding="utf-8"))
-
-
 def _num(value, digits: int = 2) -> str:
     #-------------
     # 函数名：_num
@@ -292,7 +279,7 @@ def _overlap_section(out, manifest):
 def build_report(manifest_path: Path, report_path: Path) -> Path:
     #-------------
     # 函数名：build_report
-    # 功能：读取实验 manifest 和各模块结果，生成包含数据诊断、ATE、Uplift、Stability、Score Policy 与 Planning 的完整 HTML 报告。
+    # 功能：读取实验 manifest 和各模块结果，生成包含数据诊断、ATE、Uplift、Stability 与 Planning 的完整 HTML 报告。
     # 输入参数：
     #     - manifest_path：本次实验 manifest.json 路径。
     #     - report_path：最终 HTML 报告输出路径。
@@ -302,11 +289,11 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     manifest_path = Path(manifest_path)
     out = safe_output(manifest_path.parent)
     report_path = safe_output(report_path)
-    manifest = _json(out, manifest_path.name)
-    audit = _json(out / "data_preparation", "audit.json")
-    selection, srm = _json(out / "models", "selection.json"), _json(out / "diagnostics", "srm.json")
-    overlap = _json(out / "data_preparation", "feature_overlap.json")
-    c2st_details = _json(out / "diagnostics", "c2st_details.json")
+    manifest = json.loads((out / manifest_path.name).read_text(encoding="utf-8"))
+    audit = json.loads((out / "data_preparation" / "audit.json").read_text(encoding="utf-8"))
+    selection, srm = json.loads((out / "models" / "selection.json").read_text(encoding="utf-8")), json.loads((out / "diagnostics" / "srm.json").read_text(encoding="utf-8"))
+    overlap = json.loads((out / "data_preparation" / "feature_overlap.json").read_text(encoding="utf-8"))
+    c2st_details = json.loads((out / "diagnostics" / "c2st_details.json").read_text(encoding="utf-8"))
     frames = {
         name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_summary" else None)
         for folder, names in (
@@ -322,7 +309,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         (frames["ate_summary"].scope == "test") &
         (frames["ate_summary"].outcome == manifest["primary_outcome"])
     ].iloc[0].to_dict()
-    sample_report = _json(out / "data_preparation", "sample_report.json")
+    sample_report = json.loads((out / "data_preparation" / "sample_report.json").read_text(encoding="utf-8"))
     selected = selection["selected_policy"]
     selected_uplift = selection["selected_uplift_model"]
     budget = float(selection["primary_budget"])
@@ -947,8 +934,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     ]
     if manifest.get('report_revision'):
         sections.insert(1, '<section><p>' + esc(manifest['report_revision']) + '</p></section>')
-    stability = _json(out / "stability", "report.json")
-    protocol = _json(out / "stability", "protocol.json")
+    stability = json.loads((out / "stability" / "report.json").read_text(encoding="utf-8"))
+    protocol = json.loads((out / "stability" / "protocol.json").read_text(encoding="utf-8"))
     aggregate = pd.read_csv(out / "stability/aggregate.csv")
     frequencies = pd.read_csv(out / "stability/selection_frequency.csv")
     stability_columns = ["split_method", "training_fraction", "policy",
@@ -962,10 +949,9 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     ax.legend(fontsize=8); ax.grid(alpha=.2)
     stability_plot = figures / "stability.png"
     fig.savefig(stability_plot, dpi=160); plt.close(fig)
-    assumptions = _json(out / "business", "assumptions.json")
+    assumptions = json.loads((out / "business" / "assumptions.json").read_text(encoding="utf-8"))
     plans = pd.read_csv(out / "business/hypothetical_ab_plans.csv")
     scenarios = pd.read_csv(out / "business/hypothetical_cost_scenarios.csv")
-    scoring = _json(out / "business", "score_policy_status.json")
     extensions = [
         '<section><h2>Stability Analysis · 开发期敏感性分析</h2>'
         f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原 Test {int(stability["old_test_n_excluded"]):,} 行。'
@@ -974,10 +960,6 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '均值和标准差描述重复开发实验的波动，不是独立 Test 置信区间。相同匿名特征不代表同一用户；此前已看过历史 Test，排除其行不能抹去分析者已有知识。</p>'
         + _image(stability_plot, "开发期训练规模敏感性", "所有点来自已保存的 aggregate.csv；没有使用原 Test 重新选型。")
         + _table(aggregate[stability_columns]) + '<h3>Validation 选择频率</h3>' + _table(frequencies) + '</section>',
-        '<section><h2>Score Policy · 新人群打分接口</h2>'
-        f'<p>{esc(scoring.get("reason", scoring["status"]))}</p>'
-        '<p>独立入口 score_policy.py 只要求 f0–f11，分块读取并使用冻结模型。输出 source_row_id、score、selected；按预算选择 Top-k。'
-        'X-only 数据不能计算已观测 ATE/ATT/ITT，也不代表已经投放广告。</p></section>',
         '<section><h2>Planning · A/B 规划与假设经济情景</h2>'
         '<p>以下业务参数全部为假设，沿用原项目教学情景，不是 Criteo 已验证的线上转化率、收入或 ROI。'
         '价值区间只是在固定成本、固定转化价值、效果可迁移假设下换算离线效果区间。</p>'

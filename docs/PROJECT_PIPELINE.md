@@ -14,7 +14,6 @@
 | 08 规划 | run_planning | 冻结策略效果与明确假设 → A/B 样本量、经济情景 | 假设全部保存，不称为真实收入 |
 | 09 展示 | finalize_run、build_report | 已存结果 → manifest 与唯一 report.html | 不重新训练、不重新计算统计量 |
 
-Score Policy 独立运行。它面对未来仅有 X 的数据，因此不属于本轮离线 Test 指标计算。未提供外部数据时，报告明确显示未执行，不生成虚构的打分结果。
 
 ## 输入检查三层
 
@@ -65,7 +64,7 @@ X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × t
 
 当前流程没有核实原始实验每行的设计分配概率，诊断默认不填预期值，只报告 Train 观察比例；单独调用可传参考比例及其来源。`checked_no_major_warning` 只代表预设单变量分箱未发现主要警告，不能证明高维联合正值性、无混杂、一致性或无干扰。局部缺臂也可能是有限样本波动。Outcome 单类别使用 sklearn `DummyClassifier` 保持原有常数概率行为，并在模型元数据中记录两臂正负例数，这不是因果不可识别的判定。
 
-新模型字典支持 joblib 保存、重载和 X-only 打分；不再提供旧 Learner 类或 `.fit/.predict/get_params` 包装。旧类 joblib 无法直接在新接口加载：保留旧运行环境，或在新的输出目录重新训练，不覆盖冻结实验。现有函数式 joblib 字典可直接传给新接口的 `fitted`，模型参数从字典的 `parameters` 读取。
+模型字典用于本地保存和冻结 Test 预测，直接传给 Learner 的 `fitted` 参数。不提供外部批量打分接口。
 
 HTML Diagnostics 会嵌入已保存的 C2ST 置换 AUC 直方图，展示真实标签的 AUC、原始 p、Holm p 和 0.5 参考线，不重新执行置换。旧聚合快照若没有 Overlap 文件，展示 `not_checked`，不能伪造通过状态。
 
@@ -77,7 +76,7 @@ Stability 直接读取当前建模样本并排除原 Test 行号，不再比较�
 
 ## 运行与展示
 
-完整运行命令与环境说明见根 README。Notebook 默认优先读取 `artifacts/conversion_1000000_seed42_refactored`，没有本地结果时读取同名公开快照。可以设置 `CRITEO_RUN` 指定其他实验名，或 `CRITEO_RESULTS_MODE=published` 强制只读快照。
+完整运行命令与环境说明见根 README。Notebook 固定读取 `reports/published/conversion_1000000_seed42_refactored` 的公开聚合结果，不再在本地缓存和公开结果间自动切换。
 
 ```bash
 python scripts/execute_notebooks.py                 # 仅用公开快照验收

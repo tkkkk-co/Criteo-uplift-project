@@ -1,13 +1,9 @@
 # 项目测试：验证公开快照和演示。
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
 import ast
 import json
 import unittest
-import numpy as np
-from criteo_uplift.pipeline_io import result_directory
 from criteo_uplift.config import configure_runtime
 
 configure_runtime()
@@ -32,49 +28,32 @@ class PublicationTests(unittest.TestCase):
         for cell in notebook['cells']:
             if cell['cell_type'] != 'code': continue
             for node in ast.walk(ast.parse(''.join(cell['source']))):
+                self.assertNotIsInstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 if isinstance(node, ast.Call):
                     name = getattr(node.func, 'id', getattr(node.func, 'attr', None))
                     self.assertNotIn(name, forbidden)
             self.assertFalse(any(o.get('output_type') == 'error' for o in cell.get('outputs', [])))
         text = notebooks[0].read_text()
-        for section in ('Stability', 'Score Policy', 'Planning', 'ATE', 'S / T / X'):
+        for section in ('Stability', 'Planning', 'ATE', 'S / T / X'):
             self.assertIn(section, text)
 
-    def test_local_priority_and_explicit_snapshot_mode(self):
+    def test_public_results_exclude_individual_data(self):
         #-------------
-        # 函数名：PublicationTests.test_local_priority_and_explicit_snapshot_mode
-        # 功能：验证结果目录自动模式优先读取本地 artifacts，且 published 模式只读取公开快照。
+        # 功能：公开展示中不应包含模型、缓存、逐行数据或来源行号列表。
         # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
+        #     - self：当前测试实例。
         # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        #     - 无；检查公开目录的数据范围。
         #-------------
-        with TemporaryDirectory() as d:
-            root = Path(d)
-            local, public = root / 'artifacts/run', root / 'reports/published/run'
-            public.mkdir(parents=True)
-            with patch.dict('os.environ', {'CRITEO_RESULTS_MODE': 'auto'}):
-                self.assertEqual(result_directory('run', root), public)
-                local.mkdir(parents=True)
-                self.assertEqual(result_directory('run', root), local)
-            with patch.dict('os.environ', {'CRITEO_RESULTS_MODE': 'published'}):
-                self.assertEqual(result_directory('run', root), public)
-
-    def test_invalid_paths_and_modes(self):
-        #-------------
-        # 函数名：PublicationTests.test_invalid_paths_and_modes
-        # 功能：验证结果目录定位拒绝路径穿越、绝对路径和不支持的结果模式。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        for name in ['', '..', '../data', '/tmp/test', 'a/b']:
-            with self.assertRaises(ValueError):
-                result_directory(name)
-        with patch.dict('os.environ', {'CRITEO_RESULTS_MODE': 'typo'}):
-            with self.assertRaises(ValueError):
-                result_directory('run')
-        with TemporaryDirectory() as d:
-            with self.assertRaises(FileNotFoundError):
-                result_directory('absent', d)
+        public = Path(__file__).resolve().parents[1] / 'reports/published'
+        self.assertTrue(list(public.rglob('report.html')))
+        for path in public.rglob('*'):
+            if not path.is_file():
+                continue
+            self.assertNotIn(path.suffix, ('.npz', '.npy', '.joblib', '.pkl', '.pickle', '.parquet'))
+            self.assertNotIn('row_ids', path.name)
+            if path.suffix == '.csv':
+                import pandas as pd
+                columns = set(pd.read_csv(path, nrows=0).columns)
+                self.assertFalse(columns & {'row_id', 'source_row_id'})
+                self.assertFalse(set(f'f{i}' for i in range(12)).issubset(columns))

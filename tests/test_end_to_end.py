@@ -163,7 +163,6 @@ class EndToEndTests(unittest.TestCase):
             self.assertTrue(stability['all_old_test_row_overlaps_zero'])
             self.assertTrue(stability['all_group_split_feature_overlaps_zero'])
             self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
-            self.assertEqual(json.loads((out / 'business/score_policy_status.json').read_text())['status'], 'not_run')
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
@@ -181,17 +180,22 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn(encoded_c2st, html)
             for section in ('Business Background', 'Data Preparation', 'Experiment Diagnostics', 'ATE / ITT',
                             'Uplift Modeling', 'Training &amp; Validation', 'Test Evaluation', 'Stability Analysis',
-                            'Score Policy', 'Planning', 'Conclusion'):
+                            'Planning', 'Conclusion'):
                 self.assertIn(section, html)
             self.assertFalse((out / 'diagnostics/ate_full.csv').exists())
             self.assertFalse((out / 'evaluation/ate_test.json').exists())
-            from score_policy import score_policy
-            x_path, score_path = root / 'features_only.csv', root / 'offline_test_scores.csv'
-            frame[FEATURES].iloc[:100].to_csv(x_path, index=False)
-            scored = score_policy(out, x_path, score_path, budget=.2, chunk_size=17)
-            self.assertEqual(scored['selected_n'], 20)
-            self.assertEqual(pd.read_csv(score_path).selected.sum(), 20)
-            self.assertEqual(list(pd.read_csv(score_path).columns), ['source_row_id', 'score', 'selected'])
+            # 公开路径只复制聚合结果；完整实验中的模型、逐行预测和额外文件不进入公开目录。
+            from scripts.export_public_results import export
+            frame.to_csv(out / 'user_rows.csv', index=False)
+            public = export(out, root / 'public') / out.name
+            self.assertFalse((public / 'user_rows.csv').exists())
+            self.assertFalse((public / 'evaluation/predictions.npz').exists())
+            self.assertFalse(list(public.rglob('*.joblib')))
+            self.assertFalse(list(public.rglob('*row_ids*')))
+            pd.testing.assert_frame_equal(pd.read_csv(public / 'evaluation/test_policies.csv'), policies)
+            self.assertEqual(json.loads((public / 'models/selection.json').read_text()), manifest['selection'])
+            self.assertTrue((public / 'report.html').is_file())
+            self.assertTrue((public / 'diagnostics/overlap_strata.csv').is_file())
             with self.assertRaises(FileExistsError):
                 run(args)
 

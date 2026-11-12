@@ -11,7 +11,6 @@ jobs:
       OMP_NUM_THREADS: '4'
       OPENBLAS_NUM_THREADS: '4'
       MPLBACKEND: Agg
-      CRITEO_RESULTS_MODE: published
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -25,5 +24,3 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Execute public notebooks without raw data
         run: python scripts/execute_notebooks.py
-      - name: Validate published snapshot hashes
-        run: python scripts/check_publication.py

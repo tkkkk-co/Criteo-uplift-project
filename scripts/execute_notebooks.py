@@ -3,17 +3,7 @@
 from pathlib import Path
 import os
 import sys
-import argparse
 
-parser = argparse.ArgumentParser(description='使用当前 Python 环境逐个执行 Notebook，保存真实输出并在错误时停止。')
-parser.add_argument(
-    '--local-results',
-    action='store_true',
-    help='Prefer local artifacts; default executes published snapshots',
-)
-args = parser.parse_args()
-if not args.local_results:
-    os.environ['CRITEO_RESULTS_MODE'] = 'published'
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault('MPLCONFIGDIR', str(ROOT / 'artifacts/.mplcache'))
 os.environ.setdefault('IPYTHONDIR', str(ROOT / 'artifacts/.ipython'))
