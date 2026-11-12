@@ -311,7 +311,7 @@ def evaluate_test_set(
     out = safe_output(out)
     test_scores = {}
     for name, model in models.items():
-        result = LEARNERS[model['learner']](test[FEATURES], fitted=model)
+        result = LEARNERS[model['learner']](test[FEATURES], model_bundle=model)
         test_scores[name] = result['cate']
         if name == 't_xgboost':
             propensity = result['mu1']

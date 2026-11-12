@@ -149,7 +149,7 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(np.all((mu1 >= 0) & (mu1 <= 1)))
                 np.testing.assert_allclose(result['cate'], mu1 - mu0)
                 restored = pickle.loads(pickle.dumps(estimator))
-                np.testing.assert_allclose(learner(self.X[:11], fitted=restored)['cate'], mu1 - mu0)
+                np.testing.assert_allclose(learner(self.X[:11], model_bundle=restored)['cate'], mu1 - mu0)
                 other = learner(self.X, X_train=self.X, t=self.t, y=self.y)['model']
                 key = 'model' if estimator['learner'] == 's' else 'mu0_model'
                 self.assertIsNot(estimator[key], other[key])
@@ -185,7 +185,7 @@ class ModelTests(unittest.TestCase):
         np.testing.assert_allclose(model['mu0_model']["imputer"].statistics_, [1.0])
         np.testing.assert_allclose(model['mu1_model']["imputer"].statistics_, [102.0])
         control_mean = model['mu0_model']["scaler"].mean_.copy()
-        t_learner(np.array([[1e6], [np.nan]]), fitted=model)
+        t_learner(np.array([[1e6], [np.nan]]), model_bundle=model)
         np.testing.assert_array_equal(model['mu0_model']["scaler"].mean_, control_mean)
 
     def test_constant_outcome_arms_have_defined_positive_probabilities(self):
@@ -215,7 +215,7 @@ class ModelTests(unittest.TestCase):
                         else:
                             self.assertTrue(np.isfinite(result['cate']).all())
                         restored = pickle.loads(pickle.dumps(result['model']))
-                        prediction = learner(X[:2], fitted=restored)
+                        prediction = learner(X[:2], model_bundle=restored)
                         for key in ('mu0', 'mu1', 'cate'):
                             np.testing.assert_array_equal(prediction[key], result[key])
 
@@ -254,10 +254,10 @@ class ModelTests(unittest.TestCase):
             result = learner(self.X[:2], X_train=self.X, t=self.t, y=self.y,
                              outcome_model='logistic', **(
                                  {'effect_model': 'linear'} if learner is x_learner else {}))
-            fitted = result['model']
+            model_bundle = result['model']
             for key in ('model',) if learner is s_learner else ('mu0_model', 'mu1_model'):
-                fitted[key] = ReversedClasses()
-            prediction = learner(self.X[:2], fitted=fitted)
+                model_bundle[key] = ReversedClasses()
+            prediction = learner(self.X[:2], model_bundle=model_bundle)
             np.testing.assert_allclose(prediction['mu0'], 0.8)
             np.testing.assert_allclose(prediction['mu1'], 0.8)
 
@@ -299,7 +299,7 @@ class ModelTests(unittest.TestCase):
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
         with self.assertRaises(NotFittedError):
-            t_learner(self.X, fitted={})
+            t_learner(self.X, model_bundle={})
         invalid_cases = [
             (self.X, np.zeros(len(self.t)), self.y),
             (self.X, self.t, np.full(len(self.y), 2)),
@@ -312,7 +312,7 @@ class ModelTests(unittest.TestCase):
                 t_learner(self.X, X_train=X, t=t, y=y)
         model = t_learner(self.X, X_train=self.X, t=self.t, y=self.y)['model']
         with self.assertRaises(ValueError):
-            t_learner(self.X[:, :2], fitted=model)
+            t_learner(self.X[:, :2], model_bundle=model)
 
     def test_factory_and_extra_combinations(self):
         #-------------
@@ -369,9 +369,9 @@ class FunctionalModelTests(unittest.TestCase):
         with patch('criteo_uplift.diagnostics.diagnose_overlap', side_effect=AssertionError('预测时不可诊断')):
             for model in models:
                 learner = LEARNERS[model['learner']]
-                self.assertEqual(learner(x, fitted=model)['cate'].shape, (24,))
+                self.assertEqual(learner(x, model_bundle=model)['cate'].shape, (24,))
                 with self.assertRaisesRegex(ValueError, '顺序'):
-                    learner(x[['b', 'a']], fitted=model)
+                    learner(x[['b', 'a']], model_bundle=model)
 
     def test_fit_counts_and_stage_parameters(self):
         #-------------
@@ -388,17 +388,17 @@ class FunctionalModelTests(unittest.TestCase):
             self.assertEqual(factory.call_args.kwargs['C'], 2.)
             np.testing.assert_array_equal(s['model'].fit_X, np.column_stack((x, t)))
         with patch('criteo_uplift.models.make_classifier_model', side_effect=[_FixedProbabilityModel(.2), _FixedProbabilityModel(.4)]) as factory:
-            fitted = t_learner(x, X_train=x, t=t, y=y)['model']
+            model_bundle = t_learner(x, X_train=x, t=t, y=y)['model']
             self.assertEqual(factory.call_count, 2)
-            self.assertIsNot(fitted['mu0_model'], fitted['mu1_model'])
-            np.testing.assert_array_equal(fitted['mu0_model'].fit_X, x[t == 0])
-            np.testing.assert_array_equal(fitted['mu1_model'].fit_X, x[t == 1])
-        fitted = x_learner(x, X_train=x, t=t, y=y,
+            self.assertIsNot(model_bundle['mu0_model'], model_bundle['mu1_model'])
+            np.testing.assert_array_equal(model_bundle['mu0_model'].fit_X, x[t == 0])
+            np.testing.assert_array_equal(model_bundle['mu1_model'].fit_X, x[t == 1])
+        model_bundle = x_learner(x, X_train=x, t=t, y=y,
                            outcome_params={'n_estimators': 4}, effect_params={'n_estimators': 2})['model']
-        self.assertEqual(fitted['mu0_model'].get_params()['n_estimators'], 4)
-        self.assertEqual(fitted['tau0_model'].get_params()['n_estimators'], 2)
-        self.assertEqual(fitted['tau0_model'].get_params()['objective'], 'reg:squarederror')
-        self.assertEqual(fitted['mu0_model'].get_params()['objective'], 'binary:logistic')
+        self.assertEqual(model_bundle['mu0_model'].get_params()['n_estimators'], 4)
+        self.assertEqual(model_bundle['tau0_model'].get_params()['n_estimators'], 2)
+        self.assertEqual(model_bundle['tau0_model'].get_params()['objective'], 'reg:squarederror')
+        self.assertEqual(model_bundle['mu0_model'].get_params()['objective'], 'binary:logistic')
 
     def test_joblib_roundtrip_all_candidates_and_nan(self):
         #-------------
@@ -426,17 +426,17 @@ class FunctionalModelTests(unittest.TestCase):
                                  **({'effect_params': params} if candidate['learner'] == 'x' else {}))
                 path = Path(folder) / 'model.joblib'
                 joblib.dump(before['model'], path)
-                fitted = joblib.load(path)
+                model_bundle = joblib.load(path)
                 for key in ('model', 'mu0_model', 'mu1_model', 'tau0_model', 'tau1_model'):
-                    if key in fitted:
-                        fitted[key].fit = unittest.mock.Mock(side_effect=AssertionError('预测时不可拟合'))
+                    if key in model_bundle:
+                        model_bundle[key].fit = unittest.mock.Mock(side_effect=AssertionError('预测时不可拟合'))
                 with patch('criteo_uplift.models.make_classifier_model', side_effect=AssertionError('重复训练')), patch(
                     'criteo_uplift.models.make_regression_model', side_effect=AssertionError('重复训练')
                 ):
-                    after = learner(x, fitted=fitted)
+                    after = learner(x, model_bundle=model_bundle)
                     with self.assertRaisesRegex(ValueError, '仅预测模式'):
-                        learner(x, fitted=fitted, X_train=x, t=t, y=y)
-                self.assertIs(after['model'], fitted)
+                        learner(x, model_bundle=model_bundle, X_train=x, t=t, y=y)
+                self.assertIs(after['model'], model_bundle)
                 self.assertIsNone(after['fit_seconds'])
                 for key in ('mu0', 'mu1', 'cate'):
                     np.testing.assert_array_equal(before[key], after[key])
