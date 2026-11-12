@@ -108,7 +108,7 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
               outcome_model='logistic', outcome_params=None):
     #-------------
     # 输入：预测特征 X；提供 X_train、t、y 及模型配置来拟合，或提供 model_bundle 只预测。
-    # 输出：模型字典、mu0、mu1、CATE 和本次拟合耗时。
+    # 输出：model_bundle（已拟合模型及训练信息）、mu0、mu1、CATE 和本次拟合耗时。
     #-------------
     fit_seconds = None
     if model_bundle is None:
@@ -121,8 +121,8 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         if np.unique(y).size == 1:
             model = DummyClassifier(strategy='constant', constant=int(y[0]))
     
-        model.fit(np.column_stack((features, t)), y)
-        model_bundle = dict(metadata, learner='s', model=model, parameters={
+        fitted_model = model.fit(np.column_stack((features, t)), y)
+        model_bundle = dict(metadata, learner='s', fitted_model=fitted_model, parameters={
             'outcome_model': outcome_model, 'outcome_params': classifier_params,
             'effect_model': None, 'effect_params': None,
         })
@@ -131,21 +131,21 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 固定 X，分别令 T=0 和 T=1，再用预测概率之差估计 CATE。
-    features = _test_inputs_check(X, model_bundle, 's', ('model',))
-    model = model_bundle['model']
-    p0 = model.predict_proba(np.column_stack((features, np.zeros(len(features)))))
-    p1 = model.predict_proba(np.column_stack((features, np.ones(len(features)))))
+    features = _test_inputs_check(X, model_bundle, 's', ('fitted_model',))
+    fitted_model = model_bundle['fitted_model']
+    p0 = fitted_model.predict_proba(np.column_stack((features, np.zeros(len(features)))))
+    p1 = fitted_model.predict_proba(np.column_stack((features, np.ones(len(features)))))
     # 按类别标签选取正类列；只有类别 0 时，空列求和得到零概率。
-    mu0 = p0[:, model.classes_ == 1].sum(axis=1, dtype=float)
-    mu1 = p1[:, model.classes_ == 1].sum(axis=1, dtype=float)
-    return dict(model=model_bundle, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
+    mu0 = p0[:, fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    mu1 = p1[:, fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    return dict(model_bundle=model_bundle, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
 
 
 def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
               outcome_model='logistic', outcome_params=None):
     #-------------
     # 输入：预测特征 X；提供 X_train、t、y 及模型配置来拟合，或提供 model_bundle 只预测。
-    # 输出：模型字典、mu0、mu1、CATE 和本次拟合耗时。
+    # 输出：model_bundle（已拟合模型及训练信息）、mu0、mu1、CATE 和本次拟合耗时。
     #-------------
     fit_seconds = None
     if model_bundle is None:
@@ -159,12 +159,12 @@ def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         mu0_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y0).size == 1:
             mu0_model = DummyClassifier(strategy='constant', constant=int(y0[0]))
-        mu0_model.fit(X0, y0)
+        mu0_fitted_model = mu0_model.fit(X0, y0)
         mu1_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y1).size == 1:
             mu1_model = DummyClassifier(strategy='constant', constant=int(y1[0]))
-        mu1_model.fit(X1, y1)
-        model_bundle = dict(metadata, learner='t', mu0_model=mu0_model, mu1_model=mu1_model, parameters={
+        mu1_fitted_model = mu1_model.fit(X1, y1)
+        model_bundle = dict(metadata, learner='t', mu0_fitted_model=mu0_fitted_model, mu1_fitted_model=mu1_fitted_model, parameters={
             'outcome_model': outcome_model, 'outcome_params': classifier_params,
             'effect_model': None, 'effect_params': None,
         })
@@ -173,12 +173,12 @@ def t_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 将同一个 X 分别交给两个结果模型，再相减。
-    features = _test_inputs_check(X, model_bundle, 't', ('mu0_model', 'mu1_model'))
-    mu0_model, mu1_model = model_bundle['mu0_model'], model_bundle['mu1_model']
+    features = _test_inputs_check(X, model_bundle, 't', ('mu0_fitted_model', 'mu1_fitted_model'))
+    mu0_fitted_model, mu1_fitted_model = model_bundle['mu0_fitted_model'], model_bundle['mu1_fitted_model']
     # 按类别标签选取正类列；只有类别 0 时，空列求和得到零概率。
-    mu0 = mu0_model.predict_proba(features)[:, mu0_model.classes_ == 1].sum(axis=1, dtype=float)
-    mu1 = mu1_model.predict_proba(features)[:, mu1_model.classes_ == 1].sum(axis=1, dtype=float)
-    return dict(model=model_bundle, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
+    mu0 = mu0_fitted_model.predict_proba(features)[:, mu0_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    mu1 = mu1_fitted_model.predict_proba(features)[:, mu1_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    return dict(model_bundle=model_bundle, mu0=mu0, mu1=mu1, cate=mu1 - mu0, fit_seconds=fit_seconds)
 
 
 def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
@@ -186,7 +186,7 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
               effect_params=None):
     #-------------
     # 输入：预测特征 X；提供 X_train、t、y 及两阶段模型配置来拟合，或提供 model_bundle 只预测。
-    # 输出：模型字典、第一阶段 mu0、mu1、第二阶段加权 CATE 和本次拟合耗时。
+    # 输出：model_bundle（已拟合模型及训练信息）、第一阶段 mu0、mu1、第二阶段加权 CATE 和本次拟合耗时。
     #-------------
     fit_seconds = None
     if model_bundle is None:
@@ -202,24 +202,26 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         mu0_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y0).size == 1:
             mu0_model = DummyClassifier(strategy='constant', constant=int(y0[0]))
-        mu0_model.fit(X0, y0)
+        mu0_fitted_model = mu0_model.fit(X0, y0)
         mu1_model = make_classifier_model(outcome_model, **classifier_params)
         if np.unique(y1).size == 1:
             mu1_model = DummyClassifier(strategy='constant', constant=int(y1[0]))
-        mu1_model.fit(X1, y1)
+        mu1_fitted_model = mu1_model.fit(X1, y1)
 
         # 用另一臂模型填补反事实，两组伪效应均为处理结果减对照结果。
         # 单类别模型同样按类别标签取正类概率，缺少类别 1 时为零。
-        mu1_on_control = mu1_model.predict_proba(X0)[:, mu1_model.classes_ == 1].sum(axis=1, dtype=float)
-        mu0_on_treated = mu0_model.predict_proba(X1)[:, mu0_model.classes_ == 1].sum(axis=1, dtype=float)
+        mu1_on_control = mu1_fitted_model.predict_proba(X0)[:, mu1_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+        mu0_on_treated = mu0_fitted_model.predict_proba(X1)[:, mu0_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
         d0 = mu1_on_control - y0
         d1 = y1 - mu0_on_treated
 
         # 第二阶段：分别用对照组和处理组的特征回归伪效应。
-        tau0_model = make_regression_model(effect_model, **regressor_params).fit(X0, d0)
-        tau1_model = make_regression_model(effect_model, **regressor_params).fit(X1, d1)
-        model_bundle = dict(metadata, learner='x', mu0_model=mu0_model, mu1_model=mu1_model,
-                      tau0_model=tau0_model, tau1_model=tau1_model, parameters={
+        tau0_model = make_regression_model(effect_model, **regressor_params)
+        tau0_fitted_model = tau0_model.fit(X0, d0)
+        tau1_model = make_regression_model(effect_model, **regressor_params)
+        tau1_fitted_model = tau1_model.fit(X1, d1)
+        model_bundle = dict(metadata, learner='x', mu0_fitted_model=mu0_fitted_model, mu1_fitted_model=mu1_fitted_model,
+                      tau0_fitted_model=tau0_fitted_model, tau1_fitted_model=tau1_fitted_model, parameters={
                           'outcome_model': outcome_model, 'outcome_params': classifier_params,
                           'effect_model': effect_model, 'effect_params': regressor_params,
                       })
@@ -228,15 +230,15 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
         raise ValueError('仅预测模式请只提供拟合模型和待预测特征')
 
     # 返回第一阶段概率，最终 CATE 用训练集处理比例加权两组效应预测。
-    features = _test_inputs_check(X, model_bundle, 'x', ('mu0_model', 'mu1_model', 'tau0_model', 'tau1_model'))
-    mu0_model, mu1_model = model_bundle['mu0_model'], model_bundle['mu1_model']
+    features = _test_inputs_check(X, model_bundle, 'x', ('mu0_fitted_model', 'mu1_fitted_model', 'tau0_fitted_model', 'tau1_fitted_model'))
+    mu0_fitted_model, mu1_fitted_model = model_bundle['mu0_fitted_model'], model_bundle['mu1_fitted_model']
     # 按类别标签选取正类列；只有类别 0 时，空列求和得到零概率。
-    mu0 = mu0_model.predict_proba(features)[:, mu0_model.classes_ == 1].sum(axis=1, dtype=float)
-    mu1 = mu1_model.predict_proba(features)[:, mu1_model.classes_ == 1].sum(axis=1, dtype=float)
-    tau0 = np.asarray(model_bundle['tau0_model'].predict(features), dtype=float)
-    tau1 = np.asarray(model_bundle['tau1_model'].predict(features), dtype=float)
+    mu0 = mu0_fitted_model.predict_proba(features)[:, mu0_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    mu1 = mu1_fitted_model.predict_proba(features)[:, mu1_fitted_model.classes_ == 1].sum(axis=1, dtype=float)
+    tau0 = np.asarray(model_bundle['tau0_fitted_model'].predict(features), dtype=float)
+    tau1 = np.asarray(model_bundle['tau1_fitted_model'].predict(features), dtype=float)
     e = model_bundle['treatment_rate']
-    return dict(model=model_bundle, mu0=mu0, mu1=mu1, cate=e * tau0 + (1 - e) * tau1,
+    return dict(model_bundle=model_bundle, mu0=mu0, mu1=mu1, cate=e * tau0 + (1 - e) * tau1,
                 fit_seconds=fit_seconds)
 
 

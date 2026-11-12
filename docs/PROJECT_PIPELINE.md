@@ -58,7 +58,7 @@ artifacts/cache/
 
 `make_classifier_model()` 创建使用二元结果标签的分类器，`make_regression_model()` 创建拟合连续伪效应标签的回归器，`s_learner()`、`t_learner()`、`x_learner()` 各自实现完整的拟合和预测。`linear` 是 X-Learner 第二阶段的可选线性回归器，当前正式候选 `x_xgboost` 使用 XGBoost 回归。候选名单定义在 `training_validation.py` 中。分类器参数统一通过 `outcome_params` 传入，第二阶段通过 `effect_params` 传入，不再接受公共参数覆盖层。
 
-X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。以 X 为例，`x_learner(X_val, X_train=X_train, t=t_train, y=y_train)` 返回拟合模型和验证预测。`x_learner(X_test, model_bundle=result["model"])` 复用模型进行预测。三个函数均返回 `model`、`mu0`、`mu1`、`cate` 及 `fit_seconds`。X 的 `mu0`、`mu1` 来自第一阶段，`cate` 来自两组效应回归的加权预测。
+X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × tau0 + (1−e) × tau1 加权。以 X 为例，`x_learner(X_val, X_train=X_train, t=t_train, y=y_train)` 返回拟合模型和验证预测。`x_learner(X_test, model_bundle=result["model_bundle"])` 复用模型进行预测。三个函数均返回 `model_bundle`、`mu0`、`mu1`、`cate` 及 `fit_seconds`。X 的 `mu0`、`mu1` 来自第一阶段，`cate` 来自两组效应回归的加权预测。
 
 `diagnostics.run_diagnostics()` 在诊断阶段调用一次 `diagnose_overlap()`，仅对 Train 的处理前特征做逐列分位数分箱。默认最多 10 箱，重复分位点合并、缺失值单列；每箱任一臂少于 20 人时警告，这只是经验阈值。结果写入 `diagnostics/overlap_positivity.json` 和 `diagnostics/overlap_strata.csv`，与检查划分重复特征的 `data_preparation/feature_overlap.json` 不同。诊断结果独立保存，不传入模型、不计算训练数据签名；模型入口仍检查整体两臂非空。Stability 对每个实际训练子集检查一次，不能复用不同样本的结论。
 

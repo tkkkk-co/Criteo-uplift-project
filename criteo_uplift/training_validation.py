@@ -63,17 +63,17 @@ def fit_and_select_models(
             outcome_params=params,
             **({'effect_params': params} if candidate['learner'] == 'x' else {}),
         )
-        model = result['model']
+        model_bundle = result['model_bundle']
         validation_scores[name] = result['cate']
         if name == 't_xgboost':
             propensity = result['mu1']
         model_metadata[name] = {
-            "parameters": model['parameters'],
-            "outcome_support": model['outcome_support'],
+            "parameters": model_bundle['parameters'],
+            "outcome_support": model_bundle['outcome_support'],
             "seconds": result["fit_seconds"],
         }
-        models[name] = model
-        joblib.dump(model, safe_output(out / f'{name}.joblib'))
+        models[name] = model_bundle
+        joblib.dump(model_bundle, safe_output(out / f'{name}.joblib'))
 
     validation_scores['propensity'] = propensity
     validation_ranking = [
