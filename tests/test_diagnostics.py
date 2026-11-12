@@ -324,5 +324,100 @@ class PublicDiagnosticsTests(unittest.TestCase):
             self.assertEqual(json.loads((directory / 'diagnostics' / 'srm.json').read_text())['expected_ratio'], .85)
 
 
+class OverlapTests(unittest.TestCase):
+    #-------------
+    # 验证经验覆盖与因果正值性解释的边界，不把分箱规则当作因果检验。
+    #-------------
+    def test_balanced_coverage_no_mutation_and_design_not_verified(self):
+        #-------------
+        # 功能：验证充分两臂覆盖的输出和只读行为，参考概率不会被自动认定为设计事实。
+        # 输入参数：
+        #     - self：测试实例。
+        # 输出参数：
+        #     - 无；断言失败由测试框架报告。
+        #-------------
+        from criteo_uplift.diagnostics import diagnose_overlap
+        x = pd.DataFrame({'f0': np.repeat(np.arange(100), 2)})
+        t = np.tile([0, 1], 100)
+        before = x.copy(deep=True)
+        result = diagnose_overlap(x, t, bins=5, min_arm_count=10,
+                                  expected_treatment_rate=.5, probability_source='测试假设，未核实设计')
+        summary, strata = result['summary'], result['strata']
+        self.assertEqual(summary['status'], 'checked_no_major_warning')
+        self.assertEqual(summary['design_positivity'], 'not_verified')
+        self.assertTrue(summary['reference_strictly_between_zero_and_one'])
+        self.assertEqual(summary['observed_minus_expected'], 0)
+        self.assertEqual(summary['n_control'], 100)
+        self.assertEqual(strata.n.sum(), len(x))
+        self.assertTrue((strata.n == strata.n_control + strata.n_treatment).all())
+        self.assertIn('不能证明高维联合支持', summary['interpretation'])
+        pd.testing.assert_frame_equal(x, before)
+        np.testing.assert_array_equal(t, np.tile([0, 1], 100))
+
+    def test_missing_arm_and_small_arm_warn_without_dropping_rows(self):
+        #-------------
+        # 功能：区分缺臂、人数不足和有效覆盖，诊断不会删除观测。
+        # 输入参数：
+        #     - self：测试实例。
+        # 输出参数：
+        #     - 无；检查警告和人数守恒。
+        #-------------
+        from criteo_uplift.diagnostics import diagnose_overlap
+        x = pd.DataFrame({'f0': np.repeat([0., 1.], 50)})
+        for t, absent in [(np.repeat([0, 1], 50), 2),
+                          (np.r_[np.zeros(49), 1, np.tile([0, 1], 25)], 0)]:
+            result = diagnose_overlap(x, t, bins=2, min_arm_count=5)
+            self.assertEqual(result['summary']['status'], 'checked_with_warning')
+            self.assertEqual(result['summary']['missing_arm_bins'], absent)
+            self.assertEqual(result['strata'].n.sum(), 100)
+            self.assertGreater(result['summary']['weak_bins'], 0)
+
+    def test_constant_repeated_missing_and_empty_quantile_bins(self):
+        #-------------
+        # 功能：验证重复分位点、常数列、全缺失列和无观测区间安全处理。
+        # 输入参数：
+        #     - self：测试实例。
+        # 输出参数：
+        #     - 无；检查分箱计数和边界。
+        #-------------
+        from criteo_uplift.diagnostics import diagnose_overlap
+        x = pd.DataFrame({'constant': np.ones(8), 'repeated': [0.]*4+[10.]*4,
+                          'missing': [np.nan]*8, 'partial': [np.nan]*2+list(range(6))})
+        result = diagnose_overlap(x, np.tile([0, 1], 4), bins=10, min_arm_count=1)
+        strata = result['strata']
+        self.assertTrue(result['summary']['rules']['features']['constant']['constant'])
+        self.assertEqual(len(strata[strata.feature == 'constant']), 1)
+        self.assertEqual(len(strata[strata.feature == 'missing']), 1)
+        self.assertTrue((strata.groupby('feature').n.sum() == 8).all())
+        self.assertTrue(strata.empty_bin.any())
+        self.assertFalse(strata.loc[strata.empty_bin, 'missing_arm'].any())
+        self.assertFalse(strata.loc[strata.empty_bin, 'insufficient_arm_count'].any())
+
+    def test_invalid_inputs_and_train_only_boundaries(self):
+        #-------------
+        # 功能：拒绝非法数据与不明来源的参考概率；分箱仅由传入训练特征决定。
+        # 输入参数：
+        #     - self：测试实例。
+        # 输出参数：
+        #     - 无；检查输入边界和来源说明。
+        #-------------
+        from criteo_uplift.diagnostics import diagnose_overlap
+        x, t = np.arange(8.).reshape(8, 1), np.tile([0, 1], 4)
+        for kwargs in ({'bins': 1}, {'bins': True}, {'min_arm_count': 0},
+                       {'expected_treatment_rate': 1}, {'expected_treatment_rate': .85},
+                       {'features': ['treatment']}, {'features': ['a', 'b']}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                diagnose_overlap(x, t, **kwargs)
+        for labels in (np.zeros(8), t[:-1], np.full(8, 2)):
+            with self.assertRaises(ValueError):
+                diagnose_overlap(x, labels)
+        with self.assertRaises(ValueError):
+            diagnose_overlap(np.full_like(x, np.inf), t)
+        result = diagnose_overlap(x, t)
+        self.assertEqual(result['summary']['rules']['features']['x0']['edges'][-1], 7)
+        self.assertIsNone(result['summary']['expected_treatment_rate'])
+        self.assertIsNone(result['summary']['reference_strictly_between_zero_and_one'])
+
+
 if __name__ == "__main__":
     unittest.main()

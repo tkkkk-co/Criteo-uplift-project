@@ -22,6 +22,7 @@ from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import safe_output
 from criteo_uplift.input_checks import check_feature_matrix
 from criteo_uplift.training_validation import MODEL_CANDIDATES
+from criteo_uplift.models import predict_uplift, predict_outcomes
 
 UPLIFT_POLICIES = {candidate["name"] for candidate in MODEL_CANDIDATES}
 MAX_CHUNK_SIZE = 100_000
@@ -95,11 +96,10 @@ def _load_frozen_policy(run):
         try:
             model = joblib.load(path)
         except Exception as exc:
-            raise ValueError(f"无法载入可信本地模型 {path}：{exc}") from exc
-        required_method = "predict_outcomes" if policy == "propensity" else "predict"
-        if not callable(getattr(model, required_method, None)):
-            raise ValueError(f"模型 {path.name} 缺少 {required_method}(X) 接口。")
-        if getattr(model, "n_features_in_", len(FEATURES)) != len(FEATURES):
+            raise ValueError(f"无法载入可信本地模型 {path}：{exc}。旧类模型需保留原环境或在新目录重新训练。") from exc
+        if not isinstance(model, dict) or model.get('learner') not in {'s', 't', 'x'}:
+            raise ValueError('需要函数式训练生成的模型字典；旧类模型请保留原环境或在新目录重新训练。')
+        if model.get('n_features') != len(FEATURES):
             raise ValueError(f"模型 {path.name} 的训练特征数不是 12。")
     return policy, seed, model
 
@@ -185,9 +185,9 @@ def score_policy(run, input_path, output_path, budget=0.2, chunk_size=MAX_CHUNK_
                 score = score_rng.random(len(X))
             elif policy == "propensity":
                 # 响应概率基线预测处理状态下的结果概率，区别于处理分配概率。
-                score = model.predict_outcomes(X)[1]
+                score = predict_outcomes(model, X)[1]
             else:
-                score = model.predict(X)
+                score = predict_uplift(model, X)
             score = np.asarray(score, dtype=np.float64)
             if score.shape != (len(X),) or not np.isfinite(score).all():
                 raise ValueError(f"模型在输入行偏移 {offset} 返回非法 score。")

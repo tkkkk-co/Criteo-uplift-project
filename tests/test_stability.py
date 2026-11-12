@@ -12,7 +12,8 @@ import pandas as pd
 from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import fingerprint
 from criteo_uplift.pipeline_io import save_sample, write_result
-from criteo_uplift.models import make_uplift_model
+from criteo_uplift.models import fit_uplift_model
+from criteo_uplift.diagnostics import diagnose_overlap
 from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, row_ids_sha256, run_stability
 
 
@@ -207,47 +208,32 @@ class StabilityTests(unittest.TestCase):
             before = {str(p): fingerprint(p) for p in paths}
             original_fit_calls = []
 
-            def checked_make_model(**kwargs):
+            def checked_fit_model(X, t, y, **kwargs):
                 #-------------
-                # 函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model
-                # 功能：包装模型工厂，记录 Stability 集成测试创建的模型配置，并返回可追踪拟合行为的测试模型。
+                # 功能：确认训练前已冻结协议，并记录每次实际拟合。
                 # 输入参数：
-                #     - **kwargs：传递给正式 make_uplift_model 的模型配置参数。
+                #     - X：当前训练子集特征。
+                #     - t：处理标签。
+                #     - y：结果标签。
+                #     - **kwargs：学习器配置和共用诊断。
                 # 输出参数：
-                #     - 包装后的测试模型实例。
+                #     - 已拟合模型字典。
                 #-------------
-                name = kwargs["learner"] + "_" + kwargs["outcome_model"]
-                model = make_uplift_model(**kwargs)
-                original_fit = model.fit
-
-                def fit(X, t, y):
-                    #-------------
-                    # 函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs.checked_make_model.fit
-                    # 功能：记录测试模型的 X、T、Y 拟合输入，并返回当前模型实例以支持后续预测。
-                    # 输入参数：
-                    #     - X：测试模型拟合特征矩阵。
-                    #     - t：测试模型拟合处理分配向量。
-                    #     - y：测试模型拟合结果标签向量。
-                    # 输出参数：
-                    #     - 当前测试模型实例。
-                    #-------------
-                    self.assertTrue((output / "protocol.json").exists())
-                    protocol = json.loads((output / "protocol.json").read_text())
-                    self.assertEqual(protocol["status"], "frozen_before_model_fits")
-                    original_fit_calls.append(name)
-                    return original_fit(X, t, y)
-
-                model.fit = fit
-                return model
+                self.assertTrue((output / 'protocol.json').exists())
+                protocol = json.loads((output / 'protocol.json').read_text())
+                self.assertEqual(protocol['status'], 'frozen_before_model_fits')
+                original_fit_calls.append(kwargs['learner'] + '_' + kwargs['outcome_model'])
+                return fit_uplift_model(X, t, y, **kwargs)
 
             with patch(
-                "criteo_uplift.stability.make_uplift_model", side_effect=checked_make_model
-            ):
+                "criteo_uplift.stability.fit_uplift_model", side_effect=checked_fit_model
+            ), patch('criteo_uplift.stability.diagnose_overlap', wraps=diagnose_overlap) as coverage_check:
                 result = run_stability(
                     cache, base, output, seeds=[17], fractions=[0.5, 1.0], trees=3
                 )
             self.assertEqual(result, output.resolve())
             self.assertEqual(len(original_fit_calls), 12)
+            self.assertEqual(coverage_check.call_count, 3)
             metrics = pd.read_csv(output / "longmetrics.csv")
             self.assertEqual(len(metrics), 18)
             self.assertTrue(

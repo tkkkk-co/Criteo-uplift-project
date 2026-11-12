@@ -11,7 +11,8 @@ from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
 from .metrics import ranking_metrics
-from .models import make_uplift_model, predict_policy_scores
+from .models import fit_uplift_model, predict_policy_scores
+from .diagnostics import diagnose_overlap
 
 MODEL_CANDIDATES = [
     {"name": "s_logistic", "learner": "s", "outcome_model": "logistic"},
@@ -53,17 +54,27 @@ def fit_and_select_models(
     models = {}
     model_metadata = {}
 
+    # 在任何模型拟合之前，仅对当前 Train 执行一次经验覆盖诊断。
+    coverage = diagnose_overlap(train[FEATURES], train.treatment)
+    diagnostics_out = out.parent / 'diagnostics'
+    write_result(coverage['summary'], diagnostics_out / 'overlap_positivity.json')
+    write_result(coverage['strata'], diagnostics_out / 'overlap_strata.csv')
+
     names = [candidate["name"] for candidate in MODEL_CANDIDATES]
     for candidate in MODEL_CANDIDATES:
         name = candidate["name"]
         progress("训练 " + name)
         kwargs = {"n_estimators": trees} if "xgboost" in name else {}
-        model = make_uplift_model(**{k: v for k, v in candidate.items() if k != "name"},
-                                  random_state=seed, **kwargs)
         started = time.perf_counter()
-        model.fit(train[FEATURES], train.treatment, train[outcome])
+        model = fit_uplift_model(train[FEATURES], train.treatment, train[outcome],
+                                 **{k: v for k, v in candidate.items() if k != "name"},
+                                 random_state=seed, overlap=coverage['summary'], **kwargs)
         model_metadata[name] = {
-            "parameters": model.get_params(),
+            "parameters": model['parameters'],
+            "overlap_status": model['overlap']['status'],
+            "overlap_input_signature": model['overlap']['input_signature'],
+            "overlap_file": "diagnostics/overlap_positivity.json",
+            "outcome_support": model['outcome_support'],
             "seconds": time.perf_counter() - started,
         }
         models[name] = model
@@ -114,5 +125,6 @@ def fit_and_select_models(
     return {
         "models": models,
         "model_metadata": model_metadata,
+        "overlap": coverage["summary"],
         "selection": selection,
     }

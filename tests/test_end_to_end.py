@@ -14,6 +14,7 @@ import pandas as pd
 from criteo_uplift.config import FEATURES
 from criteo_uplift.pipeline_io import fingerprint
 from run_pipeline import run
+from criteo_uplift.diagnostics import diagnose_overlap
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -66,8 +67,15 @@ class EndToEndTests(unittest.TestCase):
             )
             with patch('run_pipeline.ROOT', root), patch(
                 'criteo_uplift.diagnostics.pd.read_csv', wraps=pd.read_csv,
-            ) as read_csv:
+            ) as read_csv, patch(
+                'criteo_uplift.training_validation.diagnose_overlap', wraps=diagnose_overlap,
+            ) as overlap_check:
                 out = run(args)
+            self.assertEqual(overlap_check.call_count, 1)
+            diagnosed_x, diagnosed_t = overlap_check.call_args.args
+            train_ids = pd.read_csv(out / 'data_preparation/train_row_ids.csv').row_id.to_numpy()
+            np.testing.assert_array_equal(diagnosed_x.to_numpy(), frame.loc[train_ids, FEATURES].to_numpy(dtype=np.float32))
+            np.testing.assert_array_equal(diagnosed_t, frame.loc[train_ids, 'treatment'])
             raw_scans = [
                 call for call in read_csv.call_args_list
                 if call.args and Path(call.args[0]) == path and 'chunksize' in call.kwargs
@@ -77,6 +85,7 @@ class EndToEndTests(unittest.TestCase):
                 'data_preparation/audit.json', 'data_preparation/sample_report.json',
                 'data_preparation/split_summary.csv', 'data_preparation/test_row_ids.csv',
                 'diagnostics/learnability.csv', 'diagnostics/balance.csv',
+                'diagnostics/overlap_positivity.json', 'diagnostics/overlap_strata.csv',
                 'models/selection.json', 'models/t_xgboost.joblib',
                 'evaluation/test_policies.csv', 'evaluation/predictions.npz',
                 'figures/sample_features.png', 'figures/c2st_null.png',
@@ -112,6 +121,13 @@ class EndToEndTests(unittest.TestCase):
             self.assertFalse((out / 'split_summary.csv').exists())
             manifest = json.loads(((out / 'manifest.json')).read_text())
             self.assertEqual(manifest['status'], 'complete')
+            coverage = json.loads((out / 'diagnostics/overlap_positivity.json').read_text())
+            self.assertEqual(coverage['scope'], 'train')
+            self.assertEqual(coverage['n'], len(train_ids))
+            self.assertEqual(coverage['design_positivity'], 'not_verified')
+            for info in manifest['models'].values():
+                self.assertEqual(info['overlap_input_signature'], coverage['input_signature'])
+                self.assertEqual(info['overlap_status'], coverage['status'])
             audit = json.loads(((out / 'data_preparation' / 'audit.json')).read_text())
             sample_report = json.loads(((out / 'data_preparation' / 'sample_report.json')).read_text())
             self.assertNotIn('audit', sample_report)
@@ -161,6 +177,11 @@ class EndToEndTests(unittest.TestCase):
             self.assertNotIn('<script', html)
             self.assertNotIn('G_HT(q)', html)
             self.assertIn('各自横轴尺度', html)
+            self.assertIn('Overlap / Positivity', html)
+            self.assertIn('不能证明高维联合支持', html)
+            self.assertIn('C2ST 置换 AUC 分布', html)
+            encoded_c2st = base64.b64encode((out / 'figures/c2st_null.png').read_bytes()).decode()
+            self.assertIn(encoded_c2st, html)
             for section in ('Business Background', 'Data Preparation', 'Experiment Diagnostics', 'ATE / ITT',
                             'Uplift Modeling', 'Training &amp; Validation', 'Test Evaluation', 'Stability Analysis',
                             'Score Policy', 'Planning', 'Conclusion'):

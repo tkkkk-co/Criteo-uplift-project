@@ -18,7 +18,8 @@ from .pipeline_io import fingerprint
 from .pipeline_io import load_sample, safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
 from .evaluation import evaluate_policies
-from .models import make_uplift_model, predict_policy_scores
+from .models import fit_uplift_model, uplift_model_parameters, predict_policy_scores
+from .diagnostics import diagnose_overlap
 from .training_validation import MODEL_CANDIDATES
 from .input_checks import check_row_ids, check_binary_vector, check_feature_matrix
 
@@ -405,11 +406,11 @@ def run_stability(
         "provenance": provenance,
         "candidates": POLICY_NAMES,
         "model_parameters": {
-            candidate["name"]: make_uplift_model(
+            candidate["name"]: uplift_model_parameters(
                 **{k: v for k, v in candidate.items() if k != "name"},
                 random_state=seeds[0],
                 **({"n_estimators": trees} if candidate["outcome_model"] == "xgboost" else {}),
-            ).get_params()
+            )
             for candidate in MODEL_CANDIDATES
         },
         "model_seed": "equal to the current split seed; all other model parameters are fixed",
@@ -496,15 +497,21 @@ def run_stability(
                 audits.append(audit)
                 score_dict, fit_seconds, ranks = {}, {}, {}
                 fitted_models = {}
+                # 每个实际训练子集只检查一次，四个候选共用；不借用原 Train 的诊断。
+                coverage = diagnose_overlap(train[FEATURES], train.treatment)['summary']
+                audit['overlap_status'] = coverage['status']
+                audit['overlap_input_signature'] = coverage['input_signature']
+                audit['overlap_weak_bins'] = coverage['weak_bins']
                 for candidate in MODEL_CANDIDATES:
                     name = candidate["name"]
-                    model = make_uplift_model(
+                    fit_started = time.perf_counter()
+                    model = fit_uplift_model(
+                        train[FEATURES], train.treatment, train[outcome],
+                        overlap=coverage,
                         **{k: v for k, v in candidate.items() if k != "name"},
                         random_state=seed,
                         **({"n_estimators": trees} if "xgboost" in name else {}),
                     )
-                    fit_started = time.perf_counter()
-                    model.fit(train[FEATURES], train.treatment, train[outcome])
                     fit_seconds[name] = time.perf_counter() - fit_started
                     fitted_models[name] = model
                 score_dict = predict_policy_scores(fitted_models, validation[FEATURES])

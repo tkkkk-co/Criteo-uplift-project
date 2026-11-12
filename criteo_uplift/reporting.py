@@ -84,7 +84,8 @@ def save_c2st_plot(out):
         ax.hist(null.loc[null["model"] == row.model, "roc_auc"],
                 bins=24, color="#2171ad", alpha=.8)
         ax.axvline(row.roc_auc, color="#ba6b24", label=f"Observed {row.roc_auc:.4f}")
-        ax.set_title(f"{row.model} | Holm p = {row.pvalue_holm:.3f}")
+        ax.axvline(.5, color="#718096", linestyle="--", linewidth=1, label="Chance AUC = 0.5")
+        ax.set_title(f"{row.model} | p = {row.pvalue:.3f} | Holm p = {row.pvalue_holm:.3f}")
         ax.set_xlabel("Diagnostic holdout ROC AUC")
         ax.set_ylabel("Permutation count")
         ax.legend(frameon=False)
@@ -243,6 +244,49 @@ def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171
     else:
         ax.vlines(positions[valid], low[valid], high[valid], color=color, lw=2)
         ax.scatter(positions, point, c=color, s=35, zorder=3)
+
+
+def _overlap_section(out, manifest):
+    #-------------
+    # 功能：展示 Train 的经验覆盖结果，并与设计正值性及结果标签支持区别说明。
+    # 输入参数：
+    #     - out：当前报告的结果目录。
+    #     - manifest：当前实验复现信息，含模型训练摘要。
+    # 输出参数：
+    #     - 可嵌入诊断章节的 HTML；历史结果缺少该诊断时明确标为未检查。
+    #-------------
+    path = out / 'diagnostics/overlap_positivity.json'
+    heading = '<h3>Overlap / Positivity · 训练集经验覆盖</h3>'
+    if not path.exists():
+        return heading + '<p>not_checked：此结果没有保存完整的 Overlap 诊断，不能据此声称已经通过正值性检查。</p>'
+    summary = json.loads(path.read_text())
+    strata = pd.read_csv(out / 'diagnostics/overlap_strata.csv')
+    counts = strata.assign(nonempty_min=strata.min_arm_n.where(~strata.empty_bin))
+    by_feature = counts.groupby('feature', sort=False).agg(
+        分箱数=('bin', 'size'), 缺臂箱数=('missing_arm', 'sum'),
+        人数不足箱数=('insufficient_arm_count', 'sum'), 非空箱最少臂人数=('nonempty_min', 'min'))
+    display = by_feature.reset_index().rename(columns={'feature': '特征'})
+    reference = summary['expected_treatment_rate']
+    reference_text = '未提供' if reference is None else f"{reference:.6f}；观察减参考 = {summary['observed_minus_expected']:.6f}"
+    content = (heading + f"<p>范围：{html.escape(summary['scope'])}；经验状态：<strong>{html.escape(summary['status'])}</strong>。"
+               f"共 {summary['n']:,} 人，Treatment {summary['n_treatment']:,} 人，Control {summary['n_control']:,} 人；"
+               f"观察处理比例 {summary['observed_treatment_rate']:.6f}，对照比例 {summary['observed_control_rate']:.6f}。</p>"
+               f"<p>参考分配概率：{reference_text}。来源：{html.escape(summary['probability_source'])}。</p>"
+               f"<p>每个特征最多 {summary['rules']['requested_bins']} 个分位数箱，重复边界合并、缺失单独成箱。"
+               f"每箱任一臂少于 {summary['rules']['min_arm_count']} 人时提示警告；这是经验阈值，不是正值性的数学判定。"
+               f"缺臂 {summary['missing_arm_bins']} 箱，人数不足 {summary['weak_bins']} 箱。分箱边界仅从 Train 得到，未使用 Validation/Test。</p>"
+               + ('<p>' + html.escape(summary['execution_context']) + '</p>' if summary.get('execution_context') else '')
+               + _table(display)
+               + '<p>' + html.escape(summary['interpretation']) + '</p>')
+    support = next((info['outcome_support'] for info in manifest.get('models', {}).values()
+                    if 'outcome_support' in info), None)
+    if support is not None:
+        content += ('<p>以下为训练结果标签支持情况，服务于分类器拟合，不是因果识别判据。'
+                    '单类别范围使用常数结果概率；两臂标签常数不同也可以产生非零效应估计。'
+                    '即使两类都存在，正例很少仍可能导致估计不稳定。</p>'
+                    + _table(pd.DataFrame(support).rename(columns={'treatment': '处理臂', 'n': '人数',
+                        'positive': '正例', 'negative': '负例', 'single_class': '单类别'})))
+    return content
 
 
 def build_report(manifest_path: Path, report_path: Path) -> Path:
@@ -640,7 +684,6 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     c2 = frames["c2st"]
     c2_display = pd.DataFrame(
         {
-            "分析范围": c2.get("scope", pd.Series("train_source_random_sample", index=c2.index)),
             "模型": c2["model"],
             "ROC AUC": c2["roc_auc"].map(lambda x: _num(x, 4)),
             "LogLoss": c2["log_loss"].map(lambda x: _num(x, 5)),
@@ -807,10 +850,14 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + f'<p>{c2st_sampling_text}，固定70/30内部训练/留出划分；'
         f'在两部分内分别打乱 treatment，完整重拟合两类固定模型，共 {b} 次。诊断结果如下：</p>'
         + _table(c2_display)
+        + _image(figures / "c2st_null.png", "C2ST 置换 AUC 分布",
+                 f"柱高表示 {b} 次完整重拟合置换中落入各 AUC 区间的次数；橙线为真实标签的观测 AUC，灰色虚线为 0.5。"
+                 "原始 p 按逐次 AUC 计算，未用直方图分箱近似；Holm 校正仅包含原定的两个分类器。")
         + f'<p>{c2st_conclusion}{diagnostic_population}最大 |SMD| 为 {frames["balance"]["abs_smd"].max():.6f}；最大KS为 {max_ks_row["ks_statistic"]:.6f}（{esc(max_ks_row["feature"])}）。置换p值分辨率为 {1 / (b + 1):.3f}。</p>'
         + '<p>高于置换基线的 AUC 提示可观测分配差异，需要检查实验设计、抽样和特征时序；不显著不能证明随机化。'
         '该置换方案假设可交换分配；如存在未知实验分层或多个广告实验混合，需使用匹配实际设计的置换方案。</p>'
-        '<h3>结果可预测性：固定模型对照 Dummy</h3>'
+        + _overlap_section(out, manifest)
+        + '<h3>结果可预测性：固定模型对照 Dummy</h3>'
         + _table(learning_display)
         + '<p>上表使用 train 拟合、validation 评估，仅显示 whole 范围；按处理组分别训练的结果保存在 learnability.csv。'
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
@@ -898,6 +945,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<p>参考：<a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与版本说明</a>；'
         '<a href="https://arxiv.org/abs/1706.03461">Künzel et al. (2019), Meta-learners</a>。</p></section>',
     ]
+    if manifest.get('report_revision'):
+        sections.insert(1, '<section><p>' + esc(manifest['report_revision']) + '</p></section>')
     stability = _json(out / "stability", "report.json")
     protocol = _json(out / "stability", "protocol.json")
     aggregate = pd.read_csv(out / "stability/aggregate.csv")

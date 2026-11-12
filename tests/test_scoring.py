@@ -26,60 +26,33 @@ from score_policy import score_policy
 # 说明：检查输入特征和分块大小，并返回预设测试分数的模型。
 #-----------------------------------------------------------------------------------------------------------------------
 class _FeatureOnlyModel:
-    n_features_in_ = 12
+    classes_ = np.array([0, 1])
 
-    def __init__(self, constant=False, max_rows=7):
+    def __init__(self, constant=False, max_rows=7, scale=1):
         #-------------
-        # 函数名：_FeatureOnlyModel.__init__
-        # 功能：设置测试模型的常数分数模式和单次 predict 最大行数。
+        # 功能：设置用于验证分块预测的底层分类器。
         # 输入参数：
-        #     - constant：是否让 predict 返回相同分数。
-        #     - max_rows：单次预测允许的最大输入行数。
+        #     - constant：是否返回常数概率。
+        #     - max_rows：预测批次的最大行数。
+        #     - scale：控制组和处理组使用不同系数以检查概率选择方向。
         # 输出参数：
-        #     - 无；保存测试模型配置。
+        #     - 无；保存测试配置。
         #-------------
-        self.constant = constant
-        self.max_rows = max_rows
+        self.constant, self.max_rows, self.scale = constant, max_rows, scale
 
-    def _check_features(self, X):
+    def predict_proba(self, X):
         #-------------
-        # 函数名：_FeatureOnlyModel._check_features
-        # 功能：检查输入 DataFrame 仅包含按顺序排列的 f0–f11，并且分块行数未超限。
+        # 功能：检查输入仅含十二列特征且批次受限，返回测试概率。
         # 输入参数：
-        #     - X：当前批次的特征 DataFrame。
+        #     - X：通过学习器特征检查后的矩阵。
         # 输出参数：
-        #     - 无；不符合测试约束时抛出 AssertionError。
+        #     - 两列类别概率矩阵。
         #-------------
-        if list(X.columns) != FEATURES or len(X) > self.max_rows:
-            raise AssertionError(
-                "Only ordered pre-treatment features in bounded chunks are allowed."
-            )
-
-    def predict(self, X):
-        #-------------
-        # 函数名：_FeatureOnlyModel.predict
-        # 功能：按测试设置返回常数分数或第一列特征值作为 CATE 分数。
-        # 输入参数：
-        #     - X：当前批次的 f0–f11 特征 DataFrame。
-        # 输出参数：
-        #     - 与输入行顺序一致的策略分数数组。
-        #-------------
-        self._check_features(X)
-        return np.ones(len(X)) if self.constant else X.f0.to_numpy()
-
-    def predict_outcomes(self, X):
-        #-------------
-        # 函数名：_FeatureOnlyModel.predict_outcomes
-        # 功能：返回两个刻意不同的潜在结果分数，用于核验 propensity 路径选择了 mu1。
-        # 输入参数：
-        #     - X：当前批次的 f0–f11 特征 DataFrame。
-        # 输出参数：
-        #     - 二元组：(测试用 mu0 分数数组, 测试用 mu1 分数数组)。
-        #-------------
-        self._check_features(X)
-        # 构造相反排序，以区分是否使用了 mu1、增量分数或 mu0。
-        score = X.f0.to_numpy() / 100.0
-        return score * 2, score
+        if X.shape[1] != 12 or len(X) > self.max_rows:
+            raise AssertionError('预测只能使用十二列前置特征，且必须限制批次大小')
+        p = np.full(len(X), .5) if self.constant else X[:, 0] / 100.0
+        p = p * self.scale
+        return np.column_stack((1-p, p))
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -143,7 +116,10 @@ class ScoringTests(unittest.TestCase):
         (self.run / "manifest.json").write_text(json.dumps(manifest))
         if policy != "random":
             name = "t_xgboost" if policy == "propensity" else policy
-            joblib.dump(model or _FeatureOnlyModel(), self.run / "models" / f"{name}.joblib")
+            fitted = dict(learner='t', n_features=12, feature_names=FEATURES, treatment_rate=.8,
+                          mu0_model=_FeatureOnlyModel(scale=2 if policy == 'propensity' else 0),
+                          mu1_model=model or _FeatureOnlyModel())
+            joblib.dump(fitted, self.run / "models" / f"{name}.joblib")
 
     def _score(self, **kwargs):
         #-------------

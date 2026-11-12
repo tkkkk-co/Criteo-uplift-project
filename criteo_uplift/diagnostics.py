@@ -498,3 +498,120 @@ def run_diagnostics(
                for outcome in ("visit", "conversion")]
     write_result(pd.concat(records), out / 'learnability.csv')
     return details
+
+
+def overlap_input_signature(X, t):
+    #-------------
+    # 功能：标识诊断使用的有序特征和处理标签，防止把另一训练集的结论复用到当前模型。
+    # 输入参数：
+    #     - X：特征矩阵或 DataFrame。
+    #     - t：同一行序的处理标签。
+    # 输出参数：
+    #     - 数据内容、形状、类型和列名的 SHA256 摘要。
+    #-------------
+    values = np.asarray(X)
+    digest = hashlib.sha256()
+    digest.update(str((values.shape, values.dtype.str, list(X.columns) if hasattr(X, 'columns') else None)).encode())
+    # 按列处理，避免为整份大型特征矩阵额外生成连续内存副本。
+    for column in values.T:
+        digest.update(np.ascontiguousarray(column).tobytes())
+    digest.update(np.asarray(t, dtype=np.int8).tobytes())
+    return digest.hexdigest()
+
+
+def diagnose_overlap(X, t, features=None, expected_treatment_rate=None, *,
+                     probability_source=None, bins=10, min_arm_count=20, scope='train'):
+    #-------------
+    # 功能：对训练特征逐列进行分位数分层，描述两臂经验覆盖，不检验或证明因果正值性。
+    # 输入参数：
+    #     - X：处理前特征矩阵；不应包含结果、曝光或处理标签列。
+    #     - t：同一训练范围的二元处理标签，要求整体两臂非空。
+    #     - features：矩阵各列的特征名称；DataFrame 默认使用自身列名。
+    #     - expected_treatment_rate：可选参考比例；未给定时仅报告样本比例。
+    #     - probability_source：参考比例来源说明，提供参考比例时必须填写。
+    #     - bins：每个连续特征最多的分位数箱数，默认十分位分层。
+    #     - min_arm_count：每箱较少臂人数低于此值时提示估计不稳定，默认 20。
+    #     - scope：调用方提供的数据范围说明，主流程固定为 train。
+    # 输出参数：
+    #     - 字典：summary 为可保存的诊断摘要，strata 为各特征分箱计数表。
+    #-------------
+    check_feature_matrix(X, allow_nan=True)
+    check_binary_vector(t, 't', len(X), require_both=True)
+    if isinstance(bins, bool) or not isinstance(bins, (int, np.integer)) or bins < 2:
+        raise ValueError('分位数分箱数量必须为至少 2 的整数')
+    if isinstance(min_arm_count, bool) or not isinstance(min_arm_count, (int, np.integer)) or min_arm_count < 1:
+        raise ValueError('较少处理臂人数阈值必须为正整数')
+    if expected_treatment_rate is not None:
+        if (isinstance(expected_treatment_rate, bool)
+                or not isinstance(expected_treatment_rate, (int, float, np.integer, np.floating))
+                or not np.isfinite(expected_treatment_rate)
+                or not 0 < expected_treatment_rate < 1):
+            raise ValueError('参考处理比例必须严格位于 0 和 1 之间')
+        if not isinstance(probability_source, str) or not probability_source.strip():
+            raise ValueError('必须说明参考处理比例的来源，不能把样本比例当作已核实的设计概率')
+    values, treatment = np.asarray(X), np.asarray(t, dtype=np.int8)
+    names = list(features) if features is not None else (list(X.columns) if hasattr(X, 'columns')
+                                                        else [f'x{j}' for j in range(values.shape[1])])
+    if (len(names) != values.shape[1] or not all(isinstance(name, str) for name in names)
+            or len(set(names)) != len(names)):
+        raise ValueError('特征名必须唯一且与特征矩阵列数一致')
+    if hasattr(X, 'columns') and list(X.columns) != names:
+        raise ValueError('特征名称及其顺序必须与输入列一致')
+    if set(names) & {'treatment', 'conversion', 'visit', 'exposure', 'row_id'}:
+        raise ValueError('Overlap 只能使用处理前特征，不能包含标签、曝光或来源行号')
+    records, rules = [], {}
+    for j, name in enumerate(names):
+        column = values[:, j]
+        missing = np.isnan(column)
+        finite = column[~missing]
+        edges = np.unique(np.quantile(finite, np.linspace(0, 1, bins + 1))) if len(finite) else np.array([])
+        # 重复分位点合并；常数列只有一箱；缺失值单独成箱，不插补或删除。
+        codes = np.full(len(column), -1, dtype=int)
+        if len(finite):
+            codes[~missing] = np.searchsorted(edges[1:-1], finite, side='left')
+        rules[name] = {'edges': edges.tolist(), 'constant': bool(len(edges) == 1),
+                       'missing_n': int(missing.sum()), 'interval': '首箱包含下界，其余左开右闭'}
+        bin_ids = list(range(max(1, len(edges) - 1))) if len(edges) else []
+        if missing.any():
+            bin_ids.append(-1)
+        for bin_id in bin_ids:
+            mask = codes == bin_id
+            n = int(mask.sum())
+            n1 = int(treatment[mask].sum())
+            n0 = n - n1
+            empty = n == 0
+            absent = not empty and min(n0, n1) == 0
+            thin = not empty and min(n0, n1) < min_arm_count
+            records.append(dict(feature=name, bin=bin_id, kind='missing' if bin_id == -1 else 'quantile',
+                                lower=float(edges[min(bin_id, len(edges)-1)]) if bin_id >= 0 else None,
+                                upper=float(edges[min(bin_id+1, len(edges)-1)]) if bin_id >= 0 else None,
+                                n=n, n_control=n0, n_treatment=n1,
+                                treatment_ratio=float(n1/n) if n else None, min_arm_n=min(n0,n1),
+                                empty_bin=empty, missing_arm=absent, insufficient_arm_count=thin))
+    strata = pd.DataFrame.from_records(records)
+    weak = strata.insufficient_arm_count | strata.missing_arm
+    observed = float(treatment.mean())
+    summary = {
+        'scope': scope, 'features': names, 'input_signature': overlap_input_signature(X, t),
+        'n': len(treatment), 'n_control': int((treatment == 0).sum()), 'n_treatment': int(treatment.sum()),
+        'observed_treatment_rate': observed, 'observed_control_rate': 1-observed,
+        'expected_treatment_rate': expected_treatment_rate,
+        'probability_source': probability_source if expected_treatment_rate is not None else '未提供设计概率；仅报告当前训练集的处理比例代入估计',
+        'observed_minus_expected': observed-expected_treatment_rate if expected_treatment_rate is not None else None,
+        'reference_strictly_between_zero_and_one': True if expected_treatment_rate is not None else None,
+        'design_positivity': 'not_verified',
+        'status': 'checked_with_warning' if weak.any() else 'checked_no_major_warning',
+        'rules': {'requested_bins': int(bins), 'min_arm_count': int(min_arm_count), 'features': rules,
+                  'reason': f'最多 {bins} 个分位数箱用于可解释的单变量覆盖检查；每臂 {min_arm_count} 人仅是经验预警阈值，不是数学正值性标准'},
+        'strata_n': len(strata), 'empty_bins': int(strata.empty_bin.sum()),
+        'missing_arm_bins': int(strata.missing_arm.sum()), 'weak_bins': int(weak.sum()),
+        'min_nonempty_arm_count': int(strata.loc[~strata.empty_bin, 'min_arm_n'].min()),
+        'interpretation': (
+            '若真实随机分配概率在各目标特征区域均严格介于 0 和 1，设计支持正值性；本诊断未核实该机制。'
+            '单箱缺臂可能来自有限样本或分箱过细；所有单变量箱都有两臂也不能证明高维联合支持。'
+            '覆盖薄弱默认只报告警告，不删除样本或改变训练目标。'
+            '本诊断只使用 X 和 T，不检查结果正例是否足够；各学习器另记录 Outcome 支持情况。'
+            '一致性、无干扰和可交换性需要实验定义与设计支持，不能由本诊断证明。'
+        ),
+    }
+    return {'summary': summary, 'strata': strata}
