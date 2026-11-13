@@ -12,6 +12,7 @@ from xml.etree import ElementTree
 import numpy as np
 import pandas as pd
 from criteo_uplift.config import FEATURES
+from criteo_uplift.metrics import evaluate_ranking
 from criteo_uplift.pipeline_io import fingerprint
 from run_pipeline import run
 from criteo_uplift.diagnostics import diagnose_overlap
@@ -69,7 +70,9 @@ class EndToEndTests(unittest.TestCase):
                 'criteo_uplift.diagnostics.pd.read_csv', wraps=pd.read_csv,
             ) as read_csv, patch(
                 'criteo_uplift.diagnostics.diagnose_overlap', wraps=diagnose_overlap,
-            ) as overlap_check:
+            ) as overlap_check, patch(
+                'criteo_uplift.evaluation.evaluate_ranking', wraps=evaluate_ranking,
+            ) as test_ranking:
                 out = run(args)
             self.assertEqual(overlap_check.call_count, 1)
             diagnosed_x, diagnosed_t = overlap_check.call_args.args
@@ -144,7 +147,10 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(manifest['selection']['selected_policy'], winner)
             ranking = pd.read_csv((out / 'evaluation' / 'test_ranking.csv'))
             self.assertIn('qini_score_traditional', ranking)
+            self.assertEqual(test_ranking.call_count, len(ranking))
             policies = pd.read_csv((out / 'evaluation' / 'test_policies.csv'))
+            self.assertEqual(set(policies.budget), {.02, .05, .1, .2, .3, .5, 1.})
+            np.testing.assert_array_equal(policies.n_selected, np.floor(policies.budget * summary.loc[summary.split == 'test', 'n'].sum()))
             self.assertEqual(
                 policies[policies.budget == 1].incremental_per_100k.nunique(), 1
             )
@@ -166,13 +172,48 @@ class EndToEndTests(unittest.TestCase):
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 9)
+            self.assertEqual(len(equations), 12)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
             self.assertNotIn('<script', html)
             self.assertNotIn('G_HT(q)', html)
             self.assertIn('各自横轴尺度', html)
+            self.assertIn(f'conversion 正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
+            sections = ['Model Selection', 'Ranking Performance', 'Budget Sensitivity Analysis',
+                        'Marginal Incremental Gain', 'Full Coverage Scenario']
+            self.assertEqual(sorted(html.index(name) for name in sections), [html.index(name) for name in sections])
+            self.assertIn('面积指标仍是排序指标', html)
+            self.assertIn('未计算边际增量 CI', html)
+            self.assertNotRegex(html, r'<td>\s*(?:NaN|nan|None)\s*</td>')
+            # 从最终 HTML 反查表格，独立验证展示缩放和新增区间贡献。
+            tables = {}
+            for section_id in ('ranking-metrics', 'budget-sensitivity', 'marginal-gain'):
+                markup = re.search(rf'id="{section_id}">.*?(<table.*?</table>)', html, re.S).group(1)
+                table = ElementTree.fromstring(markup)
+                headers = [cell.text for cell in table.findall('./thead/tr/th')]
+                rows = [[cell.text for cell in row] for row in table.findall('./tbody/tr')]
+                self.assertTrue(rows)
+                tables[section_id] = pd.DataFrame(rows, columns=headers)
+            shown_ranking = tables['ranking-metrics'].set_index('政策')
+            for column, label in (
+                ('auuc_ht', 'HT AUUC'), ('qini_ht', 'HT Centered Area'),
+                ('auuc_plugin', 'Uplift AUUC'), ('auuc_plugin_centered', 'Centered Uplift AUUC'),
+                ('qini_score_traditional', 'Traditional Qini Score'), ('ate_ht', 'ATE_HT'),
+            ):
+                displayed_column = next(c for c in shown_ranking if c.startswith(label + ' ×'))
+                for row in ranking.itertuples():
+                    self.assertEqual(shown_ranking.loc[row.policy, displayed_column], f'{getattr(row, column) * 100_000:,.2f}')
+            shown_budgets = tables['budget-sensitivity']
+            self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '100%'})
+            self.assertEqual(len(shown_budgets), 4 * len({winner, 'random', 'propensity'}))
+            frozen = policies[policies.policy == winner].set_index('budget').loc[[.1, .2, .3, 1.]]
+            shown_marginal = tables['marginal-gain']
+            expected_marginal = np.diff(np.r_[0., frozen.incremental_per_100k])
+            self.assertEqual(shown_marginal.iloc[:, -1].tolist(), [f'{v:,.2f}' for v in expected_marginal])
+            self.assertEqual(shown_marginal['新增人数'].astype(int).tolist(), np.diff(np.r_[0, frozen.n_selected]).tolist())
+            for encoded in re.findall(r'src="data:image/png;base64,([^"]+)"', html):
+                self.assertTrue(base64.b64decode(encoded).startswith(b'\x89PNG\r\n\x1a\n'))
             self.assertIn('Overlap / Positivity', html)
             self.assertIn('不能证明高维联合支持', html)
             self.assertIn('C2ST 置换 AUC 分布', html)

@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from .config import FEATURES
+from .metrics import RANKING_METRIC_DESCRIPTION
 from .pipeline_io import safe_output, write_result
 
 _COLORS = {
@@ -299,7 +300,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         for folder, names in (
             ("diagnostics", ("balance", "c2st", "learnability")),
             ("models", ("validation_policies",)),
-            ("evaluation", ("ate_summary", "test_policies", "test_ranking", "curves")),
+            ("evaluation", ("ate_summary", "test_policies", "test_ranking", "ranking_intervals", "curves")),
             ("data_preparation", ("split_summary",)),
         )
         for name in names
@@ -316,6 +317,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     outcome = manifest["primary_outcome"]
     e = float(manifest["assignment_probability"])
     policies = frames["test_policies"]
+    # 报告读取实际评价点；旧结果缺少 30% 时须复用冻结评分补算，不能插值。
+    for name, group in policies.groupby("policy", sort=False):
+        if not all(np.isclose(group["budget"], q).any() for q in (.1, .2, .3, 1.)):
+            raise ValueError(f"策略 {name} 缺少 10%、20%、30% 或 100% 评价点，请用冻结 Test 评分补算预算结果。")
     primary = policies[np.isclose(policies["budget"], budget)].copy()
     primary = primary.sort_values(
         "incremental_per_100k", ascending=False, kind="stable"
@@ -408,7 +413,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 fontsize=13,
             )
 
-            for ax, (outcome, row), color in zip(
+            for ax, (ate_outcome, row), color in zip(
                 axes,
                 ate_plot.iterrows(),
                 ['#2166AC', '#087F8C'],
@@ -453,7 +458,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 ax.set_ylim(-0.45, 0.85)
                 ax.set_yticks(
                     [0],
-                    [outcome.capitalize()],
+                    [ate_outcome.capitalize()],
                 )
                 ax.tick_params(axis='y', length=0, pad=12)
                 ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
@@ -497,7 +502,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
 
 
         curves = frames["curves"]
-        fig, axes = plt.subplots(1, 2, figsize=(12.6, 4.4), constrained_layout=True)
+        fig, axes = plt.subplots(3, 1, figsize=(12.6, 10.5), constrained_layout=True)
         first = curves[curves["policy"] == curves["policy"].iloc[0]].sort_values(
             "fraction"
         )
@@ -505,7 +510,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             group = group.sort_values("fraction")
             color = _COLORS.get(name, "#2171ad")
             weight = 2.4 if name == selected else 1.4
-            for ax, column in zip(axes, ("gain_ht", "qini_traditional")):
+            for ax, column in zip(axes, ("gain_ht", "gain_plugin", "qini_traditional")):
                 values = group[column].copy()
                 values.loc[group["fraction"] == 0] = 0
                 ax.plot(
@@ -515,33 +520,23 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                     lw=weight,
                     label=_LABELS.get(name, name) + (" *" if name == selected else ""),
                 )
-        axes[0].plot(
-            first["fraction"],
-            first["random_gain_ht"] * 100_000,
-            color=_COLORS["random"],
-            ls="--",
-            lw=1.6,
-            label="Random expected gain",
-        )
-        q_endpoint = float(first["qini_traditional"].iloc[-1])
-        axes[1].plot(
-            [0, 1],
-            [0, q_endpoint * 100_000],
-            color=_COLORS["random"],
-            ls="--",
-            lw=1.6,
-            label="Endpoint reference line",
-        )
+        # 三种曲线分别连接自己的全量终点；抽点只用于绘图，不重新积分。
+        for ax, column in zip(axes, ("gain_ht", "gain_plugin", "qini_traditional")):
+            ax.plot([0, 1], [0, float(first[column].iloc[-1]) * 100_000],
+                    color=_COLORS["random"], ls="--", lw=1.6,
+                    label="Reference: q x own endpoint")
         for ax in axes:
             ax.axhline(0, color="#c4ced7", lw=0.8)
             ax.set_xlabel("Fraction of eligible population contacted")
             ax.xaxis.set_major_formatter(PercentFormatter(1))
             ax.grid(alpha=0.7)
-            ax.legend(frameon=False, fontsize=8, loc="best")
+            ax.legend(frameon=False, fontsize=8, loc="best", ncol=3)
         axes[0].set_title("HT incremental gain | held-out test")
         axes[0].set_ylabel("Incremental responses / 100,000 eligible people")
-        axes[1].set_title("Traditional Qini curve | auxiliary diagnostic")
-        axes[1].set_ylabel("Traditional Qini ordinate x 100,000")
+        axes[1].set_title("Uplift Gain curve | plug-in estimate")
+        axes[1].set_ylabel("Uplift Gain x 100,000")
+        axes[2].set_title("Traditional Qini curve | auxiliary diagnostic")
+        axes[2].set_ylabel("Traditional Qini ordinate x 100,000")
         save(fig, "ranking")
 
         fig, axes = plt.subplots(1, 2, figsize=(12.6, 4.8), constrained_layout=True)
@@ -557,10 +552,11 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 linestyle="--" if name == "random" else "-",
                 label=_LABELS.get(name, name) + (" *" if name == selected else ""),
             )
-        axes[0].axvline(budget, color="#a7b3be", lw=1, ls=":")
-        axes[0].set_title("Policy value by contact budget")
+        axes[0].axvline(budget, color="#a7b3be", lw=1, ls=":", label=f"Primary: {budget:.0%}")
+        axes[0].set_xticks(sorted({0., .1, .2, .3, .5, 1., budget}))
+        axes[0].set_title(f"Contact fraction | primary {budget:.0%}; full coverage 100%")
         axes[0].set_xlabel("Contact fraction (not currency)")
-        axes[0].set_ylabel("Incremental responses / 100,000 eligible people")
+        axes[0].set_ylabel("HT incremental responses / 100,000 eligible users")
         axes[0].xaxis.set_major_formatter(PercentFormatter(1))
         axes[0].legend(frameon=False, fontsize=8)
         axes[0].grid(alpha=0.7)
@@ -713,16 +709,83 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     )
     ranking = frames["test_ranking"]
     ranking_display = pd.DataFrame({"政策": ranking["policy"]})
-    for column, label in (
-        ("auuc_ht", "HT AUUC × 10⁵"),
-        ("qini_score_traditional", "传统 Qini score × 10⁵"),
-        ("qini_ht", "HT 中心面积 × 10⁵（补充）"),
-    ):
-        ranking_display[label] = (
-            ranking[column].map(lambda x: _num(x * 100_000))
-            if column in ranking
-            else "未生成"
-        )
+    ranking_labels = {
+        "auuc_ht": "HT AUUC",
+        "auuc_plugin": "Uplift AUUC",
+        "auuc_plugin_centered": "Centered Uplift AUUC",
+        "qini_score_traditional": "Traditional Qini Score",
+        "qini_ht": "HT Centered Area",
+    }
+    for column, label in ranking_labels.items():
+        ranking_display[f"{label} × 10⁵"] = ranking[column].map(lambda x: _num(x * 100_000))
+    ranking_display["ATE_HT × 10⁵（全量终点）"] = ranking["ate_ht"].map(lambda x: _num(x * 100_000))
+    intervals = frames["ranking_intervals"]
+    ranking_ci_display = pd.DataFrame({
+        "政策": intervals["policy"],
+        "面积指标（均 × 10⁵）": intervals["metric"].map(ranking_labels),
+        "点估计": intervals["estimate"].map(lambda x: _num(x * 100_000)),
+        "95% CI": intervals.apply(lambda r: _interval(r, scale=100_000), axis=1),
+        "对 Propensity 配对差值": intervals["vs_propensity"].map(lambda x: _num(x * 100_000)),
+        "差值 95% CI": intervals.apply(
+            lambda r: _interval(r, "vs_propensity_ci_low", "vs_propensity_ci_high", scale=100_000), axis=1),
+    })
+    # 仅在同一指标内比较策略顺序；Test 排序用于描述，不回写冻结选择。
+    primary_order = primary.loc[primary["policy"].isin(ranking["policy"]), "policy"].tolist()
+    order_rows = [{"评价口径": f"Test {primary_pct} HT Gain", "从高到低的策略顺序": " → ".join(primary_order),
+                   "与主预算顺序": "参照"}]
+    for column, label in ranking_labels.items():
+        ordered = ranking.sort_values(column, ascending=False, kind="stable")["policy"].tolist()
+        order_rows.append({"评价口径": label, "从高到低的策略顺序": " → ".join(ordered),
+                           "与主预算顺序": "一致" if ordered == primary_order else "不同"})
+    ranking_order_display = pd.DataFrame(order_rows)
+
+    # 全部覆盖率共用评价阶段保存的点估计和配对区间，报告不重新计算统计量。
+    budget_display = pd.DataFrame({
+        "政策": policies["policy"].map(lambda name: name + ("（冻结）" if name == selected else "")),
+        "投放覆盖率": policies["budget"].map(lambda q: f"{q:.0%}"),
+        "选中人数": policies["n_selected"],
+        "HT 增量 / 10 万总体用户": policies["incremental_per_100k"].map(_num),
+        "95% CI": policies.apply(_interval, axis=1),
+        "对 Random 差值 [95% CI]": policies.apply(
+            lambda r: _num(r["vs_random_per_100k"]) + " " + _interval(r, "vs_random_ci_low", "vs_random_ci_high"), axis=1),
+        "对 Propensity 差值 [95% CI]": policies.apply(
+            lambda r: _num(r["vs_propensity_per_100k"]) + " " + _interval(r, "vs_propensity_ci_low", "vs_propensity_ci_high"), axis=1),
+    })
+    key_budgets = [.1, .2, .3, 1.]
+    key_rows = []
+    for name in dict.fromkeys([selected, "random", "propensity"]):
+        for q in key_budgets:
+            key_rows.extend(policies.index[(policies["policy"] == name) & np.isclose(policies["budget"], q)])
+    budget_key_display = budget_display.loc[key_rows]
+    frozen = policies.loc[policies["policy"] == selected].set_index("budget").loc[key_budgets]
+
+    # 固定排序的新增区间贡献等于两个累计值之差；不相减置信区间端点。
+    values = np.r_[0., frozen["incremental_per_100k"].to_numpy()]
+    counts = np.r_[0, frozen["n_selected"].to_numpy()]
+    marginal = np.diff(values)
+    added_counts = np.diff(counts)
+    boundaries = [0., *key_budgets]
+    marginal_display = pd.DataFrame({
+        "新增覆盖区间": [f"{a:.0%}–{b:.0%}" for a, b in zip(boundaries[:-1], boundaries[1:])],
+        "新增覆盖比例（实际）": [f"{n / n_test:.2%}" for n in added_counts],
+        "新增人数": added_counts,
+        "新增估计转化 / 10 万总体用户（点估计）": [_num(v) for v in marginal],
+    })
+    marginal_findings = "；".join(
+        f"{label} 为{'正' if value > 0 else '负' if value < 0 else '零'}增量 {_num(value)}"
+        for label, value in zip(marginal_display["新增覆盖区间"], marginal)
+    )
+    marginal_trend = (
+        "20%–30% 的新增贡献低于 10%–20%，这两个等宽区间的点估计呈递减。"
+        if marginal[2] < marginal[1] else
+        "20%–30% 的新增贡献不低于 10%–20%，这两个等宽区间的点估计未呈递减。"
+    )
+    full_value = float(values[-1])
+    full_comparisons = "；".join(
+        f"{q:.0%} 覆盖率下为 {_num(row.incremental_per_100k)}，比全量{'多' if row.incremental_per_100k >= full_value else '少'} "
+        f"{_num(abs(row.incremental_per_100k - full_value))}"
+        for q, row in frozen.iloc[:3].iterrows()
+    )
     learning = frames["learnability"].query("scope == 'whole'")
     learning_display = pd.DataFrame(
         {
@@ -849,30 +912,36 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + '<p>上表使用 train 拟合、validation 评估，仅显示 whole 范围；按处理组分别训练的结果保存在 learnability.csv。'
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
         '这些指标诊断结果模型，不评估个体因果效应；普通结果预测较弱不能推出不存在效应异质性。</p></section>',
-        '<section><h2>Training &amp; Validation · 冻结选择</h2>'
+        '<section><h2>Model Selection · Training &amp; Validation 冻结选择</h2>'
         f'<p>事先设定主预算 {primary_pct}，用验证集“每 10 万名可触达对象的 HT 增量”在 random、propensity 及四个 uplift 模型间选择。'
         f'选择已在测试评估前冻结：<strong>{esc(selected)}</strong>。表格中的测试排名不会重新改变这一选择。</p>'
         + _table(val_display)
-        + _image(
-            paths["policy"],
-            "预算与政策增量及主预算置信区间",
-            f"星号标识验证集冻结政策；左图为预算敏感性描述，右图为 {primary_pct} 主预算的点估计和点对点 95% 区间。",
-        )
+        + f'<p>冻结策略在 Test 的 {primary_pct} 覆盖率下，HT 增量为 {_num(selected_row["incremental_per_100k"])} / 10 万名可触达用户，'
+        f'95% CI {_interval(selected_row)}。以下同时展示各策略的配对基线差值。</p>'
         + _table(policy_display)
         + f'<p>测试集共 {n_test:,} 行，其中 {esc(outcome)} 正例 {n_events:,} 个、对照组正例 {n_control_events:,} 个。'
         '低预算区域和小分箱中的事件更少，估计容易波动。辅助预算不用于测试后选择“最好”的投放比例。</p>'
         f'<p>CI 由 {boot} 次组内配对百分位 bootstrap 得到：各处理组人数、训练好的模型、分数与 e 保持固定，'
         '每次重抽样重新选取 top-k；同一重抽样用于全部政策与基线，因此对随机/倾向的差值区间是配对区间。'
         '这些区间不包含重新训练、验证选择、估计 e 或未知用户依赖的额外不确定性；多个政策/预算区间是点对点区间，未作同时覆盖校正。</p></section>',
-        '<section><h2>Test Evaluation · 增量排序与 Qini</h2>'
+        '<section><h2>Ranking Performance · Test Evaluation 排序能力</h2>'
         + _image(
             paths["ranking"],
-            "HT 增量曲线与传统 Qini 曲线",
-            "横轴是触达比例；HT 图虚线是随机触达的预期增量，传统 Qini 图虚线连接原点和全样本终点。图只抽取约 501 个点，面积由完整分辨率计算。",
+            "HT Gain、Uplift Gain 与 Traditional Qini 三类曲线",
+            "横轴是触达比例；各虚线均为 q 乘以该曲线自己的全样本终点。图只抽取约 501 个点，面积沿用完整分辨率计算结果，不从图中重新积分。",
         )
-        + _table(ranking_display)
-        + '<p>主比较仍是固定主预算的政策增量；HT AUUC 汇总所有预算，传统 Qini score 用作辅助。'
-        '二者尺度与归一化不同，不能与其他库的同名分数直接混用；HT 中心面积也不等于传统 Qini score。</p>'
+        + '<div id="ranking-metrics">' + _table(ranking_display) + '</div>'
+        + '<p>固定覆盖率 HT Gain 是一个覆盖率上的总体增量转化率；AUUC 是跨覆盖率积分的面积，'
+        '中心面积和 Qini Score 则扣除了各自端点参考线下的面积。上表统一乘以 10⁵，'
+        '面积指标仍是排序指标，不能直接当作某个固定预算下的新增转化次数；ATE_HT 是全量终点，不是面积。'
+        '不要直接比较不同定义的 AUUC 与 Qini Score 的数值大小，也不能与其他库的同名分数直接混用。</p>'
+        + '<details><summary>排序指标 95% CI 与相对 Propensity 的配对差值（均 × 10⁵）</summary>'
+        + _table(ranking_ci_display) + '</details>'
+        + '<h3>整体排序与主预算表现是否一致</h3>'
+        + _table(ranking_order_display)
+        + '<p>上述顺序仅比较同一指标内的点估计，未声称相邻模型的差异显著；配对区间见上方附表。'
+        'Test 主预算排序与面积排序可能不同，因为前者只评价 Top-k，后者汇总全部覆盖率。'
+        '这些描述不改变 Validation 已冻结的策略；Propensity 指响应概率基线，并非处理分配概率。</p>'
         '<div class="formula" id="calculation-definitions"><h3>本报告的计算定义</h3>'
         '<p class="formula-intro">先计算每行的 HT 伪结果，再按固定排名累计；以下定义与结果表使用同一口径。</p>'
         + _equation(r'z_i=\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}', '01 · 单行 HT 伪结果')
@@ -883,6 +952,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _equation(r'G_{\mathrm{random}}(q)=\frac{k}{n}\,\bar{z}', '03 · 随机政策的预期增量')
         + _equation(r'A_{\mathrm{HT}}=\int_0^1 G_{\mathrm{HT}}(q)\,dq', '04 · HT AUUC')
         + _equation(r'H_{\mathrm{HT}}=A_{\mathrm{HT}}-\frac{G_{\mathrm{HT}}(1)}{2}', 'HT 中心面积')
+        + _equation(r'G(q)=\frac{k}{n}\left[\frac{R_1(q)}{N_1(q)}-\frac{R_0(q)}{N_0(q)}\right]',
+                    'Uplift Gain：前缀两组响应率之差乘以覆盖比例')
+        + _equation(r'A=\int_0^1G(q)\,dq,\qquad A_{\mathrm{centered}}=A-\frac{G(1)}{2}',
+                    'Uplift AUUC 与 Centered Uplift AUUC')
         + _equation(r'Q_{\mathrm{trad}}(q)=\frac{1}{n}\left[R_1(q)-R_0(q)\frac{N_1(q)}{N_0(q)}\right]',
                     '05 · 传统 Qini 曲线')
         + _equation(r'\mathrm{Qini\ score}=\int_0^1\left[Q_{\mathrm{trad}}(q)-q\,Q_{\mathrm{trad}}(1)\right]dq',
@@ -890,12 +963,43 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + '<p class="formula-note"><var>N<sub>a</sub></var> 为已选前缀内各组人数，'
         '<var>R<sub>a</sub></var> 为对应正例数；<var>n</var> 为全体待评估人数，'
         '<var>q</var> 为预算比例，<var>e</var> 为报告使用的处理分配概率估计。</p>'
-        '<p>曲线从原点 (0,0) 开始，对所有 <var>N<sub>0</sub>(q) &gt; 0</var> 的前缀点作梯形积分，'
+        '<p>Uplift Gain 仅在前缀同时包含两组时有定义；积分保留原点及这些有效前缀。'
+        '传统 Qini 曲线从原点 (0,0) 开始，对所有 <var>N<sub>0</sub>(q) &gt; 0</var> 的前缀点作梯形积分，'
         '包括仅包含对照组时的零值点。尚无对照组的前缀曲线值未定义，不作为积分节点；'
         '积分从原点线性连接到首个保留点，原始曲线仍保留相应缺失值。'
         '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 normalized Qini score。</p>'
         '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。</p>'
         '</div></section>',
+        '<section><h2>Budget Sensitivity Analysis · 不同投放覆盖率的增量价值</h2>'
+        '<p>Budget 表示投放覆盖率（Contact Fraction），不是货币金额；所有增量均以 10 万名总体可触达用户为分母。'
+        '下表展示冻结策略、Random 和 Propensity；若冻结策略就是其中一个基线，仅展示一次。</p>'
+        + '<div id="budget-sensitivity">' + _table(budget_key_display) + '</div>'
+        + _image(paths["policy"], "覆盖率敏感性与主预算置信区间",
+                 f"星号标识冻结策略；10%、20%、30%、100% 为关键情景，{primary_pct} 为事先冻结的选型覆盖率，100% 为全量终点。连线仅辅助读图，未在评价点之间插值计算。")
+        + '<details><summary>全部候选、全部覆盖率明细（含 2%、5%、50%）</summary>'
+        + _table(budget_display) + '</details>'
+        + '<p>同一固定评分及同分顺序下，Top 10% ⊂ Top 20% ⊂ Top 30% ⊂ Top 100%。'
+        '从 10% 扩到 20% 加入排名 10%–20% 的人，从 20% 扩到 30% 加入排名 20%–30% 的人；'
+        '选中人数按覆盖率乘以评价总人数向下取整。匿名特征不能用于编造这些人群的业务画像。'
+        'Random 是相同人数的随机触达解析期望，不对应模型排序。辅助预算不用于 Test 后挑选最优商业预算。</p></section>',
+        '<section><h2>Marginal Incremental Gain · 新增覆盖区间贡献</h2>'
+        f'<p>保持冻结策略 <strong>{esc(selected)}</strong> 不变，以 ΔV = V(b) − V(a)、V(0) = 0 计算新增区间贡献。'
+        '若冻结策略为 Random，差值表示扩大随机触达比例的预期变化。</p>'
+        + '<div id="marginal-gain">' + _table(marginal_display) + '</div>'
+        + f'<p>{marginal_findings}。{marginal_trend}</p>'
+        '<p>这里仅报告点估计，未计算边际增量 CI，不能用两个累计 CI 的端点相减来构造区间。'
+        '因此正、负和递减均为描述，不是显著性结论；30%–100% 宽达 70%，其总贡献不能直接与 10% 宽区间比较单位触达效率。'
+        '没有实际成本和收入信息，本节只讨论估计增量转化，不能据此判断利润或 ROI。</p></section>',
+        '<section><h2>Full Coverage Scenario · 全量投放情景</h2>'
+        + _equation(r'G_{\mathrm{HT}}(1)=\widehat{\mathrm{ATE}}_{\mathrm{HT}},\qquad V(1)=100{,}000\,\widehat{\mathrm{ATE}}_{\mathrm{HT}}',
+                    '全量覆盖与 HT-ATE')
+        + f'<p>100% 覆盖表示对当前 Test 的全部 {n_test:,} 名可触达用户分配处理，估计增量为 '
+        f'<strong>{_num(full_value)}</strong> / 10 万总体用户，95% CI {_interval(frozen.iloc[-1])}。'
+        '所有策略选择相同的全体用户，因此具有同一 HT 终点；排序不会改变全量的价值。</p>'
+        + f'<p>冻结策略与全量相比（同为每 10 万总体用户）：{full_comparisons}。'
+        '扩大覆盖是否继续增加估计转化，需结合上一节各新增区间的实际符号判断，不预设越多越好。</p>'
+        '<p>这是以当前测试人群和固定处理分配概率为前提的离线情景，HT-ATE 与差均值 ATE 在有限样本中可能不同。'
+        '这些数字不代表已经实现的广告曝光、收入或利润，不能据此宣称找到了最优商业投放覆盖率。</p></section>',
         '<section><h2>Uplift Modeling · S/T/X 与 CATE 校准</h2>'
         f'<p>{calibration_note}</p>'
         + _image(
@@ -974,6 +1078,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     section{background:#fff;border:1px solid #e2e9ef;border-radius:8px;padding:28px;margin:20px 0}h2{font-size:23px;margin:0 0 16px}h3{font-size:18px;margin-top:24px}p{margin:12px 0}.lead{border-top:4px solid #2171ad}.key{font-size:21px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.cards div{background:#f2f7fb;padding:16px;border-radius:5px}.cards span{display:block;color:#667887;font-size:13px}.cards strong{font-size:25px;font-weight:650}
     figure{margin:24px 0}img{width:100%;height:auto;display:block}figcaption{font-size:13px;color:#647887;margin-top:10px}.table-wrap{overflow-x:auto;margin:18px 0}table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}th{background:#eff5f9;text-align:left;padding:11px 12px;border-bottom:2px solid #d5e3ee}td{padding:9px 12px;border-bottom:1px solid #e8eef3}tr:nth-child(even) td{background:#fafcfe}.formula{background:#f3f7fb;border-left:3px solid #2171ad;padding:16px 20px;margin:22px 0}code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;overflow-wrap:anywhere}.provenance{font-size:13px;color:#667887}.provenance h2{font-size:19px}li{margin:8px 0}
     .formula{border:1px solid #dce7ef;border-left:4px solid #2171ad;border-radius:8px;padding:24px;background:#f6f9fc}.formula h3{margin:0 0 8px}.formula-intro,.formula-note{color:#586e80;font-size:14px}.equation{margin:18px 0;padding:16px 18px;background:#fff;border:1px solid #e2eaf1;border-radius:6px;break-inside:avoid}.equation-label{font-size:12px;font-weight:650;letter-spacing:.04em;color:#587286;margin-bottom:8px}.equation-scroll{max-width:100%;overflow-x:auto;overflow-y:hidden;padding:2px 0}.equation-scroll:focus-visible{outline:2px solid #2171ad;outline-offset:3px}.math-equation{width:auto;max-width:none;height:auto;display:block}var{font-family:Georgia,"Times New Roman",serif}pre{overflow-x:auto}
+    details{margin:18px 0;border:1px solid #dce7ef;border-radius:6px;padding:12px 16px}summary{cursor:pointer;color:#2171ad;font-weight:600}summary:focus-visible{outline:2px solid #2171ad;outline-offset:4px}
     @media(max-width:700px){.formula{padding:16px 12px}.equation{padding:12px 10px}}
     @media print{.equation-scroll{overflow:visible}.math-equation{max-width:100%;height:auto}.equation{border-color:#ddd}}
     @media(max-width:700px){main{padding:24px 12px}section{padding:18px}h1{font-size:28px}.cards{grid-template-columns:1fr}.cards strong{font-size:23px}}@media print{body{background:white}main{padding:0;max-width:none}section{border:0;padding:12px 0;break-inside:auto}figure,.cards{break-inside:avoid}.table-wrap{overflow:visible}table{white-space:normal;font-size:10px}h2,h3{break-after:avoid}}
@@ -1031,11 +1136,7 @@ def finalize_run(
             "假设每次触达成本相同、每个结果事件的价值相同；"
             "预算表示触达人群比例，而非货币金额"
         ),
-        "ranking_metric_version": (
-            "v2：传统 Qini 保留仅含对照组的零值前缀；"
-            "明确报告代入估计的 AUUC；"
-            "不按完美排序的面积进行归一化"
-        ),
+        "ranking_metric_definition": RANKING_METRIC_DESCRIPTION,
         "diagnostic_models": ["logistic", "xgboost"],
         "primary_outcome": args.outcome,
         "selection": fitted["selection"],

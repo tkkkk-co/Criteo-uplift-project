@@ -13,7 +13,7 @@ from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from .config import FEATURES
 from .pipeline_io import load_sample, safe_output, write_result
-from .metrics import RANKING_METRIC_DESCRIPTION, ranking_metrics
+from .metrics import RANKING_METRIC_DESCRIPTION, evaluate_ranking
 from .evaluation import evaluate_policies
 from .models import s_learner, t_learner, x_learner
 from .diagnostics import diagnose_overlap
@@ -412,9 +412,10 @@ def run_stability(
                 del results
                 ranks = {}
                 for name, scores in score_dict.items():
-                    ranks[name] = ranking_metrics(
-                        validation[outcome], validation.treatment, scores, e, seed
-                    )
+                    ranks[name] = evaluate_ranking(
+                        validation[outcome], validation.treatment, scores, e,
+                        seed=seed, include_curves=False,
+                    )["metrics"]
                 ate = ranks["s_logistic"]["ate_ht"]
                 ranks["random"] = {
                     "n": len(validation),

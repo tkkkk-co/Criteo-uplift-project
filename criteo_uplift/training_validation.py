@@ -8,7 +8,7 @@ import pandas as pd
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .evaluation import evaluate_policies
-from .metrics import ranking_metrics
+from .metrics import evaluate_ranking
 from .models import s_learner, t_learner, x_learner
 
 def fit_and_select_models(
@@ -40,7 +40,7 @@ def fit_and_select_models(
     #     - 结果字典：包含拟合模型、模型参数/耗时 metadata 和冻结 selection。
     #-------------
     out = safe_output(out)
-    # 固定四种候选：逐个直接调用 Learner，Train 拟合、Validation 预测。
+    # 1. 固定四种候选：逐个直接调用 Learner，Train 拟合、Validation 预测。
     X_train, X_val = train[FEATURES], validation[FEATURES]
     t_train, y_train = train.treatment, train[outcome]
     logistic_params = {'random_state': seed}
@@ -70,16 +70,21 @@ def fit_and_select_models(
     )
 
     validation_scores = {name: result['cate'] for name, result in results.items()}
-    # 传统转化倾向：预测 T=1 的 Y=1 概率，与 Treatment Propensity 区分。
+
+    # 2. baseline：传统转化倾向response propenity score：预测 T=1 的 Y=1 概率，与 Treatment Propensity 区分。
     validation_scores['propensity'] = results['t_xgboost']['mu1']
     names = list(results)
     validation_ranking = [
         {
             "policy": name,
-            **ranking_metrics(
-                validation[outcome], validation.treatment, validation_scores[name],
-                assignment_probability, seed,
-            ),
+            **evaluate_ranking(
+                validation[outcome],
+                validation.treatment,
+                validation_scores[name],
+                assignment_probability,
+                seed=seed,
+                include_curves=False,
+            )["metrics"],
         }
         for name in names
     ]

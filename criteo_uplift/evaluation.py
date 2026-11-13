@@ -9,10 +9,10 @@ from scipy.special import log_ndtr
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .models import s_learner, t_learner, x_learner
-from .metrics import (_binary_inputs, _scores, _ht_outcome, _rank, _prefix_values,
-                      ranking_metrics, ranking_confidence_intervals, uplift_curve)
+from .metrics import (_binary_inputs_check, _scores_check, _ht_outcome, _prefix_values,
+                      evaluate_ranking, ranking_confidence_intervals)
 
-DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.50, 1.0)
+DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.30, 0.50, 1.0)
 _Z_975 = 1.959963984540054
 
 def _normal_pvalue(z):
@@ -83,7 +83,7 @@ def ate_summary(y, t):
     # 输出参数：
     #     - ATE 统计字典：包含两组响应率、ATE、标准误、95% CI、p 值及相对增幅。
     #-------------
-    y, t = _binary_inputs(y, t)
+    y, t = _binary_inputs_check(y, t)
     return _ate_summary_from_counts(int((t == 0).sum()), int((t == 1).sum()),
                                     int(y[t == 0].sum()), int(y[t == 1].sum()))
 
@@ -131,7 +131,7 @@ def evaluate_policies(
     # 输出参数：
     #     - Policy Evaluation DataFrame：每种策略、每个预算的增量值、区间及相对随机/倾向基线的差值。
     #-------------
-    y, t = _binary_inputs(y, t)
+    y, t = _binary_inputs_check(y, t)
     n = len(y)
     z = _ht_outcome(y, t, e)
     budget = np.asarray(budgets, dtype=float)
@@ -153,7 +153,12 @@ def evaluate_policies(
     k = np.floor(budget * n + 1e-12).astype(np.int64)
     fractions = k / n
     names = ["random", *score_dict]
-    orders = [_rank(_scores(score_dict[name], n), seed) for name in names[1:]]
+    orders = []
+    for name in names[1:]:
+        scores = _scores_check(score_dict[name], n)
+        # 按分数降序；各策略共用同一种子生成的同分优先级，不读取结果标签。
+        tie_break = np.random.default_rng(seed).random(n)
+        orders.append(np.lexsort((tie_break, -scores)))
     sorted_z = [z[order] for order in orders]
     point = np.empty((len(names), len(budget)))
     point[0] = fractions * z.mean()
@@ -247,11 +252,13 @@ def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
     # 输出参数：
     #     - 校准结果 DataFrame：每箱的样本量、预测 CATE、观察 ATE 和置信区间。
     #-------------
-    y, t = _binary_inputs(y, t)
-    cate = _scores(cate, len(y))
+    y, t = _binary_inputs_check(y, t)
+    cate = _scores_check(cate, len(y))
     if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:
         raise ValueError("n_bins 必须为正整数")
-    order = _rank(-cate, seed=42)
+    # 校准分箱从低 CATE 到高 CATE 排列，同分仍使用原来的固定随机优先级。
+    tie_break = np.random.default_rng(42).random(len(cate))
+    order = np.lexsort((tie_break, cate))
     records = []
     for number, selected in enumerate(
         np.array_split(order, min(n_bins, len(y))), start=1
@@ -327,33 +334,25 @@ def evaluate_test_set(
     rankings = []
     curves = []
     for name, score in test_scores.items():
+        ranking = evaluate_ranking(
+            test[outcome], test.treatment, score, assignment_probability, seed
+        )
         rankings.append(
             {
                 "policy": name,
-                **ranking_metrics(
-                    test[outcome],
-                    test.treatment,
-                    score,
-                    assignment_probability,
-                    seed,
-                ),
+                **ranking["metrics"],
                 "mean_score": float(np.mean(score)),
                 "negative_fraction": float(np.mean(score < 0)),
             }
         )
-        curve = uplift_curve(
-            test[outcome],
-            test.treatment,
-            score,
-            assignment_probability,
-            seed,
-        )
         # 指标使用完整曲线；仅压缩用于绘图的保存表。
+        curve = ranking["curves"]
         curve = curve.iloc[
             np.unique(np.linspace(0, len(curve) - 1, 501).astype(int))
         ].copy()
         curve.insert(0, "policy", name)
         curves.append(curve)
+        del ranking
         if name != "propensity":
             calibration = calibration_table(test[outcome], test.treatment, score)
             write_result(calibration, out / f'calibration_{name}.csv')
@@ -361,7 +360,7 @@ def evaluate_test_set(
     write_result(pd.DataFrame(rankings), out / 'test_ranking.csv')
     write_result(pd.concat(curves), out / 'curves.csv')
 
-    budgets = sorted(set([0.02, 0.05, 0.1, 0.2, 0.5, 1.0, primary_budget]))
+    budgets = sorted({*DEFAULT_BUDGETS, primary_budget})
     policies = evaluate_policies(
         test[outcome],
         test.treatment,
