@@ -13,13 +13,27 @@ def prepare_sample(args, *, progress=print, chunk_size=250_000):
     """Read the original CSV and prepare all inputs for this run."""
     if args.c2st_sample < 20 or args.c2st_sample % 20:
         raise ValueError('C2ST sample_size 必须大于等于 20 且能被 20 整除')
-    return scan_raw_data(
+    from .experiment_protocol import load_protocol
+    frozen = getattr(args, "protocol", None)
+    meta, excluded = load_protocol(frozen) if frozen else (None, None)
+    result = scan_raw_data(
         args.data, sample_size=args.sample_size, seed=args.seed,
         chunk_size=chunk_size, per_arm=args.c2st_sample // 2, progress=progress,
+        excluded_row_ids=excluded if getattr(args, "stage", None) == "development" else None,
     )
 
+    if meta:
+        if result['source']['sha256'] != meta['source_sha256'] or result['audit']['n_rows'] != meta['source_n']:
+            raise ValueError('源数据与预冻结协议不一致')
+        result['sample_report']['protocol'] = meta
+        if getattr(args, 'stage', None) == 'development':
+            result['sample_report']['sampling'] += '; excludes all frozen final Test row IDs'
+            if np.isin(result['sample'].row_id, excluded).any():
+                raise AssertionError('开发集包含正式 Test')
+    return result
 
-def split_sample(df, outcome='conversion', seed=42):
+
+def split_sample(df, outcome='conversion', seed=42, *, frozen_test_ids=None):
     #-------------
     # 函数名：split_sample
     # 功能：按 treatment × outcome 分层将建模样本划分为 Train、Validation、Test，并检查 row_id 互斥及特征重叠。
@@ -44,18 +58,17 @@ def split_sample(df, outcome='conversion', seed=42):
     # 2. 按 treatment × outcome 分层，划分规则和随机种子保持不变。
     idx = np.arange(len(df))
     strata = df.treatment.to_numpy() * 2 + df[outcome].to_numpy()
-    train, holdout = train_test_split(
-        idx,
-        test_size=0.4,
-        stratify=strata,
-        random_state=seed,
-    )
-    val, test = train_test_split(
-        holdout,
-        test_size=0.5,
-        stratify=strata[holdout],
-        random_state=seed + 1,
-    )
+    if frozen_test_ids is None:
+        train, holdout = train_test_split(idx, test_size=.4, stratify=strata, random_state=seed)
+        val, test = train_test_split(holdout, test_size=.5, stratify=strata[holdout], random_state=seed + 1)
+    else:
+        test_mask = df.row_id.isin(frozen_test_ids).to_numpy()
+        test, development = idx[test_mask], idx[~test_mask]
+        if len(test) != len(frozen_test_ids):
+            raise ValueError('全量样本未包含全部冻结 Test 行')
+        val_n = int(np.ceil(.4 * len(df))) - len(test)
+        train, val = train_test_split(development, test_size=val_n,
+                                      stratify=strata[development], random_state=seed + 1)
     parts = {
         name: df.iloc[pos].reset_index(drop=True)
         for name, pos in [('train', train), ('validation', val), ('test', test)]

@@ -9,6 +9,8 @@ import importlib.metadata
 import io
 import json
 import platform
+import re
+from itertools import cycle
 import shlex
 import sys
 from pathlib import Path
@@ -20,24 +22,35 @@ from .config import FEATURES
 from .metrics import RANKING_METRIC_DESCRIPTION
 from .pipeline_io import safe_output, write_result
 
-_TITLE = "Incremental Conversion Optimization Under a Fixed Targeting Budget"
+_TITLE = "固定投放预算下的增量转化优化"
 
 _COLORS = {
     "random": "#7b8793",
-    "propensity": "#e38636",
+    "response_xgboost": "#e38636", "response_logistic": "#b45c20",
+    "s_xgboost": "#426b50", "x_logistic": "#9369a7",
     "s_logistic": "#8dbce1",
     "t_logistic": "#5594c5",
     "t_xgboost": "#2171ad",
     "x_xgboost": "#123f69",
 }
 _LABELS = {
-    "random": "Random",
-    "propensity": "Response propensity",
-    "s_logistic": "S / Logistic",
-    "t_logistic": "T / Logistic",
-    "t_xgboost": "T / XGBoost",
-    "x_xgboost": "X / XGBoost",
+    "random": "随机（Random）",
+    "response_xgboost": "Response-XGBoost",
+    "response_logistic": "Response-Logistic", "s_xgboost": "S-XGBoost", "x_logistic": "X-Logistic",
+    "s_logistic": "S-Logistic",
+    "t_logistic": "T-Logistic",
+    "t_xgboost": "T-XGBoost",
+    "x_xgboost": "X-XGBoost",
 }
+
+
+def _chart_text(chinese, english):
+    from matplotlib.font_manager import fontManager, FontProperties
+
+    for family in ("Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", "Arial Unicode MS"):
+        if any(font.name == family for font in fontManager.ttflist):
+            return chinese, {"fontproperties": FontProperties(family=[family, "DejaVu Sans"])}
+    return english, {}
 
 
 def save_sample_feature_plot(sample, path):
@@ -59,8 +72,11 @@ def save_sample_feature_plot(sample, path):
     for feature, ax in zip(FEATURES, axes.flat):
         ax.hist(sample[feature], bins=40, color="#2476a8", log=True)
         ax.set_title(feature)
-        ax.set_ylabel("Count (log)")
-    fig.suptitle(f"Feature distributions | modeling sample n = {len(sample):,}")
+        label, font = _chart_text("频数（对数刻度）", "Count (log)")
+        ax.set_ylabel(label, **font)
+    title, font = _chart_text(f"建模样本的特征分布（{len(sample):,} 行）",
+                              f"Feature distributions | modeling sample n = {len(sample):,}")
+    fig.suptitle(title, **font)
     fig.savefig(path, dpi=160, bbox_inches="tight")
     return path
 
@@ -87,17 +103,20 @@ def save_c2st_plot(out):
     for ax, row in zip(axes, scores.itertuples()):
         ax.hist(null.loc[null["model"] == row.model, "roc_auc"],
                 bins=24, color="#2171ad", alpha=.8)
-        ax.axvline(row.roc_auc, color="#ba6b24", label=f"Observed {row.roc_auc:.4f}")
-        ax.axvline(.5, color="#718096", linestyle="--", linewidth=1, label="Chance AUC = 0.5")
-        ax.set_title(f"{row.model} | p = {row.pvalue:.3f} | Holm p = {row.pvalue_holm:.3f}")
-        ax.set_xlabel("Diagnostic holdout ROC AUC")
-        ax.set_ylabel("Permutation count")
-        ax.legend(frameon=False)
-    fig.suptitle(
-        f"Full-source balanced C2ST | {details['n_control']:,} control + "
-        f"{details['n_treatment']:,} treatment\n"
-        f"{details['permutations']} complete-refit permutations; internal 70/30 split"
+        label, font = _chart_text(f"观测值 {row.roc_auc:.4f}", f"Observed {row.roc_auc:.4f}")
+        ax.axvline(row.roc_auc, color="#ba6b24", label=label)
+        ax.axvline(.5, color="#718096", linestyle="--", linewidth=1, label="AUC = 0.5")
+        ax.set_title(f"{row.model} · p = {row.pvalue:.3f} · Holm p = {row.pvalue_holm:.3f}")
+        label, font = _chart_text("诊断留出集 ROC AUC", "Diagnostic holdout ROC AUC")
+        ax.set_xlabel(label, **font)
+        label, font = _chart_text("置换次数", "Permutation count")
+        ax.set_ylabel(label, **font)
+        ax.legend(frameon=False, prop=font.get("fontproperties"))
+    title, font = _chart_text(
+        f"C2ST 置换分布 · 全量数据两臂等量抽样（{details['n_control'] + details['n_treatment']:,} 行）",
+        f"C2ST permutation distribution | balanced sample ({details['n_control'] + details['n_treatment']:,} rows)",
     )
+    fig.suptitle(title, **font)
     fig.savefig(path, dpi=160, bbox_inches="tight")
     return path
 
@@ -147,7 +166,7 @@ def _interval(row, low="ci_low", high="ci_high", scale=1, digits=2) -> str:
     return f"[{_num(row[low] * scale, digits)}, {_num(row[high] * scale, digits)}]"
 
 
-def _table(frame: pd.DataFrame) -> str:
+def _table(frame: pd.DataFrame, *, wide=False) -> str:
     #-------------
     # 函数名：_table
     # 功能：将 DataFrame 转换为带横向滚动容器的 HTML 表格。
@@ -156,28 +175,40 @@ def _table(frame: pd.DataFrame) -> str:
     # 输出参数：
     #     - HTML 表格字符串。
     #-------------
+    frame = frame.rename(columns={
+        'treatment': '处理组标识', 'n': '样本量', 'positive': '正例数', 'negative': '负例数',
+        'single_class': '单类别训练', 'feature': '特征', 'smd': 'SMD', 'abs_smd': '|SMD|',
+        'mean_control': '对照组均值', 'mean_treatment': '处理组均值', 'ks_statistic': 'KS 统计量',
+        'ks_pvalue': 'KS p 值', 'n_treatment': '处理组人数', 'n_control': '对照组人数',
+    })
+    for column in frame.select_dtypes(include='bool').columns:
+        frame[column] = frame[column].map({True: '是', False: '否'})
+    labels = cycle(frame.columns)
+    markup = frame.to_html(index=False, border=0, escape=True, na_rep="—")
+    markup = re.sub(r'<td>', lambda _: '<td data-label="' + html.escape(str(next(labels)), quote=True) + '">', markup)
     return (
-        '<div class="table-wrap">'
-        + frame.to_html(index=False, border=0, escape=True, na_rep="—")
+        ('<div class="table-wrap wide" tabindex="0" role="region" aria-label="可横向滚动的明细表">'
+         if wide else '<div class="table-wrap">')
+        + markup
         + "</div>"
     )
 
 
-def _image(path: Path, alt: str, caption: str) -> str:
+def _image(path: Path, title: str, caption: str) -> str:
     #-------------
     # 函数名：_image
     # 功能：将 PNG 文件编码为 Base64，并生成带替代文本和图注的 HTML figure。
     # 输入参数：
     #     - path：PNG 图像文件路径。
-    #     - alt：图像的替代文本。
+    #     - title：图标题及图像替代文本。
     #     - caption：显示在图像下方的说明文字。
     # 输出参数：
     #     - 包含内嵌图片和图注的 HTML 字符串。
     #-------------
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return (
-        f'<figure><img src="data:image/png;base64,{encoded}" alt="{html.escape(alt)}">'
-        f'<figcaption>{caption}</figcaption></figure>'
+        f'<figure><img src="data:image/png;base64,{encoded}" alt="{html.escape(title)}">'
+        f'<figcaption><strong>{html.escape(title)}</strong> · {caption}</figcaption></figure>'
     )
 
 
@@ -234,7 +265,7 @@ def _business_section(title, coverage, outcome, criterion):
         for name, control, treated in example
     )
     outcome_label = {"conversion": "转化", "visit": "访问"}[outcome]
-    return (
+    content = (
         f'<section id="business"><h2>{html.escape(title)}</h2>'
         '<h3>1.1 广告投放的业务问题</h3>'
         '<p>以互联网平台上的电商广告为例，广告主希望带来更多下单等转化。平台先圈出符合投放条件的候选用户，'
@@ -244,7 +275,7 @@ def _business_section(title, coverage, outcome, criterion):
         '这一分数回答“分配广告资格后，谁更可能转化”。例如，原本就打算下单的用户，即使没有获得广告资格也可能完成购买。'
         '评估广告带来的额外转化，需要比较同类用户在获得和未获得广告资格两种情景下的转化概率。</p>'
         '<p class="key">在触达规模有限的情况下，应该优先选择哪些用户，才能创造更多额外转化？</p>'
-        '<h3>1.2 Response Propensity 与 Uplift 的直观比较</h3>'
+        '<h3>1.2 转化倾向与增量定向的直观比较</h3>'
         '<p><strong>示意数据，非 Criteo 实验结果。</strong> 假设有以下两类候选用户。</p>'
         + table
         + '<figure class="targeting-example" aria-label="两类用户的转化概率与增量">'
@@ -271,61 +302,76 @@ def _business_section(title, coverage, outcome, criterion):
         '人群定向还需要了解这一效果如何随处理前特征变化。</p>'
         + _equation(r'\tau(x)=\mathbb{E}[Y(1)-Y(0)\mid X=x]', '条件平均处理效应（CATE）')
         + '<p>真实 CATE 是给定特征 <var>X</var> = <var>x</var> 时的平均增量。'
-        'Uplift Modeling 利用处理前特征估计这一量，实际排序使用的是模型预测的 CATE。'
+        '增量建模利用处理前特征估计这一量，实际排序使用的是模型预测的 CATE。'
         '同一个体只经历一种分配，因此只能观察对应的结果。'
         '从观测数据估计 ATE 和 CATE，需要随机分配等实验设计支持，并依赖一致性、无干扰和两种分配都有可能等识别假设。</p>'
-        '<h3>1.4 本项目的研究问题与定向策略</h3>'
+        + _equation(r'\max_{\pi}\;\mathbb{E}[\pi(X)\tau(X)],\quad \mathbb{E}[\pi(X)]=0.20', '固定覆盖率下的业务目标')
+        + '<h3>1.4 本项目的研究问题与定向策略</h3>'
         '<p>本项目使用 Criteo Uplift v2.1 公开随机实验数据。'
         f'将广告资格分配规模固定为候选总体的 <strong>{html.escape(coverage)}</strong>，'
-        '这是项目预设的业务开发假设。两种策略在相同候选总体中各选出同样比例的用户。</p>'
-        f'<ol><li><strong>Response Propensity Targeting</strong> 按处理条件下的预测{outcome_label}概率 '
-        f'<code>P(Y=1 | X,T=1)</code> 排序。本项目复用 T-XGBoost 处理组模型的概率预测。'
+        '这是项目预设的业务开发假设，不代表 Criteo 官方真实广告预算。各策略在相同候选总体中各选出同样比例的用户。</p>'
+        f'<ol><li><strong>转化倾向定向</strong> 按处理条件下的预测{outcome_label}概率 '
+        f'<code>P(Y=1 | X,T=1)</code> 排序。分别使用 Logistic 与 XGBoost 的处理组结果模型，均仅在训练集的处理组拟合。'
         '处理分配倾向分数 <code>P(T=1 | X)</code> 描述的是获得处理资格的概率。</li>'
-        '<li><strong>Uplift Targeting</strong> 按预测 CATE 排序。候选包括 S-Learner + Logistic、'
-        'T-Learner + Logistic、T-Learner + XGBoost 和 X-Learner + XGBoost。</li></ol>'
-        f'<p class="flow">在固定 {html.escape(coverage)} 广告资格分配规模下，Uplift Targeting 能否比传统 '
-        f'Response Propensity Targeting 获得更多预期增量{outcome_label}？</p>'
-        f'<p>两种策略使用同一无处理比较基准及同一<a href="#evaluation">评价口径</a>。'
+        '<li><strong>增量定向</strong> 按预测 CATE 排序。S/T/X-Learner 各搭配 Logistic 与 XGBoost，共六种 CATE 评分。'
+        'X-Logistic 第二阶段使用连续线性回归。</li>'
+        '<li><strong>随机定向</strong> 使用同覆盖率随机分配的期望增量，不参加模型选型。</li></ol>'
+        f'<p class="flow">在固定 {html.escape(coverage)} 广告资格分配规模下，增量定向能否比传统'
+        f'转化倾向定向获得更多预期增量{outcome_label}？</p>'
+        f'<p>各策略使用同一无处理比较基准及同一<a href="#evaluation">评价口径</a>。'
         f'验证集以预设的{html.escape(criterion)}冻结策略，再在<a href="#test">独立测试集</a>比较固定覆盖率下的'
         f'增量{outcome_label}点估计及配对区间。结果用于判断是否值得开展线上验证。</p></section>'
     )
 
-
-def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
-    #-------------
-    # 函数名：_errorbar
-    # 功能：在给定 Matplotlib 坐标轴上绘制点估计及其上下置信区间。
-    # 输入参数：
-    #     - ax：Matplotlib 坐标轴对象。
-    #     - point：点估计数组。
-    #     - low：置信区间下界数组。
-    #     - high：置信区间上界数组。
-    #     - positions：各点在另一坐标轴上的位置。
-    #     - horizontal：是否绘制水平误差线。
-    #     - color：误差线和点的颜色。
-    # 输出参数：
-    #     - 无；直接在 ax 上添加误差线和点。
-    #-------------
-    valid = np.isfinite(point) & np.isfinite(low) & np.isfinite(high)
-    if horizontal:
-        ax.hlines(positions[valid], low[valid], high[valid], color=color, lw=2)
-        ax.scatter(point, positions, c=color, s=35, zorder=3)
-    else:
-        ax.vlines(positions[valid], low[valid], high[valid], color=color, lw=2)
-        ax.scatter(positions, point, c=color, s=35, zorder=3)
+    return content
 
 
-def _overlap_section(out):
+def _policy_comparison(summary, selected, criterion, unit, n):
+    values = summary[["point_estimate", "ci_low", "ci_high"]].to_numpy() * 100_000
+    finite = values[np.isfinite(values)]
+    low, high = finite.min(initial=0), finite.max(initial=0)
+    step = 10 ** np.floor(np.log10((high - low) / 4)) if high > low else 1
+    low, high = np.floor(low / step) * step, np.ceil(high / step) * step
+    if high == low:
+        high = low + step
+
+    def position(value):
+        return 100 * (value - low) / (high - low)
+
+    rows = []
+    for row, (point, left, right) in zip(summary.itertuples(), values):
+        name = html.escape(_LABELS.get(row.policy, row.policy))
+        frozen = row.policy == selected
+        interval = (f'<span class="policy-ci" style="left:{position(left):.6f}%;'
+                    f'width:{position(right)-position(left):.6f}%"></span>'
+                    if np.isfinite([left, right]).all() else "")
+        marker = (f'<span class="policy-dot" style="left:{position(point):.6f}%"></span>'
+                  if np.isfinite(point) else "")
+        rows.append(
+            f'<div class="policy-row{" frozen" if frozen else ""}" data-policy="{html.escape(row.policy)}">'
+            f'<strong>{name}{"（冻结）" if frozen else ""}</strong>'
+            f'<div class="policy-track" aria-hidden="true" style="--zero:{position(0):.6f}%">{interval}{marker}</div>'
+            f'<span class="policy-value">{_num(point)} <small>{_interval(row._asdict(), scale=100_000)}</small></span></div>'
+        )
+    return (
+        '<figure id="primary-policy-chart" class="policy-chart">'
+        f'<h3>策略比较 · {html.escape(criterion)}</h3><p class="chart-unit">{html.escape(unit)}</p>'
+        + "".join(rows)
+        + f'<div class="policy-axis" aria-hidden="true"><span>{low:g}</span><span>{(low + high)/2:g}</span><span>{high:g}</span></div>'
+        f'<figcaption><strong>独立测试集（{n:,} 行）</strong> · 圆点为点估计，横线为各策略的 95% Bootstrap 区间。'
+        '策略差异依据配对区间判断。</figcaption></figure>'
+    )
+
+
+def _overlap_section(out, summary):
     #-------------
-    # 功能：展示 Train 的经验覆盖结果，并与设计正值性及结果标签支持区别说明。
+    # 功能：展示 训练集的经验覆盖结果，并与设计正值性及结果标签支持区别说明。
     # 输入参数：
     #     - out：当前报告的结果目录。
     # 输出参数：
     #     - 可嵌入诊断章节的 HTML。
     #-------------
-    path = out / 'diagnostics/overlap_positivity.json'
     heading = '<h3>训练集覆盖与正值性</h3>'
-    summary = json.loads(path.read_text())
     strata = pd.read_csv(out / 'diagnostics/overlap_strata.csv')
     counts = strata.assign(nonempty_min=strata.min_arm_n.where(~strata.empty_bin))
     by_feature = counts.groupby('feature', sort=False).agg(
@@ -334,13 +380,14 @@ def _overlap_section(out):
     display = by_feature.reset_index().rename(columns={'feature': '特征'})
     reference = summary['expected_treatment_rate']
     reference_text = '未提供' if reference is None else f"{reference:.6f}；观察减参考 = {summary['observed_minus_expected']:.6f}"
-    content = (heading + f"<p>范围：{html.escape(summary['scope'])}；经验状态：<strong>{html.escape(summary['status'])}</strong>。"
-               f"共 {summary['n']:,} 人，Treatment {summary['n_treatment']:,} 人，Control {summary['n_control']:,} 人；"
+    status = {'adequate': '未见预设覆盖警告', 'warning': '存在覆盖警告', 'pass': '通过经验检查', 'checked_no_major_warning': '未见主要边际覆盖警告', 'checked_with_warnings': '存在边际覆盖警告'}.get(summary['status'], summary['status'])
+    content = (heading + f"<p>范围：训练集；经验状态：<strong>{html.escape(status)}</strong>。"
+               f"共 {summary['n']:,} 人，处理组 {summary['n_treatment']:,} 人，对照组 {summary['n_control']:,} 人；"
                f"观察处理比例 {summary['observed_treatment_rate']:.6f}，对照比例 {summary['observed_control_rate']:.6f}。</p>"
                f"<p>参考分配概率：{reference_text}。来源：{html.escape(summary['probability_source'])}。</p>"
                f"<p>每个特征最多 {summary['rules']['requested_bins']} 个分位数箱，重复边界合并、缺失单独成箱。"
                f"每箱任一臂少于 {summary['rules']['min_arm_count']} 人时提示警告；这是经验阈值，不是正值性的数学判定。"
-               f"缺臂 {summary['missing_arm_bins']} 箱，人数不足 {summary['weak_bins']} 箱。分箱边界仅从 Train 得到，未使用 Validation/Test。</p>"
+               f"缺臂 {summary['missing_arm_bins']} 箱，人数不足 {summary['weak_bins']} 箱。分箱边界仅从 训练集得到，未使用 验证集/测试集。</p>"
                + ('<p>' + html.escape(summary['execution_context']) + '</p>' if summary.get('execution_context') else '')
                + _table(display)
                + '<p>' + html.escape(summary['interpretation']) + '</p>')
@@ -364,6 +411,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     audit = json.loads((out / "data_preparation" / "audit.json").read_text(encoding="utf-8"))
     selection, srm = json.loads((out / "models" / "selection.json").read_text(encoding="utf-8")), json.loads((out / "diagnostics" / "srm.json").read_text(encoding="utf-8"))
     overlap = json.loads((out / "data_preparation" / "feature_overlap.json").read_text(encoding="utf-8"))
+    positivity = json.loads((out / "diagnostics/overlap_positivity.json").read_text(encoding="utf-8"))
     c2st_details = json.loads((out / "diagnostics" / "c2st_details.json").read_text(encoding="utf-8"))
     frames = {
         name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_summary" else None)
@@ -377,10 +425,16 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     }
     frames["ate_full"] = frames["ate_summary"].query("scope == 'full_dataset'")
     sample_report = json.loads((out / "data_preparation" / "sample_report.json").read_text(encoding="utf-8"))
+    response_key = "response_xgboost"
+    response_label = _LABELS[response_key]
     selected = selection["selected_policy"]
     selected_uplift = selection["selected_uplift_model"]
+    selected_label = html.escape(_LABELS.get(selected, selected))
+    uplift_label = html.escape(_LABELS.get(selected_uplift, selected_uplift))
     budget = float(selection["primary_budget"])
     outcome = manifest["primary_outcome"]
+    outcome_cn = {"conversion": "转化", "visit": "访问"}[outcome]
+    ht_unit = f"每 10 万名全部合资格用户的增量{outcome_cn}"
     e = float(manifest["assignment_probability"])
     primary_metric = selection["primary_metric"]
     metric_labels = {
@@ -390,22 +444,18 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     area_primary = primary_metric in ("auuc", "qini_score")
     primary_label = metric_labels[primary_metric]
     criterion = f"完整曲线的 {primary_label}" if area_primary else f"{budget:.0%} 覆盖率的 {primary_label}"
-    scale_label = "面积 × 10⁵" if area_primary else "每 10 万总体用户标度"
+    scale_label = ht_unit if primary_metric == "gain_ht" else "指标 × 10⁵"
     test_bootstrap = frames["test_bootstrap"]
     test_pairs = frames["test_pairwise"]
     policies = frames["test_metrics"].copy()
-    ranking = policies.drop_duplicates("policy")
     full = policies[policies.budget.eq(1.)].iloc[0]
-    random = policies[policies.policy.eq(selected)].copy()
-    random["policy"] = "random"
-    random[["auuc", "qini_score"]] = [full.gain_plugin / 2, 0.]
-    for metric in ("gain_ht", "gain_plugin", "qini_traditional"):
-        random[metric] = random.n_selected / full.n_selected * full[metric]
-    random["gain_ht_per_100k"] = random.gain_ht * 100_000
-    policies = pd.concat([policies, random], ignore_index=True)
+    random = policies[policies.policy.eq('random')].copy()
+    if set(policies.policy) != {*selection['candidates'], 'random'}:
+        raise ValueError('报告需要八种模型与 Random 的完整真实结果')
+    ranking = policies.drop_duplicates('policy')
     policies["incremental_per_100k"] = policies["gain_ht_per_100k"]
     random_gain = random.set_index("budget").gain_ht_per_100k
-    propensity_gain = policies[policies.policy.eq("propensity")].set_index("budget").gain_ht_per_100k
+    propensity_gain = policies[policies.policy.eq(response_key)].set_index("budget").gain_ht_per_100k
     policies["vs_random_per_100k"] = policies.incremental_per_100k - policies.budget.map(random_gain)
     policies["vs_propensity_per_100k"] = policies.incremental_per_100k - policies.budget.map(propensity_gain)
     if primary_metric == "gain_ht":
@@ -414,8 +464,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         policies = policies.merge(intervals, on=["policy", "budget"], validate="one_to_one")
     else:
         policies[["ci_low", "ci_high"]] = np.nan
-    primary = policies[policies.budget.eq(budget)].sort_values("incremental_per_100k", ascending=False)
-    selected_row = primary.loc[primary.policy.eq(selected)].iloc[0]
+    selected_row = policies.loc[policies.budget.eq(budget) & policies.policy.eq(selected)].iloc[0]
     figures = safe_output(out / "figures")
     figures.mkdir(exist_ok=True)
     save_c2st_plot(out)
@@ -493,11 +542,9 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 dpi=130,
                 constrained_layout=True,
             )
-            fig.suptitle(
-                'Absolute treatment effects in the full public sample\n'
-                '95% confidence intervals | Separate x-axis scales | Dashed line: zero effect',
-                fontsize=13,
-            )
+            title, font = _chart_text("全量公开样本的平均处理效应（ATE）",
+                                      "Average treatment effects in the full public sample")
+            fig.suptitle(title, fontsize=13, **font)
 
             for ax, (ate_outcome, row), color in zip(
                 axes,
@@ -542,14 +589,14 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 )
 
                 ax.set_ylim(-0.45, 0.85)
-                ax.set_yticks(
-                    [0],
-                    [ate_outcome.capitalize()],
-                )
+                label, font = _chart_text({"conversion": "转化", "visit": "访问"}[ate_outcome],
+                                          ate_outcome.capitalize())
+                ax.set_yticks([0], [label], **font)
                 ax.tick_params(axis='y', length=0, pad=12)
                 ax.xaxis.set_major_locator(MaxNLocator(nbins=6))
 
-                ax.set_xlabel('Absolute treatment effect (percentage points, pp)')
+                label, font = _chart_text("平均处理效应（百分点）", "Average treatment effect (percentage points)")
+                ax.set_xlabel(label, **font)
                 ax.set_axisbelow(True)
                 ax.grid(axis='x', color='#E6EBEF', linewidth=0.8)
 
@@ -571,18 +618,20 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             save(fig, "ate_full")
 
         balance = frames["balance"].sort_values("abs_smd", ascending=True)
-        balance_scope = "Full public data | raw float64"
         n_balance = int(balance.iloc[0]["n_treatment"] + balance.iloc[0]["n_control"])
         fig, axes = plt.subplots(1, 2, figsize=(11, 5), constrained_layout=True)
         axes[0].barh(balance["feature"], balance["abs_smd"], color="#2171ad", height=.65)
-        axes[0].axvline(.1, color="#e38636", linestyle="--", lw=1.5, label="0.1 descriptive reference")
-        axes[0].set_xlabel("Absolute standardized mean difference")
-        axes[0].legend(frameon=False, fontsize=8)
+        axes[0].axvline(.1, color="#e38636", linestyle="--", lw=1.5)
+        label, font = _chart_text("标准化均值差绝对值（|SMD|）", "Absolute standardized mean difference (|SMD|)")
+        axes[0].set_xlabel(label, **font)
         axes[1].barh(balance["feature"], balance["ks_statistic"], color="#24858b", height=.65)
-        axes[1].set_xlabel("Two-sided KS statistic")
+        label, font = _chart_text("双侧 KS 统计量", "Two-sided KS statistic")
+        axes[1].set_xlabel(label, **font)
         for ax in axes:
             ax.grid(axis="x")
-        fig.suptitle(f"{balance_scope} | n = {n_balance:,}\nMarginal T/C balance; no randomization pass/fail threshold")
+        title, font = _chart_text(f"全量样本单特征平衡（{n_balance:,} 行）",
+                                  f"Marginal balance on the full sample ({n_balance:,} rows)")
+        fig.suptitle(title, **font)
         save(fig, "balance")
 
 
@@ -609,25 +658,28 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         for ax, column in zip(axes, ("gain_ht", "gain_plugin", "qini_traditional")):
             ax.plot([0, 1], [0, float(first[column].iloc[-1]) * 100_000],
                     color=_COLORS["random"], ls="--", lw=1.6,
-                    label="Reference: q x own endpoint")
+                    label="q × endpoint")
         for ax in axes:
             ax.axhline(0, color="#c4ced7", lw=0.8)
-            ax.set_xlabel("Fraction of eligible population contacted")
+            label, font = _chart_text("候选用户覆盖率", "Coverage of eligible users")
+            ax.set_xlabel(label, **font)
             ax.xaxis.set_major_formatter(PercentFormatter(1))
             ax.grid(alpha=0.7)
             ax.legend(frameon=False, fontsize=8, loc="best", ncol=3)
-        axes[0].set_title("HT incremental gain | held-out test")
-        axes[0].set_ylabel("Incremental responses / 100,000 eligible people")
-        axes[1].set_title("Uplift Gain curve | plug-in estimate")
-        axes[1].set_ylabel("Uplift Gain x 100,000")
-        axes[2].set_title("Traditional Qini curve | auxiliary diagnostic")
-        axes[2].set_ylabel("Traditional Qini ordinate x 100,000")
+        for ax, title, ylabel in zip(
+            axes, ("HT Gain", "Uplift Gain", "Traditional Qini"),
+            (ht_unit, "Uplift Gain × 100,000", "Traditional Qini × 100,000"),
+        ):
+            ax.set_title(title)
+            label, font = _chart_text(ylabel, "Incremental outcomes per 100,000 eligible users"
+                                      if title == "HT Gain" else ylabel)
+            ax.set_ylabel(label, **font)
         save(fig, "ranking")
 
-        fig, axes = plt.subplots(1, 2, figsize=(12.6, 4.8), constrained_layout=True)
+        fig, ax = plt.subplots(figsize=(8, 4.2), constrained_layout=True)
         for name, group in policies.groupby("policy", sort=False):
             group = group.sort_values("budget")
-            axes[0].plot(
+            ax.plot(
                 group["budget"],
                 group["incremental_per_100k"],
                 color=_COLORS.get(name, "#2171ad"),
@@ -635,39 +687,19 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 markersize=3,
                 lw=2.4 if name == selected else 1.3,
                 linestyle="--" if name == "random" else "-",
-                label=_LABELS.get(name, name) + (" *" if name == selected else ""),
+                label=("Random" if name == "random" else _LABELS.get(name, name)) + (" *" if name == selected else ""),
             )
-        axes[0].axvline(budget, color="#a7b3be", lw=1, ls=":", label=f"Scenario: {budget:.0%}")
-        axes[0].set_xticks(sorted({0., .1, .2, .3, .5, 1., budget}))
-        axes[0].set_title("Contact fraction | full coverage 100%")
-        axes[0].set_xlabel("Contact fraction (not currency)")
-        axes[0].set_ylabel("HT incremental responses / 100,000 eligible users")
-        axes[0].xaxis.set_major_formatter(PercentFormatter(1))
-        axes[0].legend(frameon=False, fontsize=8)
-        axes[0].grid(alpha=0.7)
-        shown = primary.iloc[::-1]
-        for j, row in enumerate(shown.itertuples()):
-            color = _COLORS.get(row.policy, "#2171ad")
-            _errorbar(
-                axes[1],
-                np.array([row.incremental_per_100k]),
-                np.array([row.ci_low]),
-                np.array([row.ci_high]),
-                np.array([j]),
-                horizontal=True,
-                color=color,
-            )
-        axes[1].set_yticks(
-            np.arange(len(shown)),
-            [
-                _LABELS.get(name, name) + (" *" if name == selected else "")
-                for name in shown["policy"]
-            ],
-        )
-        axes[1].axvline(0, color="#a7b3be", lw=1)
-        axes[1].set_xlabel("Incremental responses / 100,000 eligible people")
-        axes[1].set_title(f"HT Gain at {budget:.0%}" + (" | pointwise 95% CI" if primary_metric == "gain_ht" else " | point estimates"))
-        axes[1].grid(axis="x")
+        ax.axvline(budget, color="#a7b3be", lw=1, ls=":", label=f"{budget:.0%}")
+        ax.set_xticks(sorted({0., .1, .2, .3, .5, 1., budget}))
+        title, font = _chart_text("覆盖率与 HT Gain", "Coverage and HT Gain")
+        ax.set_title(title, **font)
+        label, font = _chart_text("候选用户覆盖率", "Coverage of eligible users")
+        ax.set_xlabel(label, **font)
+        label, font = _chart_text(ht_unit, "Incremental outcomes per 100,000 eligible users")
+        ax.set_ylabel(label, **font)
+        ax.xaxis.set_major_formatter(PercentFormatter(1))
+        ax.legend(frameon=False, fontsize=8, ncol=2)
+        ax.grid(alpha=0.7)
         save(fig, "policy")
 
     esc = html.escape
@@ -682,16 +714,23 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     source = manifest["source"]
     source_file = esc(Path(source["path"]).name)
     primary_pairs = test_pairs if area_primary else test_pairs[test_pairs.budget.eq(budget)]
+    primary_summary = test_bootstrap if area_primary else test_bootstrap[test_bootstrap.budget.eq(budget)]
+    # Display the frozen strategy first. Keep the remaining candidates in the saved order.
+    primary_summary = pd.concat([
+        primary_summary[primary_summary.policy.eq(selected)],
+        primary_summary[primary_summary.policy.ne(selected)],
+    ])
+    train_control = frames["split_summary"].query("split == 'train' and treatment == 0").iloc[0]
+    control_n = int(train_control["n"])
+    control_events = int(train_control[event_column])
     selected_pairs = primary_pairs[primary_pairs.policy.eq(selected)].set_index("reference")
-    vs_propensity = selected_pairs.loc["propensity"] if selected != "propensity" else None
+    vs_propensity = selected_pairs.loc[response_key] if selected != response_key else None
     vs_random = selected_pairs.loc["random"]
     uplift_vs_propensity = primary_pairs.loc[
-        primary_pairs.policy.eq(selected_uplift) & primary_pairs.reference.eq("propensity")
+        primary_pairs.policy.eq(selected_uplift) & primary_pairs.reference.eq(response_key)
     ].iloc[0]
 
-    def paired_finding(row, reference, subject="冻结策略"):
-        if row is None:
-            return "Validation 冻结了 Response Propensity。同策略比较的点差与区间恒为 0。"
+    def paired_finding(row, reference, subject):
         low, high = row["ci_low"], row["ci_high"]
         interpretation = (
             "有效重复不足，无法判断差值方向" if pd.isna(low) else
@@ -700,44 +739,38 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             "区间包含零，现有证据不足以区分策略效果"
         )
         return (
-            f"{subject}相对 {reference} 的 {criterion} 点估计差值为 {_num(row['difference'] * 100_000)}，"
+            f"{subject}相对 {reference} 的点估计差值为 {row['difference'] * 100_000:+.2f}，"
             f"配对 95% CI {_interval(row, scale=100_000)}。{interpretation}。"
         )
 
-    propensity_finding = paired_finding(vs_propensity, "Response Propensity")
-    random_finding = paired_finding(vs_random, "Random")
-    uplift_finding = paired_finding(uplift_vs_propensity, "Response Propensity", esc(selected_uplift))
+    uplift_finding = paired_finding(uplift_vs_propensity, response_label, uplift_label)
+    propensity_finding = paired_finding(vs_propensity, response_label, selected_label) if vs_propensity is not None and selected != selected_uplift else ""
     test_comparisons = primary_pairs.loc[
-        (primary_pairs.policy.eq(selected) & primary_pairs.reference.isin({"propensity", "random"}))
-        | (primary_pairs.policy.eq(selected_uplift) & primary_pairs.reference.eq("propensity"))
+        (primary_pairs.policy.eq(selected) & primary_pairs.reference.isin({response_key, "response_logistic", "random"}))
+        | (primary_pairs.policy.eq(selected_uplift) & primary_pairs.reference.eq(response_key))
     ]
-    if vs_propensity is not None and vs_propensity.ci_low > 0:
-        decision = "独立 Test 支持把获选策略带入与传统定向同覆盖率的线上随机验证。"
-    elif vs_propensity is not None and vs_propensity.ci_high < 0:
-        decision = "独立 Test 支持保留传统定向作为当前基线，并在线上复核策略差异。"
-    elif selected == "propensity":
-        decision = "本次证据支持保留传统响应倾向排序作为固定预算的候选投放方案，并以同覆盖率的线上随机实验验证 Uplift 挑战策略。"
-    else:
-        decision = "保留传统定向作为线上对照，使用同覆盖率的随机实验判断 Uplift 能否带来业务增量。"
+    decision = f"保留验证集预先冻结的 {selected_label}；在固定覆盖率的线上随机实验中验证可迁移性。"
 
     def point_estimates(frame):
         return pd.DataFrame({
             "策略": frame.policy,
             **{f"{metric_labels[key]} × 10⁵": frame[key].map(lambda v: _num(v * 100_000))
-               for key in metric_labels},
+               for key in ("gain_ht", "gain_plugin", "qini_traditional", "auuc", "qini_score")},
         })
 
     ate_all = frames["ate_summary"]
     ate_display = pd.DataFrame(
         {
-            "样本": ate_all["scope"].map({"full_dataset": "全量源数据", "test": "独立 Test"}),
-            "指标": ate_all["outcome"],
+            "样本": ate_all["scope"].map({"full_dataset": "全量源数据", "test": "独立测试集"}),
+            "指标": ate_all["outcome"].map({"conversion": "转化", "visit": "访问"}),
             "对照率": ate_all["response_control"].map(lambda x: f"{100*x:.4f}%"),
             "处理率": ate_all["response_treatment"].map(lambda x: f"{100*x:.4f}%"),
             "ATE（百分点）": ate_all["ate"].map(lambda x: _num(100 * x, 4)),
             "95% CI（百分点）": ate_all.apply(
                 lambda row: _interval(row, scale=100, digits=4), axis=1
             ),
+            "标准误（百分点）": (ate_all["standard_error"] * 100).map(lambda v: _num(v, 5)),
+            "Z 统计量": ate_all["z_statistic"].map(lambda v: _num(v, 3)),
             "相对增幅": ate_all["relative_uplift"].map(
                 lambda x: "—" if pd.isna(x) else f"{100*x:.2f}%"
             ),
@@ -750,7 +783,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             "模型": c2["model"],
             "ROC AUC": c2["roc_auc"].map(lambda x: _num(x, 4)),
             "LogLoss": c2["log_loss"].map(lambda x: _num(x, 5)),
-            "Dummy LogLoss": c2["dummy_log_loss"].map(lambda x: _num(x, 5)),
+            "常数基线 LogLoss": c2["dummy_log_loss"].map(lambda x: _num(x, 5)),
             "置换 p": c2["pvalue"].map(_p),
             "Holm p（两模型）": c2["pvalue_holm"].map(_p),
         }
@@ -760,7 +793,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         "bootstrap_mean", ascending=False, kind="stable",
     )
     val_display = pd.DataFrame({
-        "政策": val.policy, "点估计": val.point_estimate.map(lambda x: _num(x * 100_000)),
+        "策略": val.policy.map(lambda key: _LABELS.get(key, key)),
+        "点估计": val.point_estimate.map(lambda x: _num(x * 100_000)),
         "Bootstrap 均值": val.bootstrap_mean.map(lambda x: _num(x * 100_000)),
         "95% CI": val.apply(lambda r: _interval(r, scale=100_000), axis=1),
         "获胜频率": val.win_frequency.map(lambda x: _num(x * 100, 1) + "%" if pd.notna(x) else "—"),
@@ -768,24 +802,36 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         "冻结": val.policy.map(lambda name: "是" if name == selected else ""),
     })
     test_display = pd.DataFrame({
-        "政策": test_bootstrap.policy,
-        "覆盖率": test_bootstrap.budget.map(lambda q: f"{q:.1%}" if pd.notna(q) else "完整曲线"),
-        "点估计": test_bootstrap.point_estimate.map(lambda x: _num(x * 100_000)),
-        "Bootstrap 均值": test_bootstrap.bootstrap_mean.map(lambda x: _num(x * 100_000)),
-        "95% CI": test_bootstrap.apply(lambda r: _interval(r, scale=100_000), axis=1),
-        "有效重复": test_bootstrap.valid_replicates,
+        "策略": primary_summary.policy.map(lambda key: _LABELS.get(key, key)),
+        "点估计": primary_summary.point_estimate.map(lambda x: _num(x * 100_000)),
+        "Bootstrap 均值": primary_summary.bootstrap_mean.map(lambda x: _num(x * 100_000)),
+        "95% CI": primary_summary.apply(lambda r: _interval(r, scale=100_000), axis=1),
+        "有效重复": primary_summary.valid_replicates,
     })
+    core = policies[policies.budget.eq(budget)].set_index('policy').loc[primary_summary.policy]
+    test_display = pd.DataFrame({
+        '策略名称': [_LABELS.get(name, name) + ('（冻结）' if name == selected else '') for name in core.index],
+        'HT Gain @20% × 10⁵': core.gain_ht_per_100k.map(_num).to_numpy(),
+        '95% CI': [_interval(row) for _, row in core.iterrows()],
+        **{label: (core[column] * 100_000).map(_num).to_numpy() for column, label in (
+            ('gain_plugin', 'Uplift Gain × 10⁵'), ('qini_traditional', 'Traditional Qini Gain × 10⁵'),
+            ('auuc', 'AUUC × 10⁵'), ('qini_score', 'Qini Score × 10⁵'))},
+    })
+    # Self comparison is exactly zero, not an independent significance test.
+    if selected in ('response_logistic', 'response_xgboost'):
+        self_row = dict(policy=selected, reference=selected, difference=0., ci_low=0., ci_high=0., valid_replicates=selection['n_bootstrap'])
+        test_comparisons = pd.concat([test_comparisons, pd.DataFrame([self_row])], ignore_index=True)
     def paired_table(frame):
         return _table(pd.DataFrame({
-            "策略": frame.policy, "参考策略": frame.reference,
-            "点估计差值": frame.difference.map(lambda x: _num(x * 100_000)),
+            "策略": frame.policy.map(lambda key: _LABELS.get(key, key)),
+            "参考策略": frame.reference.map(lambda key: _LABELS.get(key, key)),
+            "点估计差值": frame.difference.map(lambda x: "—" if pd.isna(x) else f"{x * 100_000:+.2f}"),
             "配对 95% CI": frame.apply(lambda r: _interval(r, scale=100_000), axis=1),
             "有效配对": frame.valid_replicates,
         }))
 
     val_pairs = frames["validation_pairwise"]
     val_pairs = val_pairs.loc[val_pairs.policy.eq(selected)]
-    test_display = test_display.loc[test_bootstrap.index if area_primary else test_bootstrap.index[test_bootstrap.budget.eq(budget)]]
     ranking_display = pd.DataFrame({
         "政策": ranking.policy,
         "AUUC × 10⁵": ranking.auuc.map(lambda x: _num(x * 100_000)),
@@ -799,18 +845,19 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         "Traditional Qini Gain × 10⁵": policies.qini_traditional.map(lambda x: _num(x * 100_000)),
         "HT 增量 / 10 万总体用户": policies.incremental_per_100k.map(_num),
         "HT 对 Random 差值": policies.vs_random_per_100k.map(_num),
-        "HT 对 Propensity 差值": policies.vs_propensity_per_100k.map(_num),
+        "HT 对 Response-XGBoost 差值": policies.vs_propensity_per_100k.map(_num),
     })
     if primary_metric == "gain_ht":
         budget_display["HT 点态 95% CI"] = policies.apply(_interval, axis=1)
-    key_budgets = [.1, .2, .3, 1.]
+    key_budgets = [.1, .2, .3, .5, 1.]
     key_rows = []
-    for name in dict.fromkeys([selected, "random", "propensity"]):
+    for name in dict.fromkeys([selected, "random", response_key]):
         for q in key_budgets:
             key_rows.extend(policies.index[(policies["policy"] == name) & np.isclose(policies["budget"], q)])
-    budget_key_display = budget_display.loc[key_rows]
+    budget_key_display = budget_display.loc[key_rows].drop(columns=["Uplift Gain × 10⁵", "Traditional Qini Gain × 10⁵"])
+    budget_key_display = budget_key_display.drop(columns="HT 对 Response-XGBoost 差值") if selected == response_key else budget_key_display
     comparison_budgets = budget_display.loc[
-        policies.policy.isin({selected, "random", "propensity"}) & ~policies.budget.isin(key_budgets)
+        policies.policy.isin({selected, "random", response_key}) & ~policies.budget.isin(key_budgets)
     ]
     frozen = policies.loc[policies["policy"] == selected].set_index("budget").loc[key_budgets]
 
@@ -831,7 +878,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     })
     marginal_findings = "；".join(
         f"{label} 为{'正' if value > 0 else '负' if value < 0 else '零'}增量 {_num(value)}"
-        for label, value in zip(("0%–10%", "10%–20%", "20%–30%", "30%–100%"), marginal)
+        for label, value in zip(("0%–10%", "10%–20%", "20%–30%", "30%–50%", "50%–100%"), marginal)
     )
     marginal_trend = (
         "20%–30% 的新增贡献低于 10%–20%，这两个等宽区间的点估计呈递减。"
@@ -848,7 +895,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     outcome_learning = learning.loc[learning.outcome.eq(outcome)].set_index("model")
     learning_display = pd.DataFrame(
         {
-            "指标": learning["outcome"],
+            "指标": learning["outcome"].map({"conversion": "转化", "visit": "访问"}),
             "模型": learning["model"],
             "LogLoss": learning["log_loss"].map(lambda x: _num(x, 5)),
             "AP": learning["average_precision"].map(lambda x: _num(x, 5)),
@@ -857,15 +904,32 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         }
     )
     overlap_data = overlap.get("fraction_matching_training_features", {})
-    overlap_text = "、".join(f"{esc(str(k))} {v:.2%}" for k, v in overlap_data.items())
+    overlap_text = "、".join(f"{dict(validation='验证集', test='测试集').get(k, k)} {v:.2%}" for k, v in overlap_data.items())
     srm_text = (
         f"处理组占 {srm['observed_ratio']:.4%}，外部参考为 {srm['expected_ratio']:.2%}，"
-        f"二项检验 p = {_p(srm['pvalue'])}。该比较衡量公开样本对外部比例的偏离，"
+        f"Pearson 卡方检验 p = {_p(srm['pvalue'])}。该比较衡量公开样本对外部比例的偏离，"
         "原始实验 SRM 仍需依据各实验的设计分流比例与计数。"
     )
     balance_caption = "原始全量 float64 特征的 SMD 与 KS。0.1 是 SMD 的经验参考，KS p 值为探索性结果。"
-    c2st_sampling_text = f"C2ST 从全量源数据的两臂分别等概率无放回抽取 {int(c2st_details['n_control']):,} 行"
-    max_ks_row = frames["balance"].loc[frames["balance"]["ks_statistic"].idxmax()]
+    c2st_sampling_text = f"C2ST 从全量源数据无放回抽样，对照组 {int(c2st_details['n_control']):,} 行，处理组 {int(c2st_details['n_treatment']):,} 行"
+    balance = frames["balance"]
+    max_smd = balance.loc[balance.abs_smd.idxmax()]
+    max_ks = balance.loc[balance.ks_statistic.idxmax()]
+    diagnostic_overview = pd.DataFrame([
+        ("SRM", f"公开全量 · 处理组 {srm['observed_ratio']:.4%}，外部参考 {srm['expected_ratio']:.2%}，Pearson p = {_p(srm['pvalue'])}",
+         "该检验比较公开数据与外部参考比例。原实验的分流质量需依据原设计判断。"),
+        ("SMD / KS", f"公开全量 · 最大 |SMD| {max_smd.abs_smd:.6f}（{max_smd.feature}），最大 KS {max_ks.ks_statistic:.6f}（{max_ks.feature}）",
+         "汇总的是逐特征差异幅度，需结合联合分布检查。"),
+        ("C2ST", f"等量抽样 · {int(c2st_details['n_control']) + int(c2st_details['n_treatment']):,} 行。"
+         + "；".join(f"{row.model} AUC {_num(row.roc_auc, 4)}，Holm p = {_p(row.pvalue_holm)}" for row in c2.itertuples()) + "。",
+         "以 5% 为探索性参考，"
+         + ("、".join(c2.loc[c2.pvalue_holm.lt(.05), "model"]) + " 检出可观测分配信号。"
+            if c2.pvalue_holm.lt(.05).any() else "两个分类器均未检出可观测分配信号。")),
+        ("覆盖与正值性", f"训练集 · 缺臂 {positivity['missing_arm_bins']} 箱，低于经验阈值 {positivity['weak_bins']} 箱",
+         f"阈值为每臂 {positivity['rules']['min_arm_count']} 人。逐特征分箱只能检查边际覆盖。"),
+        ("结果可学习性", f"验证集 · {outcome_cn} AP：XGBoost {_num(outcome_learning.loc['xgboost', 'average_precision'], 4)}，Dummy {_num(outcome_learning.loc['dummy', 'average_precision'], 4)}",
+         "结果预测提供响应排序的信息，CATE 排序的价值仍需用策略评估检验。"),
+    ], columns=["诊断", "样本与观察", "读数含义"])
     b = int(c2["permutations"].iloc[0])
     boot = int(selection["n_bootstrap"])
     full_interval = f"，点态 95% CI {_interval(frozen.iloc[-1])}" if primary_metric == "gain_ht" else ""
@@ -886,35 +950,51 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             "visit_positive": "访问数",
         }
     )
+    split_display["划分"] = split_display["划分"].replace({"train": "训练集", "validation": "验证集", "test": "测试集"})
     footer_versions = ", ".join(
         f"{esc(k)} {esc(str(v))}" for k, v in manifest.get("versions", {}).items()
     )
     stability = json.loads((out / "stability" / "report.json").read_text(encoding="utf-8"))
-    protocol = json.loads((out / "stability" / "protocol.json").read_text(encoding="utf-8"))
-    aggregate = pd.read_csv(out / "stability/aggregate.csv")
-    frequencies = pd.read_csv(out / "stability/selection_frequency.csv")
-    stability_columns = ["split_method", "training_fraction", "policy",
-                         "gain_ht_per_100k_mean", "gain_ht_per_100k_std", "vs_propensity_per_100k_mean"]
-    fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
-    for name in aggregate.policy.unique():
-        rows = aggregate[(aggregate.policy == name) & (aggregate.split_method == "row_stratified")].sort_values("training_fraction")
-        ax.plot(rows.training_fraction, rows.gain_ht_per_100k_mean, "o-", label=name)
-    ax.set(xlabel="Fraction of development training partition", ylabel="HT gain per 100k eligible",
-           title="Development stability: mean across configured seeds")
-    ax.legend(fontsize=8)
-    ax.grid(alpha=.2)
-    stability_plot = figures / "stability.png"
-    fig.savefig(stability_plot, dpi=160)
-    plt.close(fig)
+    stability_enabled = stability['status'] == 'complete'
+    protocol = {'seeds': [], 'training_fractions': []}
+    if stability_enabled:
+        protocol = json.loads((out / "stability" / "protocol.json").read_text(encoding="utf-8"))
+        aggregate = pd.read_csv(out / "stability/aggregate.csv")
+        frequencies = pd.read_csv(out / "stability/selection_frequency.csv")
+        stability_columns = ["split_method", "training_fraction", "policy",
+                             "gain_ht_per_100k_mean", "gain_ht_per_100k_std", "vs_propensity_per_100k_mean"]
+        fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
+        for name in aggregate.policy.unique():
+            rows = aggregate[(aggregate.policy == name) & (aggregate.split_method == "row_stratified")].sort_values("training_fraction")
+            ax.plot(rows.training_fraction, rows.gain_ht_per_100k_mean, "o-", label=_LABELS.get(name, name))
+        title, font = _chart_text("开发集稳定性 · 跨随机种子均值", "Development stability: mean across seeds")
+        ax.set_title(title, **font)
+        label, font = _chart_text("开发训练子集比例", "Fraction of development training partition")
+        ax.set_xlabel(label, **font)
+        ax.xaxis.set_major_formatter(PercentFormatter(1))
+        label, font = _chart_text(ht_unit, "Incremental outcomes per 100,000 eligible users")
+        ax.set_ylabel(label, **font)
+        ax.legend(fontsize=8)
+        ax.grid(alpha=.2)
+        stability_plot = figures / "stability.png"
+        fig.savefig(stability_plot, dpi=160)
+        plt.close(fig)
+        stability_detail = pd.read_csv(out / "stability/longmetrics.csv")
+        stability_detail = stability_detail.loc[
+            stability_detail.policy.isin({selected, response_key}) | stability_detail.selected_on_validation,
+            ["seed", "split_method", "training_fraction", "policy", "train_n",
+             "validation_n", "gain_ht_per_100k", "vs_propensity_per_100k", "selected_on_validation"],
+        ]
     assumptions = json.loads((out / "business" / "assumptions.json").read_text(encoding="utf-8"))
     plans = pd.read_csv(out / "business/hypothetical_ab_plans.csv")
     scenarios = pd.read_csv(out / "business/hypothetical_cost_scenarios.csv")
-    stability_detail = pd.read_csv(out / "stability/longmetrics.csv")
-    stability_detail = stability_detail.loc[
-        stability_detail.policy.isin({selected, "propensity"}) | stability_detail.selected_on_validation,
-        ["seed", "split_method", "training_fraction", "policy", "train_n",
-         "validation_n", "gain_ht_per_100k", "vs_propensity_per_100k", "selected_on_validation"],
-    ]
+    training_display = pd.DataFrame([
+        {'策略': _LABELS.get(name, name), '验证评分标准差': _num(details.get('validation_score_std'), 7),
+         '训练警告': '；'.join(details.get('warnings', [])) or '无',
+         '训练状态': '已拟合', '拟合秒数': _num(details['seconds']),
+         '来源': _LABELS.get(details.get('fit_source', name), name)}
+        for name, details in manifest['models'].items()
+    ])
     model_settings = {
         name: details["parameters"] for name, details in manifest["models"].items()
     }
@@ -930,28 +1010,45 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         f" --stability-fractions {' '.join(map(str, protocol['training_fractions']))}"
         f" --output artifacts/{shlex.quote(out.name)}"
     )
+    if stability_enabled:
+        reproducibility += ' --run-stability'
+    if not stability_enabled:
+        reproducibility = reproducibility.replace(' --stability-seeds  --stability-fractions ', ' --skip-stability')
+    if arguments.get('protocol'):
+        reproducibility += f" --stage {arguments['stage']} --protocol artifacts/{Path(arguments['protocol']).name}"
     ab_display = plans[["absolute_mde", "relative_mde", "n_policy_A", "n_policy_B", "n_total"]].copy()
     ab_display["absolute_mde"] = ab_display.absolute_mde.map(lambda x: f"{x * 100:.3f} pp")
     ab_display["relative_mde"] = ab_display.relative_mde.map(lambda x: f"{x:.0%}")
+    ab_display = ab_display.rename(columns={
+        "absolute_mde": "绝对 MDE", "relative_mde": "相对 MDE", "n_policy_A": "策略 A",
+        "n_policy_B": "策略 B", "n_total": "总样本量",
+    })
     economic_columns = ["value_per_conversion_assumed", "contact_cost_assumed",
                         "gross_incremental_value", "contact_cost_total", "net_incremental_value",
                         "net_ci_low_conditional", "net_ci_high_conditional", "break_even_contact_cost"]
-    stability_stratified = aggregate.loc[aggregate.split_method.eq("row_stratified") &
-                                         aggregate.policy.eq(selected)].sort_values("training_fraction")
-    sensitivity = "、".join(f"{row.training_fraction:.0%} 训练量时为 {row.gain_ht_per_100k_mean:,.2f}"
-                            for row in stability_stratified.itertuples())
-    group_wins = frequencies.query("split_method == 'feature_group' and selected_count > 0")
-    group_winners = "、".join(f"{esc(row.policy)}（{row.selected_count}/{row.runs}）" for row in group_wins.itertuples())
+    economic_display = scenarios[economic_columns].round(4)
+    economic_display.columns = [
+        "单次转化价值", "单位触达成本", "增量总价值", "触达总成本",
+        "净增量价值", "条件区间下限", "条件区间上限", "盈亏平衡单位成本",
+    ]
+    sensitivity, group_winners = '本轮未进行额外重训，不能据此推断训练稳定性', ''
+    if stability_enabled:
+        stability_stratified = aggregate.loc[aggregate.split_method.eq("row_stratified") &
+                                             aggregate.policy.eq(selected)].sort_values("training_fraction")
+        sensitivity = "、".join(f"{row.training_fraction:.0%} 训练量时为 {row.gain_ht_per_100k_mean:,.2f}"
+                                for row in stability_stratified.itertuples())
+        group_wins = frequencies.query("split_method == 'feature_group' and selected_count > 0")
+        group_winners = "、".join(f"{esc(row.policy)}（{row.selected_count}/{row.runs}）" for row in group_wins.itertuples())
     scenario_example = scenarios.iloc[len(scenarios) // 2]
     best_areas = (
-        f"Test 中 AUUC 最高的是 {esc(ranking.loc[ranking.auuc.idxmax(), 'policy'])}，"
+        f"测试集中 AUUC 最高的是 {esc(ranking.loc[ranking.auuc.idxmax(), 'policy'])}，"
         f"Traditional Qini Score 最高的是 {esc(ranking.loc[ranking.qini_score.idxmax(), 'policy'])}。"
-        "这两项跨覆盖率排序统计承担辅助诊断，正式决策沿用预设的 Validation 标准。"
+        "这两项跨覆盖率排序统计承担辅助诊断，正式决策沿用预设的 验证集标准。"
     )
-    if selected == "propensity":
-        test_relationship = "Validation 冻结了传统响应倾向排序。Test 中的 Uplift 候选结果仅用于说明模型表现。"
-    else:
-        test_relationship = "Validation 选出的 Uplift 策略在 Test 中保持冻结，配对差值衡量其相对传统排序的独立证据。"
+    uplift_ci = _interval(uplift_vs_propensity, scale=100_000)
+    unit_note = f"以下差值单位为{scale_label}。"
+    random_reference = primary_summary.loc[primary_summary.policy.eq("random")].iloc[0]
+    outcome_rate = n_events / n_test
 
     section_titles = {
         "summary": "00. 执行摘要",
@@ -959,7 +1056,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         "data": "02. 数据来源与准备",
         "diagnostics": "03. 实验诊断与因果识别",
         "ate": "04. 平均处理效应（ATE）",
-        "modeling": "05. Uplift 建模",
+        "modeling": "05. 因果增量建模",
         "evaluation": "06. 评估框架",
         "validation": "07. 验证与模型选择",
         "test": "08. 独立测试评估",
@@ -967,51 +1064,87 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         "conclusion": "10. 业务启示与结论",
         "appendix": "附录：技术细节与复现",
     }
+    stability_html = '<h3>开发集稳定性分析</h3><p>' + esc(stability.get('reason', '')) + '本轮没有新增跨种子或训练规模重训结果，不以历史结果替代九策略证据。</p></section>'
+    if stability_enabled:
+        stability_html = (
+        '<h3>开发集稳定性分析</h3>'
+        f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原测试集 {int(stability["test_n_excluded"]):,} 行。'
+        f'正式测试集 交集为零：{stability["all_test_row_overlaps_zero"]}；按特征分组的交集为零：{stability["all_group_split_feature_overlaps_zero"]}。</p>'
+        f'<p>Seeds {esc(str(protocol["seeds"]))}；训练比例 {esc(str(protocol["training_fractions"]))}；比较行分层与特征分组划分。'
+        f'各配置按 {esc(criterion)} 的 Bootstrap 均值选择。均值和标准差描述重复开发实验的波动，不是独立测试集 置信区间。相同匿名特征不代表同一用户。</p>'
+        + _image(stability_plot, "开发期训练规模敏感性", "所有点来自已保存的 aggregate.csv；没有使用原测试集 重新选型。")
+        + '<details><summary>训练规模、特征分组与获选频率明细</summary>'
+        + _table(aggregate[stability_columns].round(2), wide=True)
+        + '<details><summary>各随机种子、训练规模与划分方式</summary>'
+        + _table(stability_detail.round(2), wide=True) + '</details>'
+        + '<h3>验证集策略获选频率</h3>' + _table(frequencies.round(3), wide=True) + '</details>'
+        + f'<p>特征分组划分下的获选策略与次数为 {group_winners}。'
+        '不同划分改变开发评估的特征支持与正例构成，频率用于描述这种敏感性。</p></section>'
+        )
+    stage = manifest.get('arguments', {}).get('stage', '')
+    stage_title = {'development': '开发实验报告 · 500 万行', 'full': '正式实验报告 · 全量数据'}.get(stage, '')
+    protocol_note = ''
+    if 'protocol' in sample_report:
+        frozen_protocol = sample_report['protocol']
+        protocol_note = (f'<p class="key">预冻结正式测试集 {frozen_protocol["test_n"]:,} 行；排除历史建模记录 '
+                         f'{frozen_protocol["historical_rows_excluded"]:,} 行。' + esc(frozen_protocol['limitations']) + '</p>')
+        if stage == 'development':
+            protocol_note += '<p>本报告的测试集是开发样本内部留出评价；全部 500 万开发行与预冻结正式测试集无交集。开发结果不构成全量正式测试集证据。</p>'
     sections = [
-        f'<header><p class="eyebrow">End-to-End Applied Data Science Case Study</p>'
-        f'<h1>{_TITLE}</h1>'
-        '<p class="subtitle">Causal Uplift Modeling, Experimental Diagnostics and Policy Evaluation on the Criteo Dataset</p></header>',
+        f'<header><p class="eyebrow">应用数据科学研究报告</p>'
+        f'<h1>{_TITLE}</h1><p class="subtitle">{stage_title}</p>'
+        '<p class="subtitle">基于 Criteo 数据的因果增量建模、实验诊断与投放策略评价</p></header>',
         f'<section class="lead" id="summary"><h2>{section_titles["summary"]}</h2>'
-        f'<p>在固定覆盖预算内，选择能带来最多增量{"转化" if outcome == "conversion" else "访问"}的广告定向策略。'
-        f'使用 Criteo 全量 {int(audit["n_rows"]):,} 行做审计与诊断，抽取 {int(manifest["sample_n"]):,} 行建模，'
-        f'以独立 Test {n_test:,} 行评估。预设主指标为 <strong>{esc(criterion)}</strong>。</p>'
-        f'<div class="cards"><div><span>Validation 获选策略</span><strong>{esc(selected)}</strong></div>'
-        f'<div><span>Validation 最佳 Uplift 模型</span><strong>{esc(selected_uplift)}</strong></div>'
-        f'<div><span>Test {primary_pct} HT 增量 / 10 万人</span>'
-        f'<strong>{_num(selected_row["incremental_per_100k"])}</strong>'
+        f'<p class="decision"><strong>{decision}</strong></p>'
+        f'<p>预设决策口径为 <strong>{esc(criterion)}</strong>。'
+        f'本次建模 {int(manifest["sample_n"]):,} 行，在 {n_test:,} 行留出测试样本上评估。</p>'
+        f'<div class="cards"><div><span>预设覆盖率</span><strong>{primary_pct}</strong>'
+        '<span>候选用户中获得广告资格的比例</span></div>'
+        f'<div><span>冻结策略的测试集 HT Gain</span><strong>{_num(selected_row["incremental_per_100k"])}</strong>'
         + (f'<span>95% CI {_interval(selected_row)}</span>' if primary_metric == "gain_ht" else "")
-        + f'</div></div><p>{propensity_finding} {uplift_finding if selected == "propensity" else ""}</p><p>{random_finding}</p>'
-        f'<p class="key">{decision}</p></section>',
+        + f'<span>{esc(ht_unit)}</span></div>'
+        f'<div><span>相对随机（Random）</span><strong>{vs_random.difference * 100_000:+.2f}</strong>'
+        f'<span>配对 95% CI {_interval(vs_random, scale=100_000)}</span><span>{esc(scale_label)}</span></div></div>'
+        f'<p>验证集最优 Uplift 候选为 <strong>{uplift_label}</strong>。独立测试相对 {response_label} '
+        f'的点差为 <strong>{uplift_vs_propensity.difference * 100_000:+.2f}</strong>，配对 95% CI {uplift_ci}。'
+        + ('区间包含零，本次决策沿用验证集冻结的策略。'
+           if uplift_vs_propensity.ci_low <= 0 <= uplift_vs_propensity.ci_high
+           else f'独立测试沿用已冻结的 {selected_label}。')
+        + '</p><p class="print-note">打印版展示核心结果。诊断、辅助指标、公式和情景明细可在离线 HTML 中展开。</p></section>',
         _business_section(section_titles["business"], primary_pct, outcome, criterion),
-        f'<section id="data"><h2>{section_titles["data"]}</h2>'
+        f'<section id="data"><h2>{section_titles["data"]}</h2>' + protocol_note +
         f'<p>源文件 <code>{source_file}</code> 共 {int(audit["n_rows"]):,} 行；本次建模样本 {int(manifest["sample_n"]):,} 行，'
-        f'抽样方法：{esc(sample_report["sampling"])}，随机种子 {int(manifest["seed"])}。固定采用 train / validation / test = 60% / 20% / 20%，'
+        f'抽样方法：{("保留全部源数据行" if manifest["arguments"]["sample_size"] == 0 else "按固定种子无放回均匀随机抽样")}，随机种子 {int(manifest["seed"])}。固定采用 训练集 / 验证集 / 测试集 = 60% / 20% / 20%，'
         '按 treatment × 主结果联合分层；模型均只在 train 拟合，没有 train + validation 重拟合。</p>'
         '<p>研究对象是公开样本中 treatment <strong>分配</strong>对结果的 ITT 风格效应。模型仅用 f0–f11 处理前特征；'
-        'exposure、visit、conversion 不作为特征，也不按曝光或访问行为筛选人群。propensity 在本报告中表示 '
+        'exposure、visit、conversion 不作为特征，也不按曝光或访问行为筛选人群。转化倾向在本报告中表示 '
         '<code>P(Y=1 | X,T=1)</code> 的结果倾向排序，不表示处理分配概率。</p>'
         f'<p>全量扫描发现：缺失/非有限数 {int(audit["missing_or_nonfinite"]):,}，非二元标签 {int(audit["invalid_binary_labels"]):,}，'
         f'对照组曝光 {int(audit["control_exposed"]):,}，转化但未访问 {int(audit["conversion_without_visit"]):,}；'
-        f'全字段重复指纹 {int(audit["duplicate_row_fingerprints"]):,}。重复指纹只是记录特征诊断，没有 user ID，因此保留原行，不能直接推断重复用户。</p>'
+        f'全字段重复指纹 {int(audit["duplicate_row_fingerprints"]):,}。重复指纹只是记录特征诊断，没有 用户 ID，因此保留原行，不能直接推断重复用户。</p>'
         f'<p>与训练集匿名特征向量相同的比例：{overlap_text}。该检查基于建模时 float32 表示；相同向量不等于同一用户，也不能排除未知用户依赖。</p>'
         + _table(pd.DataFrame(audit["group_summary"]).rename(columns={
             "group": "分组", "n": "行数", "fraction": "占比", "conversion_positive": "转化数",
             "conversion_rate": "转化率",
-        }).assign(占比=lambda t: t.占比.map(lambda x: f"{x:.2%}"),
+        }).assign(分组=lambda t: t.分组.replace({'Control': '对照组', 'Treatment': '处理组', 'Total': '总体'}), 占比=lambda t: t.占比.map(lambda x: f"{x:.2%}"),
                   转化率=lambda t: t.转化率.map(lambda x: f"{x:.4%}")))
         + '<h3>数据字段与建模划分</h3>'
         '<p>Criteo v2.1 公开数据来自广告增量实验。treatment 表示实验分配，conversion 和 visit 是二元结果，'
         'exposure 表示实际曝光，f0–f11 是匿名预处理协变量。'
         '划分已核验来源行号非空且唯一，三个集合两两互斥，并完整覆盖抽样行。</p>'
         + _table(split_display)
+        + '<details><summary>建模样本特征分布</summary>'
         + _image(figures / "sample_features.png", "十二个建模特征的分布",
                  "横轴为对应匿名特征值，纵轴为对数刻度的建模样本频数。尖峰和离散值有助于解释 KS 的并列值及特征向量重合。")
-        + '</section>',
+        + '</details></section>',
         f'<section id="diagnostics"><h2>{section_titles["diagnostics"]}</h2>'
         '<p>识别目标是公开样本中分配处理对结果的平均效应与排序政策价值。'
-        '解释依赖一致性、无干扰、分配与潜在结果近似独立及各特征区域的处理概率远离 0 和 1。'
+        '解释依赖一致性与无干扰（SUTVA）、分配与潜在结果近似独立及各特征区域的处理概率远离 0 和 1。'
         'Criteo 的实验描述提供设计依据，以下检查衡量公开数据中的可观测差异。'
         '公开版本的抽样与隐私处理、未知实验分层和用户依赖限制了对原始随机机制的核验。</p>'
+        '<h3>诊断总览</h3>'
+        + '<div id="diagnostic-overview">' + _table(diagnostic_overview) + '</div>'
+        + '<details><summary>实验诊断明细</summary>'
         '<h3>公开分流比例检查（SRM）</h3>'
         f'<p>{srm_text} 当前训练集处理比例 e = {e:.6f} 只作为 HT 评估的 plug-in 分配概率，并非已知实验设计参数。</p>'
         + '<h3>单特征分布平衡（SMD / KS）</h3><p>SMD 检查标准化均值差，KS 检查两组经验分布的最大距离。'
@@ -1027,54 +1160,51 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _image(figures / "c2st_null.png", "C2ST 置换 AUC 分布",
                  f"柱高表示 {b} 次完整重拟合置换中落入各 AUC 区间的次数；橙线为真实标签的观测 AUC，灰色虚线为 0.5。"
                  "原始 p 按逐次 AUC 计算，未用直方图分箱近似；Holm 校正仅包含原定的两个分类器。")
-        + f'<p>{c2st_conclusion}全量公开数据最大 |SMD| 为 {frames["balance"]["abs_smd"].max():.6f}；最大KS为 {max_ks_row["ks_statistic"]:.6f}（{esc(max_ks_row["feature"])}）。置换p值分辨率为 {1 / (b + 1):.3f}。</p>'
+        + f'<p>{c2st_conclusion}置换 p 值分辨率为 {1 / (b + 1):.3f}。</p>'
         + '<p>高于置换基线的 AUC 提示可观测分配差异，需要检查实验设计、抽样和特征时序；不显著不能证明随机化。'
         '该置换方案假设可交换分配；如存在未知实验分层或多个广告实验混合，需使用匹配实际设计的置换方案。</p>'
-        + _overlap_section(out)
+        + _overlap_section(out, positivity)
         + '<h3>结果可预测性与基线对照</h3>'
         + _table(learning_display)
-        + f'<p>{esc(outcome)} 的 XGBoost AP 为 {_num(outcome_learning.loc["xgboost", "average_precision"], 4)}，'
-        f'Dummy AP 为 {_num(outcome_learning.loc["dummy", "average_precision"], 4)}。'
-        '这一差异衡量响应排序中的可学习信号。</p>'
-        + '<p>上表使用 train 拟合、validation 评估，仅显示 whole 范围；按处理组分别训练的结果保存在 learnability.csv。'
+        + '<p>上表使用训练集拟合、验证集评估，展示总体范围；按处理臂分别训练的明细保存在可学习性结果文件中。'
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
-        '这些指标诊断结果模型，不评估个体因果效应；普通结果预测较弱不能推出不存在效应异质性。</p></section>',
-        f'<section id="ate"><h2>{section_titles["ate"]}</h2><p>分别以全量源数据和独立 Test 估计分配处理的 ITT 效应。'
+        '这些指标衡量结果预测能力。</p></details></section>',
+        f'<section id="ate"><h2>{section_titles["ate"]}</h2><p>分别以全量源数据和独立测试集 估计分配处理的 ITT 效应。'
         'ATE 是处理组结果率减去对照组结果率；绝对效应用百分点表示，相对增幅以对照率为分母。</p>'
-        + _table(ate_display)
+        + _table(ate_display, wide=True)
         + _image(
             paths["ate_full"],
             "全量平均处理效应",
             "空心点为差均值，横线为 95% Wald 区间；两个指标采用各自横轴尺度，虚线表示零效应。",
         )
-        + '<p>Conversion 与 Visit 对应不同漏斗阶段。全量估计给出实验的平均背景，Test 估计描述最终留出人群。'
+        + '<p>转化与访问对应不同漏斗阶段。全量估计给出实验的平均背景，测试集估计描述留出人群。'
         '总体平均值无法指出应优先触达哪些人，固定预算决策需要评价排序前缀中的增量。</p></section>',
         f'<section id="modeling"><h2>{section_titles["modeling"]}</h2>'
-        '<p class="flow">Train 60% → 拟合结果与效应模型 → Validation 评分与冻结 → Test 加载模型并评分</p>'
+        '<p class="flow">训练集 60% → 拟合结果与效应模型 → 验证集评分与冻结 → 测试集加载模型并评分</p>'
         + _table(pd.DataFrame([
-            ("S-Logistic", "单个 Logistic，输入 X 和 T", "分别代入 T=1 与 T=0，预测概率相减"),
-            ("T-Logistic", "处理组与对照组各拟合一个 Logistic", "两个模型预测概率相减"),
-            ("T-XGBoost", "处理组与对照组各拟合一个 XGBoost 分类器", "两个模型预测概率相减"),
-            ("X-XGBoost", "两臂 XGBoost 分类器及两个伪效应回归器", "按训练处理比例加权两臂效应预测"),
-            ("Response Propensity", "复用 T-XGBoost 处理组分类器", "按处理下结果概率排序"),
-        ], columns=["策略", "训练结构", "评分"]))
-        + '<p>Logistic 在 Train 内拟合中位数填补和标准化，采用 L2、C=1、LBFGS、最多 500 次迭代。'
-        f'XGBoost 用 histogram、{arguments["trees"]} 棵树、深度 4、学习率 0.05、最小子节点权重 20、行采样 0.8、列采样 0.9。'
+            (label, structure, score) for label, structure, score in [
+                ('S-Logistic / S-XGBoost', '单个结果分类器，输入 X 与 T', 'f(X,1) − f(X,0)'),
+                ('T-Logistic / T-XGBoost', '两臂分别拟合结果分类器', 'μ̂₁(X) − μ̂₀(X)'),
+                ('X-Logistic', '两臂 Logistic + 两臂线性回归', '连续伪效应回归，加权 CATE'),
+                ('X-XGBoost', '两臂 XGBClassifier + 两臂 XGBRegressor', '连续伪效应回归，加权 CATE'),
+                ('Response-Logistic / Response-XGBoost', '复用对应 T-Learner 的 训练集处理组模型', 'μ̂₁(X)，不是 CATE'),
+                ('Random', '不训练，不参加选型', '同覆盖率随机分配的期望收益'),
+            ]], columns=['策略', '训练结构', '评分']))
+        + '<p>Logistic 在 训练集内拟合中位数填补和标准化，采用 L2、C=1、LBFGS、最多 500 次迭代。'
+        f'XGBoost 用直方图树算法、{arguments["trees"]} 棵树、深度 4、学习率 0.05、最小子节点权重 20、行采样 0.8、列采样 0.9。'
         '所有候选的正式训练使用同一随机种子。</p>'
         + _equation(r'D_1=Y-\hat{\mu}_0(X),\qquad D_0=\hat{\mu}_1(X)-Y,\qquad \hat{\tau}(X)=e\hat{\tau}_0(X)+(1-e)\hat{\tau}_1(X)',
                     'X-Learner 的伪效应与加权')
-        + '<p>两个伪效应分别在对应处理臂回归，e 取 Train 处理比例。Validation 只负责评分与选型，四个模型随后直接交给独立 Test。</p></section>',
+        + '<p>两个伪效应分别在对应处理臂回归，e 取 训练集处理比例。验证集只负责评分与选型，冻结的模型随后直接交给独立测试集。</p></section>',
         f'<section id="evaluation"><h2>{section_titles["evaluation"]}</h2>'
-        '<p>全曲线指标衡量排序在覆盖率变化时的整体表现。预算指标衡量 Top-k 的累计结果。'
-        'Uplift Gain 用前缀内实际处理与对照响应率之差乘以覆盖率。Traditional Qini Gain 估计前缀内实际处理人数对应的增量。'
-        'HT Gain 用固定分配概率逆概率加权，以全部 N 名可触达对象为分母，估计对整个前缀分配处理的增量。</p>'
-        f'<p>预设主指标为 <strong>{esc(criterion)}</strong>。20% 是正式转化实验预先指定的业务覆盖率。'
-        '每十万人是 HT 增量率的展示标度。Random 用同样的 k，取固定分配下的随机触达解析期望。'
-        '完整曲线面积用所有 Top-k 前缀做梯形积分。绘图最多保留 501 个节点。</p>'
-        f'<p>对主指标进行 {boot} 轮 Bootstrap。每轮在 Treatment 和 Control 内各自有放回抽样，五种策略共用同一批行。'
-        '重抽样后沿固定评分顺序取 Top-k，逐轮求差，再取 2.5% 和 97.5% 分位数。'
-        '区间以已训练评分和 e 为条件。各预算区间均为点态区间，模型训练及选型的不确定性未纳入。</p>'
-        + '<div class="formula" id="calculation-definitions"><h3>本报告的计算定义</h3>'
+        f'<p class="flow">预设主指标 · {esc(criterion)}</p>'
+        f'<p>HT Gain 衡量按排名给前 {primary_pct} 的用户分配广告资格，相对全部不分配时增加的预期{outcome_cn}。'
+        f'分母为全部候选用户，按{esc(ht_unit)}展示。Random 是同覆盖率随机触达的解析期望。'
+        'AUUC、Traditional Qini Score 与其他预算用于辅助理解排序表现。</p>'
+        f'<p>采用 {boot} 轮处理臂内有放回的配对 Bootstrap。每轮各策略共用重采样行，沿固定评分排序重取 Top-k，'
+        '并直接用逐轮策略差的 2.5% 与 97.5% 分位数形成配对区间。区间以固定评分与训练集分配概率估计为条件，'
+        '各预算区间为点态区间，训练、选型和分配概率估计的不确定性未纳入。</p>'
+        '<details id="calculation-definitions"><summary>展开指标定义与公式</summary><div class="formula">'
         '<p class="formula-intro">先计算每行的 HT 伪结果，再按固定排名累计；以下定义与结果表使用同一口径。</p>'
         + _equation(r'z_i=\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}', '01 · 单行 HT 伪结果')
         + _equation(r'k=\lfloor qn\rfloor,\qquad G_{\mathrm{HT}}(q)=\frac{1}{n}\sum_{i\in\mathrm{top}\text{-}k}z_i',
@@ -1097,97 +1227,102 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '传统 Qini 曲线从原点 (0,0) 开始，对所有 <var>N<sub>0</sub>(q) &gt; 0</var> 的前缀点作梯形积分，'
         '包括仅包含对照组时的零值点。尚无对照组的前缀曲线值未定义，不作为积分节点；'
         '积分从原点线性连接到首个保留点，原始曲线仍保留相应缺失值。'
-        '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 normalized Qini score。</p>'
+        '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 归一化 Qini Score。</p>'
         '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。</p>'
-        '</div></section>',
+        '</div></details></section>',
         f'<section id="validation"><h2>{section_titles["validation"]}</h2>'
-        f'<p>五种策略在 Validation 上统一评价。以下为 {primary_pct} 覆盖率的预算指标及两个完整曲线面积。'
-        '主指标以 Bootstrap 均值排序，Random 仅作为参考。</p>'
-        + _table(point_estimates(frames["validation_metrics"]))
-        + _equation(r'\pi^*=\mathrm{argmax}_{\pi}\;\frac{1}{B}\sum_{b=1}^{B}\widehat{M}_{\pi}^{(b)}',
-                    'Validation 选型规则')
+        f'<p>在验证集按预设的 {esc(criterion)} Bootstrap 均值降序排序，表内单位为{scale_label}。'
+        f'冻结 <strong>{selected_label}</strong>。Uplift 候选中，<strong>{uplift_label}</strong> 排名第一。'
+        'Random 作为分析参照。</p>'
         + _table(val_display)
-        + f'<p>获选策略 <strong>{esc(selected)}</strong>，Uplift 候选中排名第一的是 <strong>{esc(selected_uplift)}</strong>。'
-        f'下表以{scale_label}报告获选策略的配对差值。获胜频率来自所有候选均有定义的重复，表示固定评分下的波动。</p>'
+        + '<details><summary>验证集配对区间、辅助指标与选型公式</summary>'
+        + _equation(r'\pi^*=\mathrm{argmax}_{\pi}\;\frac{1}{B}\sum_{b=1}^{B}\widehat{M}_{\pi}^{(b)}',
+                    '验证集选型规则')
         + paired_table(val_pairs)
-        + '</section>',
+        + _table(point_estimates(frames["validation_metrics"]), wide=True)
+        + f'<p>表内主指标与配对差值的单位为{scale_label}。获胜频率按各次固定评分重采样统计。</p></details></section>',
         f'<section id="test"><h2>{section_titles["test"]}</h2>'
-        f'<p>Test 共 {n_test:,} 行，其中 {esc(outcome)} 正例 {n_events:,} 个，对照组正例 {n_control_events:,} 个。'
-        f'{test_relationship}</p>'
-        + _table(point_estimates(policies.loc[policies.budget.eq(budget) & policies.policy.ne("random")]))
-        + '<h3>主指标与配对推断</h3>'
-        + _table(test_display)
-        + f'<p>表内单位为{scale_label}。{propensity_finding} {random_finding}</p>'
-        + (f'<p>{uplift_finding}</p>' if selected == "propensity" else "")
-        + paired_table(test_comparisons)
-        + '<h3>完整排序曲线</h3>'
-        + _image(paths["ranking"], "HT Gain、Uplift Gain 与 Traditional Qini 三类曲线",
-                 "横轴为触达比例。虚线连接该指标的原点与全量终点。面积计算使用完整前缀。")
+        f'<p>独立测试集共 {n_test:,} 行，其中{outcome_cn}正例 {n_events:,} 个，对照组正例 {n_control_events:,} 个。'
+        f'本节评估验证集已冻结的 <strong>{selected_label}</strong>。</p>'
+        + _policy_comparison(primary_summary, selected, criterion, scale_label, n_test)
+        + '<h3>同预算的配对差值</h3>'
+        + f'<p>{unit_note}{uplift_finding} {propensity_finding}</p>'
+        + '<div id="test-pairwise">' + paired_table(test_comparisons) + '</div>'
+        + '<details><summary>全部策略的同预算配对差值</summary>' + paired_table(primary_pairs) + '</details>'
+        + f'<p>随机策略在相同评价口径下的点估计为 {_num(random_reference.point_estimate * 100_000)}。'
+        '表中相对随机的区间来自同批重采样的配对差。</p>'
+        + '<h3>九策略核心比较</h3>'
+        + '<div id="nine-strategies">' + _table(test_display) + '</div>'
+        + '<p>HT Gain 与其区间单位为每 10 万名全部合资格用户的增量转化。其余列统一乘以 10⁵ 展示，但 Traditional Qini 的估计目标和尺度与 HT 不同，不直接比较大小。自比较差值及区间恒为零。</p>'
+        + '<details><summary>辅助分析 · AUUC、Qini 与完整排序曲线</summary>'
+        + _image(paths["ranking"], "完整排序曲线", "独立测试集。横轴为候选用户覆盖率，虚线为各指标自己的随机参照。面积使用完整排序前缀。")
         + '<div id="ranking-metrics">' + _table(ranking_display) + '</div>'
-        + f'<p>{best_areas}</p></section>',
+        + _table(point_estimates(policies.loc[policies.budget.eq(budget) & policies.policy.ne("random")]), wide=True)
+        + f'<p>{best_areas}</p></details></section>',
         f'<section id="robustness"><h2>{section_titles["robustness"]}</h2>'
-        '<p>Budget 表示投放覆盖率（Contact Fraction），不是货币金额；所有增量均以 10 万名总体可触达用户为分母。'
-        '下表展示冻结策略、Random 和 Propensity；若冻结策略就是其中一个基线，仅展示一次。</p>'
+        f'<p>预算按候选用户覆盖率定义。下表按{ht_unit}展示冻结策略与参考策略。</p>'
         + '<div id="budget-sensitivity">' + _table(budget_key_display) + '</div>'
         + _image(paths["policy"], "HT 增量的覆盖率敏感性",
-                 f"星号标识冻结策略；10%、20%、30%、100% 为关键情景，{primary_pct} 为预设的投放情景覆盖率，100% 为全量终点。连线仅辅助读图，未在评价点之间插值计算。")
-        + '<details><summary>辅助覆盖率明细（含 2%、5%、50%）</summary>'
-        + _table(comparison_budgets) + '</details>'
+                 f"独立测试集。星号为冻结策略，竖线为预设覆盖率 {primary_pct}。连线连接保存的预算点估计。")
+        + '<details><summary>辅助覆盖率与各口径明细（含 2%、5%、50%）</summary>'
+        + _table(pd.concat([budget_display.loc[key_rows], comparison_budgets]), wide=True) + '</details>'
         + '<p>同一固定评分及同分顺序下，Top 10% ⊂ Top 20% ⊂ Top 30% ⊂ Top 100%。'
         '从 10% 扩到 20% 加入排名 10%–20% 的人，从 20% 扩到 30% 加入排名 20%–30% 的人；'
         '选中人数按覆盖率乘以评价总人数向下取整。匿名特征不能用于编造这些人群的业务画像。'
-        'Random 是相同人数的随机触达解析期望，不对应模型排序。辅助预算不用于 Test 后挑选最优商业预算。</p>'
+        'Random 是相同人数的随机触达解析期望，不对应模型排序。辅助预算不用于 测试后挑选最优商业预算。</p>'
         '<h3>扩大覆盖的边际增量</h3>'
-        f'<p>保持冻结策略 <strong>{esc(selected)}</strong> 不变，以 ΔV = V(b) − V(a)、V(0) = 0 计算新增区间贡献。'
+        f'<p>在冻结策略 <strong>{selected_label}</strong> 下，以 ΔV = V(b) − V(a)、V(0) = 0 计算新增区间贡献。'
         '</p>'
         + '<div id="marginal-gain">' + _table(marginal_display) + '</div>'
         + f'<p>{marginal_findings}。{marginal_trend}</p>'
         '<p>这里仅报告点估计，未计算边际增量 CI，不能用两个累计 CI 的端点相减来构造区间。'
-        '因此正、负和递减均为描述，不是显著性结论；30%–100% 宽达 70%，其总贡献不能直接与 10% 宽区间比较单位触达效率。'
+        '因此正、负和递减均为描述，不是显著性结论；30%–50% 与 50%–100% 的区间宽度分别为 20% 与 50%，总贡献不能直接与 10% 宽区间比较单位触达效率。'
         '没有实际成本和收入信息，本节只讨论估计增量转化，不能据此判断利润或 ROI。</p>'
         '<h3>全量投放情景</h3>'
         + _equation(r'G_{\mathrm{HT}}(1)=\widehat{\mathrm{ATE}}_{\mathrm{HT}},\qquad V(1)=100{,}000\,\widehat{\mathrm{ATE}}_{\mathrm{HT}}',
                     '全量覆盖与 HT-ATE')
-        + f'<p>100% 覆盖表示对当前 Test 的全部 {n_test:,} 名可触达用户分配处理，估计增量为 '
+        + f'<p>100% 覆盖表示对当前测试集 的全部 {n_test:,} 名可触达用户分配处理，估计增量为 '
         f'<strong>{_num(full_value)}</strong> / 10 万总体用户{full_interval}。'
         '所有策略选择相同的全体用户，因此具有同一 HT 终点；排序不会改变全量的价值。</p>'
         + f'<p>冻结策略与全量相比（同为每 10 万总体用户）：{full_comparisons}。'
         '扩大覆盖是否继续增加估计转化，需结合上一节各新增区间的实际符号判断，不预设越多越好。</p>'
         '<p>这是以当前测试人群和固定处理分配概率为前提的离线情景，HT-ATE 与差均值 ATE 在有限样本中可能不同。'
         '这些数字不代表已经实现的广告曝光、收入或利润，不能据此宣称找到了最优商业投放覆盖率。</p>'
-        '<h3>开发集稳定性分析</h3>'
-        f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原 Test {int(stability["test_n_excluded"]):,} 行。'
-        f'正式 Test 交集为零：{stability["all_test_row_overlaps_zero"]}；按特征分组的交集为零：{stability["all_group_split_feature_overlaps_zero"]}。</p>'
-        f'<p>Seeds {esc(str(protocol["seeds"]))}；训练比例 {esc(str(protocol["training_fractions"]))}；比较行分层与特征分组划分。'
-        f'各配置按 {esc(criterion)} 的 Bootstrap 均值选择。均值和标准差描述重复开发实验的波动，不是独立 Test 置信区间。相同匿名特征不代表同一用户。</p>'
-        + _image(stability_plot, "开发期训练规模敏感性", "所有点来自已保存的 aggregate.csv；没有使用原 Test 重新选型。")
-        + _table(aggregate[stability_columns].round(2))
-        + '<details><summary>各随机种子、训练规模与划分方式</summary>'
-        + _table(stability_detail.round(2)) + '</details>'
-        + '<h3>验证集策略获选频率</h3>' + _table(frequencies.round(3))
-        + f'<p>特征分组划分下的获选策略与次数为 {group_winners}。'
-        '不同划分改变开发评估的特征支持与正例构成，频率用于描述这种敏感性。</p></section>',
+        + stability_html,
         f'<section id="conclusion"><h2>{section_titles["conclusion"]}</h2>'
-        f'<p><strong>{decision}</strong> {uplift_finding}</p>'
-        f'<p>{marginal_findings}。{marginal_trend} 行分层 Stability 中，冻结策略在不同训练规模下的平均 HT 增量 / 10 万人为 {sensitivity}。</p>'
-        '<h3>线上策略 A/B</h3>'
-        f'<p>将符合条件的用户随机分配至 {esc(selected_uplift)} 与 Response Propensity 两个策略臂，两组均按 {primary_pct} 覆盖。'
-        '预设转化窗口与主指标，以全体分配用户为分母，记录触达率、成本、分流比例与污染。'
-        f'下面的样本量以基线转化率 {assumptions["parameters"]["p0"]:.2%}、'
-        f'双侧 α={assumptions["parameters"]["alpha"]:.2f}、功效 {assumptions["parameters"]["power"]:.0%} 为假设。</p>'
+        '<h3>研究发现</h3>'
+        f'<p><strong>{decision}</strong> {unit_note}{uplift_finding} '
+        '测试集用来估计冻结策略的表现。验证集的选型规则在测试前已固定。</p>'
+        f'<p>{marginal_trend} 该比较来自固定评分的描述性点估计。'
+        '相同覆盖人数在真实竞价中可能对应不同花费，线上资源口径需要单独确认。</p>'
+        '<h3>可能原因与不确定性</h3>'
+        f'<p>独立测试集{outcome_cn}正例占 {outcome_rate:.3%}，其中对照组只有 {n_control_events:,} 个正例。'
+        f'训练集对照组有 {control_n:,} 行、{control_events:,} 个正例。'
+        '稀疏事件可能限制模型估计不处理时的结果概率，尤其是进一步按特征细分人群时。'
+        'Uplift 需要估计两种处理状态之间的差异，模型误差可能传递到排序。'
+        '当前结果无法确定这些机制各自解释了多少差异。配对区间跨零时，不能据此判定策略等效。</p>'
+        f'<p>训练稳定性：{sensitivity}。'
+        '测试集区间仅衡量给定已拟合评分与固定分配概率估计时的评估波动。</p>'
+        '<h3>下一步线上验证</h3>'
+        f'<p>按稳定用户 ID 将全部符合条件的用户随机分到 {uplift_label} 与 转化倾向策略两个实验臂。'
+        f'各臂按各自入组人群的 {primary_pct} 分配广告资格，以全部随机入组用户的固定窗口转化率作主指标。'
+        '预先冻结模型、观察窗、预算口径、样本量和停止规则。记录实际曝光与花费，并监控 SRM、跨组污染、频次和负反馈。'
+        '两臂均值差估计线上策略差异。若要估计相对完全无广告的绝对增量，另设不处理留出组。</p>'
+        f'<p>样本量情景假设基线转化率 {assumptions["parameters"]["p0"]:.2%}、'
+        f'双侧 α={assumptions["parameters"]["alpha"]:.2f}、功效 {assumptions["parameters"]["power"]:.0%}。</p>'
         + _table(ab_display)
-        + '<h3>条件性经济价值</h3>'
+        + '<details><summary>条件性经济价值情景</summary>'
         + _equation(r'\mathrm{Net\ Value}=V_{\mathrm{conversion}}\times\mathrm{Incremental\ Conversions}-c_{\mathrm{contact}}\times k',
                     '增量贡献价值扣除触达成本')
         + f'<p>以下情景使用 {assumptions["parameters"]["eligible_n"]:,} 名可触达对象和 {primary_pct} 覆盖，'
         '比较相同货币单位下的每次增量结果价值与每次触达成本。条件性区间仅传递固定评分 HT 区间，依赖效果可迁移的假设。</p>'
-        + _table(scenarios[economic_columns].round(4))
+        + _table(economic_display, wide=True)
         + f'<p>例如，每次增量结果价值 {_num(scenario_example.value_per_conversion_assumed)}、'
         f'每次触达成本 {_num(scenario_example.contact_cost_assumed, 3)} 时，净增量价值为 '
         f'{_num(scenario_example.net_incremental_value)}，盈亏平衡触达成本为 '
         f'{_num(scenario_example.break_even_contact_cost, 4)}。</p>'
-        + '<p>推广边界包括广告活动与人群漂移、未知用户层依赖、稀少的对照转化、不可见的实验分层和真实成本差异。'
-        '稳定性分析中重叠的开发样本用于刻画敏感性，独立 Test 提供一次留出验证。</p></section>',
+        + '</details><p>推广边界包括广告活动与人群漂移、未知用户层依赖、稀少的对照转化、不可见的实验分层和真实成本差异。'
+        '正式测试集 的独立性边界见数据章节，不能排除未留存的历史使用或用户层依赖。</p></section>',
         f'<section class="provenance" id="appendix"><h2>{section_titles["appendix"]}</h2>'
         + _equation(r'\widehat{\mathrm{ATE}}=\bar{Y}_1-\bar{Y}_0,\qquad '
                     r'\mathrm{SE}=\sqrt{s_1^2/N_1+s_0^2/N_0}', '差均值与未合并标准误')
@@ -1196,19 +1331,20 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + f'<p>ATE 区间使用未合并方差的正态近似，双侧 p 值使用零假设下的合并比例 z 检验。'
         f'C2ST 的 {b} 轮置换为两类模型分别完整重拟合，未校正 p 的最小可能值为 {1/(b+1):.4g}，再做两模型 Holm 校正。</p>'
         f'<p>来源 SHA-256 <code>{esc(source["sha256"])}</code><br>'
-        f'文件大小 {int(source["size"]):,} bytes · 随机种子 {int(manifest["seed"])} · '
+        f'文件大小 {int(source["size"]):,} 字节 · 随机种子 {int(manifest["seed"])} · '
         f'结果计算耗时 {float(manifest["elapsed_seconds"]):.1f} s</p>'
         f'<p>Python {esc(manifest["python"].split()[0])} · {footer_versions}</p>'
         + '<pre>' + esc(reproducibility) + '</pre>'
         + '<details><summary>模型配置与训练样本支持</summary>'
+        + _table(training_display)
         + '<pre>' + esc(json.dumps(model_settings, indent=2)) + '</pre>'
         + _table(pd.DataFrame(next(iter(manifest["models"].values()))["outcome_support"]))
         + '</details>'
         + _table(pd.DataFrame([
             ("01", "input_checks.py / raw_scan.py / preparation.py", "来源 SHA-256、全量审计、抽样与划分"),
             ("02", "diagnostics.py", "SRM、平衡、C2ST、Overlap、可学习性"),
-            ("03 / 05", "evaluation.py / metrics.py", "ATE、冻结评分、Test 指标与配对区间"),
-            ("04", "models.py / training_validation.py", "训练、Validation 表与 selection.json"),
+            ("03 / 05", "evaluation.py / metrics.py", "ATE、冻结评分、测试集指标与配对区间"),
+            ("04", "models.py / training_validation.py", "训练、验证集结果表与 selection.json"),
             ("06", "stability.py", "开发期协议、逐次指标与划分审计"),
             ("07 / 08", "planning.py / reporting.py", "业务情景、manifest.json 与独立 HTML"),
         ], columns=["阶段", "实现", "核验产物"]))
@@ -1216,7 +1352,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '样本之间可能存在匿名实体依赖，且公开设计信息不足以核验全部随机分配机制。'
         '原始数据归 Criteo，数据派生成果适用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>。</p>'
         '<p><a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与基准论文</a> · '
-        '<a href="https://arxiv.org/abs/1706.03461">Künzel et al. (2019), Meta-learners</a></p></section>',
+        '<a href="https://arxiv.org/abs/1706.03461">Künzel 等（2019）：元学习器</a></p></section>',
     ]
     sections.insert(2, '<nav aria-label="报告目录"><ul>' + "".join(
         f'<li><a href="#{anchor}">{esc(label)}</a></li>' for anchor, label in section_titles.items()
@@ -1244,9 +1380,69 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     .targeting-example-bar{display:flex;height:14px;overflow:hidden;background:#e3ebf2;border-radius:3px}
     .targeting-example-axis{justify-content:space-between;gap:0}
     .targeting-baseline{background:#2171ad}.targeting-increase{background:#e38636}
-    @media(max-width:700px){.formula{padding:16px 12px}.equation{padding:12px 10px}}
-    @media print{.equation-scroll{overflow:visible}.math-equation{max-width:100%;height:auto}.equation{border-color:#ddd}}
-    @media(max-width:700px){main{padding:24px 12px}section{padding:18px}h1{font-size:28px}.cards{grid-template-columns:1fr}.cards strong{font-size:23px}}@media print{body{background:white}main{padding:0;max-width:none}section{border:0;padding:12px 0;break-inside:auto}figure,.cards{break-inside:avoid}.table-wrap{overflow:visible}table{white-space:normal;font-size:10px}h2,h3{break-after:avoid}}
+    .decision{color:#183c56;font-size:19px}.cards{gap:12px}
+    .table-wrap table{white-space:normal}
+    th,td{overflow-wrap:anywhere;vertical-align:top}
+    .table-wrap.wide table{min-width:620px}
+    .table-wrap:focus-visible{outline:2px solid #2171ad;outline-offset:2px}
+    #diagnostic-overview th:first-child{width:18%}
+    #diagnostic-overview th:nth-child(2){width:43%}
+    #test-pairwise td:nth-child(3),#test-pairwise td:last-child{white-space:nowrap}
+    .policy-chart{--policy-columns:minmax(150px,1.15fr) minmax(120px,2.5fr) minmax(160px,1fr);padding:18px 20px;border:1px solid #dce7ef;border-radius:8px;background:#f6f9fc}
+    .policy-chart h3{margin:0}.chart-unit{color:#586e80;margin:0 0 12px;font-size:13px}
+    .policy-row,.policy-axis{display:grid;grid-template-columns:var(--policy-columns);gap:12px;align-items:center;padding:7px 10px}
+    .policy-row.frozen{background:#e7eff7;border-radius:4px;color:#183c56}
+    .policy-track{position:relative;height:22px;background:#edf2f6;border-radius:3px;margin-inline:6px}
+    .policy-track::before{content:"";position:absolute;left:var(--zero);height:100%;border-left:1px dashed #8195a4}
+    .policy-ci,.policy-dot{position:absolute;top:50%;background:#467297;transform:translateY(-50%)}
+    .policy-ci{height:3px}.policy-dot{width:10px;height:10px;border:1px solid white;border-radius:50%;transform:translate(-50%,-50%)}
+    .frozen .policy-ci,.frozen .policy-dot{background:#155686}
+    .policy-value{font-variant-numeric:tabular-nums;line-height:1.5}.policy-value small{display:block;color:#4f6678}
+    .policy-axis{color:#4f6678;font-size:12px}.policy-axis span{grid-area:1/2;margin-inline:6px}
+    .policy-axis span:nth-child(2){justify-self:center}.policy-axis span:last-child{justify-self:end}
+    .print-note{display:none}
+    #nine-strategies th:nth-child(2),#nine-strategies td:nth-child(2){font-weight:700;color:#17557d}
+    #nine-strategies tr:first-child td{background:#edf5fa}
+    @media screen and (max-width:700px){
+      #nine-strategies table,#nine-strategies tbody,#nine-strategies tr{display:block;width:100%}
+      #nine-strategies thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+      #nine-strategies tr{border:1px solid #d9e3eb;margin:12px 0;padding:10px;border-radius:5px}
+      #nine-strategies td{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:12px;padding:6px 0;overflow-wrap:anywhere}
+      #nine-strategies td::before{content:attr(data-label);font-weight:600;color:#526a7e}
+
+      main{padding:24px 12px}section{padding:16px}h1{font-size:28px}.cards{grid-template-columns:1fr}.cards strong{font-size:23px}
+      .formula{padding:12px}.equation{padding:12px 10px}.math-equation{max-width:100%}
+      th,td{padding:7px 6px}
+      #diagnostic-overview table,#diagnostic-overview tbody,#diagnostic-overview tr,#diagnostic-overview td{display:block}
+      #diagnostic-overview thead,#test-pairwise thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+      #diagnostic-overview tr{border-bottom:1px solid #dce7ef;padding:8px 10px}
+      #diagnostic-overview td{padding:2px 0;border:0;background:transparent}
+      #diagnostic-overview td:first-child{font-weight:700;color:#183c56}
+      #test-pairwise table,#test-pairwise tbody{display:block}
+      #test-pairwise tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;padding:9px 10px;border-bottom:1px solid #dce7ef}
+      #test-pairwise td{padding:0;border:0;background:transparent;overflow-wrap:normal}
+      #test-pairwise td:last-child{grid-column:1/-1;color:#4f6678;font-size:12px}
+      #test-pairwise td:last-child::before{content:"有效配对 "}
+      #test-pairwise td:nth-child(2)::before{content:"对比 "}
+      .policy-chart{padding:12px}.policy-row,.policy-axis{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px}
+      .policy-row strong{font-size:13px}.policy-track{grid-column:1/-1;grid-row:2}
+      .policy-value{grid-column:2;grid-row:1;text-align:right;font-size:12px}
+      .policy-axis span{grid-area:1/1/1/-1}
+    }
+    @page{size:A4;margin:14mm 15mm}
+    @media print{
+      body{background:white;font-size:10pt;line-height:1.55;print-color-adjust:exact}
+      main{padding:0;max-width:none}header{padding:0;margin:0 0 14pt}h1{font-size:24pt}
+      section{border:0;padding:8pt 0;margin:6pt 0}.lead{border-top:2pt solid #2171ad}
+      h2,h3,summary,thead{break-after:avoid}p{orphans:3;widows:3}
+      figure,.cards,.equation,tr{break-inside:avoid}figure>img{max-height:140mm;object-fit:contain}
+      .table-wrap,.equation-scroll{overflow:visible}.table-wrap.wide table{min-width:0}
+      table{font-size:8.5pt;table-layout:fixed}th,td{padding:5pt}thead{display:table-header-group}
+      #ate .table-wrap,#modeling .table-wrap,#validation .table-wrap,#test-pairwise{break-inside:avoid}
+      .math-equation{max-width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+      nav,details:not([open]){display:none}.print-note{display:block;color:#4f6678;font-size:9pt}
+      .policy-chart{--policy-columns:minmax(100px,1.2fr) minmax(95px,2fr) minmax(95px,1fr)}
+    }
     """
     document = (
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
@@ -1257,6 +1453,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + "\n".join(sections)
         + '</main></body></html>'
     )
+    if stage == "development":
+        document = document.replace("独立测试", "开发留出测试")
     report_path.write_text(document, encoding="utf-8")
     return report_path
 
@@ -1280,7 +1478,9 @@ def finalize_run(
     # 输出参数：
     #     - 无；写入 manifest.json 并生成 report.html。
     #-------------
+    import resource
     manifest = {
+        "resource_usage": {"max_rss_bytes": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024)},
         "assignment_probability": assignment_probability,
         "probability_source": "使用训练集的处理组比例作为分配概率的代入估计",
         "ci_method": (

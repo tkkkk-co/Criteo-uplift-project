@@ -12,7 +12,7 @@ from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from .config import FEATURES, POLICY_NAMES
 from .pipeline_io import safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, RANKING_METRICS, evaluate_ranking
-from .training_validation import _fit_candidates
+from .training_validation import _fit_candidates, policy_scores
 from .diagnostics import diagnose_overlap
 from .input_checks import check_row_ids, check_binary_vector
 
@@ -282,7 +282,7 @@ def run_stability(
         "n_bootstrap": n_bootstrap,
         "selection_statistic": "bootstrap_mean",
         "ranking_metric_definition_from_loaded_function": RANKING_METRIC_DESCRIPTION,
-        "response_baseline": "propensity means P(Y=1|X,T=1), reused from t_xgboost; not P(T=1|X)",
+        "response_baseline": "response_logistic and response_xgboost estimate P(Y=1|X,T=1), reused from corresponding T-Learners; not P(T=1|X)",
         "selection": "one development winner by bootstrap mean per seed/split/fraction; stable ties follow candidate order",
         "uncertainty": "descriptive spread across overlapping development runs; each run selects by its own fixed-score bootstrap mean",
         "limitations": [
@@ -354,8 +354,7 @@ def run_stability(
                 audit['overlap_weak_bins'] = coverage['weak_bins']
 
                 results = _fit_candidates(train, validation, outcome, seed, trees, progress=lambda _: None)
-                score_dict = {name: result['cate'] for name, result in results.items()}
-                score_dict['propensity'] = results['t_xgboost']['mu1']
+                score_dict = policy_scores(results)
                 fit_seconds = {name: result['fit_seconds'] for name, result in results.items()}
                 del results
                 evaluated = evaluate_ranking(
@@ -368,7 +367,7 @@ def run_stability(
                     raise ValueError("Stability 主指标没有可用的 Bootstrap 均值")
                 winner = means.bootstrap_mean.idxmax()
                 points = evaluated["metrics"]
-                propensity_ht = points.loc[points.policy.eq("propensity"), "gain_ht_per_100k"].iloc[0]
+                propensity_ht = points.loc[points.policy.eq("response_xgboost"), "gain_ht_per_100k"].iloc[0]
                 for row in points.to_dict("records"):
                     name = row["policy"]
                     records.append({
@@ -383,7 +382,7 @@ def run_stability(
                         "vs_propensity_per_100k": row["gain_ht_per_100k"] - propensity_ht,
                         "bootstrap_mean": float(means.loc[name, "bootstrap_mean"]),
                         "fit_seconds": fit_seconds.get(name, 0.0),
-                        "fit_source": "t_xgboost_reused" if name == "propensity" else name,
+                        "fit_source": "t_xgboost_reused" if name == "response_xgboost" else name,
                         "selected_on_validation": name == winner,
                     })
                 # 进度文件只保存在本次新目录中；预先冻结的分析配置保持不变。
@@ -397,7 +396,7 @@ def run_stability(
         "status": "complete",
         "elapsed_seconds": time.perf_counter() - started,
         "experiments": len(audits),
-        "fitted_models": len(audits) * 4,
+        "fitted_models": len(audits) * 6,
         "development_n": len(development),
         "test_n_excluded": len(test_row_ids),
         "all_test_row_overlaps_zero": all(

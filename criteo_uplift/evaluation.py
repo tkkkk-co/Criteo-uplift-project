@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.special import log_ndtr
 from .config import FEATURES, POLICY_NAMES
 from .pipeline_io import safe_output, write_result
-from .models import s_learner, t_learner, x_learner
+from .models import s_learner, t_learner, x_learner, response_predict
 from .metrics import _binary_inputs_check, evaluate_ranking
 
 DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.30, 0.50, 1.0)
@@ -69,7 +69,7 @@ def _ate_summary_from_counts(n0, n1, r0, r1):
         "standard_error": se, "ci_low": ate - _Z_975 * se, "ci_high": ate + _Z_975 * se,
         "pooled_null_standard_error": null_se, "p_value": p_value,
         "log_p_value": log_p_value, "p_value_text": p_value_text,
-        "relative_uplift": ate / p0 if p0 > 0 else np.nan,
+        "relative_uplift": ate / p0 if p0 > 0 else np.nan, "z_statistic": z,
     }
 
 
@@ -138,9 +138,14 @@ def evaluate_test_set(
     if (not selection["frozen_before_test"] or tuple(selection["candidates"]) != POLICY_NAMES
             or selection["selected_policy"] not in POLICY_NAMES):
         raise ValueError("Test 需要有效的 Validation 冻结策略")
+    if selection.get("assignment_probability", assignment_probability) != assignment_probability or selection.get("seed", seed) != seed:
+        raise ValueError("Test 概率或评分随机种子与冻结设置不一致")
     test_scores = {}
-    for name in POLICY_NAMES[:-1]:
+    for name in POLICY_NAMES:
         model_bundle = joblib.load(models_out / f'{name}.joblib')
+        if model_bundle['learner'] == 'response':
+            test_scores[name] = response_predict(test[FEATURES], model_bundle)
+            continue
         if model_bundle['learner'] == 's':
             result = s_learner(test[FEATURES], model_bundle=model_bundle)
         elif model_bundle['learner'] == 't':
@@ -150,15 +155,13 @@ def evaluate_test_set(
         else:
             raise ValueError('未知的 Learner 类型')
         test_scores[name] = result['cate']
-        if name == 't_xgboost':
-            propensity = result['mu1']
-    test_scores['propensity'] = propensity
+
 
     budgets = sorted({*DEFAULT_BUDGETS, selection["primary_budget"]})
     progress("用冻结评分计算 Test 点估计和主指标配对区间")
     evaluation = evaluate_ranking(
         test[outcome], test.treatment, test_scores, assignment_probability,
-        budgets=budgets, primary_metric=selection["primary_metric"],
+        include_random=True, budgets=budgets, primary_metric=selection["primary_metric"],
         primary_budget=selection["primary_budget"], n_bootstrap=selection["n_bootstrap"], seed=seed,
     )
     write_result(evaluation["metrics"], out / 'test_metrics.csv')

@@ -65,8 +65,8 @@ def _file_identity(stat):
 
 
 def scan_raw_data(
-    path=DEFAULT_DATA, sample_size=1_000_000, seed=42, chunk_size=250_000,
-    *, per_arm=10_000, progress=print,
+    path=DEFAULT_DATA, sample_size=5_000_000, seed=42, chunk_size=250_000,
+    *, per_arm=10_000, progress=print, excluded_row_ids=None,
 ):
     """Validate every source row and compute the audit and both samples."""
     if isinstance(sample_size, bool) or not isinstance(sample_size, int) or sample_size < 0:
@@ -78,6 +78,7 @@ def scan_raw_data(
 
     path = Path(path).resolve()
     model = ModelSampler(sample_size, seed)
+    excluded_row_ids = np.asarray([] if excluded_row_ids is None else excluded_row_ids, dtype=np.int64)
     audit = AuditAccumulator()
     total, counts = 0, np.zeros(2, dtype=np.int64)
     with ExitStack() as stack:
@@ -94,7 +95,8 @@ def scan_raw_data(
             values, ids, treatment = validate_chunk(chunk, total)
             counts += np.bincount(treatment, minlength=2)
             audit.update(chunk, values, treatment)
-            model.update(chunk, values, ids)
+            eligible = ~np.isin(ids, excluded_row_ids, assume_unique=True) if len(excluded_row_ids) else np.ones(len(ids), dtype=bool)
+            model.update(chunk.loc[eligible], values[eligible], ids[eligible])
             diagnostics.update(chunk, treatment, ids)
             total += len(chunk)
             if total % 1_000_000 == 0:
@@ -115,6 +117,8 @@ def scan_raw_data(
         progress(f'Raw scan: n={total:,}; control={counts[0]:,}; treatment={counts[1]:,}')
         balance, c2st_sample, srm, feature_stats = diagnostics.finish(total, counts, source, progress)
         sample = model.finish()
+        if len(excluded_row_ids) and sample_size and len(sample) != sample_size:
+            raise ValueError("可用样本池不足指定建模样本数")
         return {
             'sample': sample, 'source': source,
             'sample_report': sample_report(sample, sample_size=sample_size, seed=seed,

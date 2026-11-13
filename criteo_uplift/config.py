@@ -11,9 +11,11 @@ DEFAULT_DATA = DATA_ROOT / 'raw/criteo-uplift-v2.1.csv'
 FEATURES = [f'f{i}' for i in range(12)]
 LABELS = ['treatment', 'conversion', 'visit', 'exposure']
 COLUMNS = FEATURES + LABELS
-DEFAULT_SAMPLE_SIZE = 1_000_000
+DEFAULT_SAMPLE_SIZE = 5_000_000
 DEFAULT_SEED = 42
-POLICY_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
+UPLIFT_NAMES = tuple(f"{learner}_{model}" for learner in ("s", "t", "x") for model in ("logistic", "xgboost"))
+RESPONSE_NAMES = ("response_logistic", "response_xgboost")
+POLICY_NAMES = (*UPLIFT_NAMES, *RESPONSE_NAMES)
 
 _OPENMP = None
 

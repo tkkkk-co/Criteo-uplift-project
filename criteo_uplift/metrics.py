@@ -86,7 +86,7 @@ def _area(q, gain, *, centered=False):
 def evaluate_ranking(
     y, t, score_dict, e, *, budgets=(.10, .20, .30, 1.00),
     primary_metric="gain_ht", primary_budget=.20, n_bootstrap=200,
-    seed=42, include_curves=True,
+    seed=42, include_curves=True, include_random=False,
 ) -> dict:
     #-------------
     # 功能：一次评价全部评分策略，生成五项指标，并可对唯一主指标做配对 Bootstrap。
@@ -215,7 +215,7 @@ def evaluate_ranking(
                 draws[b, j] = gain if gain_primary else _area(q, gain, centered=primary_metric == "qini_score")
 
         # 6. 单策略区间使用该策略有效轮次，配对区间只使用共同有效轮次。
-        # 获胜频率只统计五个候选均有定义的轮次，并按输入顺序处理同分。
+        # 获胜频率只统计全部候选均有定义的轮次，并按输入顺序处理同分。
         points = (metrics[primary_metric].to_numpy().reshape(len(names), len(budget))
                   if gain_primary else metrics.groupby("policy", sort=False)[primary_metric].first().to_numpy()[:, None])
         all_names = [*names, "random"]
@@ -260,4 +260,19 @@ def evaluate_ranking(
                                      "ci_low": lo, "ci_high": hi, "valid_replicates": len(paired)})
         bootstrap = {"summary": pd.DataFrame(summary), "pairwise": pd.DataFrame(pairwise),
                      "selection_frequency": pd.DataFrame(frequencies)}
+    if include_random:
+        # Analytic random reference, not a fitted/random-score candidate.
+        full_plugin = float(y[t == 1].mean() - y[t == 0].mean())
+        random_rows = pd.DataFrame({
+            'policy': 'random', 'budget': budget, 'n_selected': selected,
+            'gain_ht': selected / n * ht_endpoint,
+            'gain_ht_per_100k': selected / n * ht_endpoint * 100_000,
+            'gain_plugin': selected / n * full_plugin,
+            'qini_traditional': selected / n * full_plugin * t.mean(),
+            'auuc': full_plugin / 2, 'qini_score': 0.,
+        })
+        metrics = pd.concat([metrics, random_rows], ignore_index=True)
+    # Place the sole business selection metric first in exported comparison tables.
+    metrics = metrics[['policy', 'budget', 'n_selected', 'gain_ht', 'gain_ht_per_100k',
+                       'gain_plugin', 'qini_traditional', 'auuc', 'qini_score']]
     return {"metrics": metrics, "curves": curves, "bootstrap": bootstrap}

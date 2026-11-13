@@ -12,12 +12,12 @@ import time
 
 import pandas as pd
 from criteo_uplift.config import ROOT, DEFAULT_DATA, DEFAULT_SAMPLE_SIZE, DEFAULT_SEED
-from criteo_uplift.metrics import RANKING_METRICS
 from criteo_uplift.preparation import prepare_sample, split_sample
 from criteo_uplift.diagnostics import run_diagnostics
 from criteo_uplift.training_validation import fit_and_select_models
 from criteo_uplift.evaluation import ate_summary_from_audit, evaluate_test_set
 from criteo_uplift.stability import run_stability, DEFAULT_SEEDS, DEFAULT_FRACTIONS
+from criteo_uplift.experiment_protocol import load_protocol, sha256_file
 from criteo_uplift.planning import run_planning
 from criteo_uplift.reporting import finalize_run, save_sample_feature_plot
 from criteo_uplift.pipeline_io import safe_output, write_result
@@ -49,6 +49,10 @@ def run(args):
     figures_out = out / 'figures'  # 报告使用的结果图
     for directory in (data_out, diagnostics_out, models_out, evaluation_out, stability_out, business_out, figures_out):
         directory.mkdir(parents=True, exist_ok=True)
+    write_result({'status': 'running', 'arguments': vars(args),
+                  'source_code_sha256': {str(p.relative_to(ROOT)): sha256_file(p)
+                                         for p in sorted((ROOT / 'criteo_uplift').glob('*.py'))}},
+                 out / 'run_state.json')
     assumptions = json.loads(args.planning_assumptions.read_text()) if args.planning_assumptions else None
 
     # 02. 一次流式扫描完成检查、审计与抽样，随后划分 60/20/20。
@@ -57,7 +61,8 @@ def run(args):
     sample = scanned.pop('sample')
     audit, source = scanned['audit'], scanned['source']
     sample_n = len(sample)
-    parts, summary, overlap = split_sample(sample, args.outcome, args.seed)
+    frozen_ids = load_protocol(args.protocol)[1] if getattr(args, 'stage', None) == 'full' else None
+    parts, summary, overlap = split_sample(sample, args.outcome, args.seed, frozen_test_ids=frozen_ids)
     train, validation, test = (parts[name] for name in ('train', 'validation', 'test'))
     for name, frame in parts.items():
         write_result(frame[['row_id']], data_out / f'{name}_row_ids.csv')
@@ -80,7 +85,7 @@ def run(args):
     full_ate = [{'scope': 'full_dataset', 'outcome': outcome, **ate_summary_from_audit(audit, outcome)}
                 for outcome in ('conversion', 'visit')]
 
-    # 05. Train 拟合四个候选，Validation 选型并冻结，Test 不参与。
+    # 05. 训练六种 CATE 模型与两种 Response 策略，验证集选型后冻结。
     log('04. Train & Validation')
     e = float(train.treatment.mean())
     fitted = fit_and_select_models(
@@ -98,14 +103,20 @@ def run(args):
 
     # 06. Stability 只接收开发数据与独立 Test 的行号。
     log('06. Stability Analysis')
-    development = pd.concat([train, validation], ignore_index=True).sort_values('row_id', ignore_index=True)
-    test_row_ids = test.row_id.to_numpy()
-    del train, validation, test, parts
-    run_stability(development, test_row_ids, stability_out, seeds=args.stability_seeds,
-                  fractions=args.stability_fractions, trees=args.trees,
-                  primary_budget=args.primary_budget, primary_metric=args.primary_metric,
-                  n_bootstrap=args.bootstrap, outcome=args.outcome)
-    del development
+    if getattr(args, 'skip_stability', False):
+        write_result({'status': 'not_run', 'reason': '预先关闭额外模型重训；固定评分 Bootstrap 与预算敏感性保留。',
+                      'source': 'current run', 'development_n': len(train) + len(validation),
+                      'test_n_excluded': len(test)}, stability_out / 'report.json')
+        del train, validation, test, parts
+    else:
+        development = pd.concat([train, validation], ignore_index=True).sort_values('row_id', ignore_index=True)
+        test_row_ids = test.row_id.to_numpy()
+        del train, validation, test, parts
+        run_stability(development, test_row_ids, stability_out, seeds=args.stability_seeds,
+                      fractions=args.stability_fractions, trees=args.trees,
+                      primary_budget=args.primary_budget, primary_metric=args.primary_metric,
+                      n_bootstrap=args.bootstrap, outcome=args.outcome)
+        del development
 
     # 08. 使用明确的假设做线上 A/B 规划和条件性经济价值测算。
     log('07. Business Planning')
@@ -116,6 +127,9 @@ def run(args):
     finalize_run(manifest_path=manifest_path, report_path=report_path, args=args, source=source,
                  sample_n=sample_n, assignment_probability=e, fitted=fitted,
                  elapsed_seconds=time.perf_counter() - started)
+    state = json.loads((out / 'run_state.json').read_text())
+    state.update(status='complete', total_elapsed_seconds=time.perf_counter() - started)
+    write_result(state, out / 'run_state.json')
     log(f'完成：{report_path}')
     selected = fitted["selection"]["selected_policy"]
     print(test_result["bootstrap"]["summary"].query("policy == @selected").to_string(index=False))
@@ -136,7 +150,7 @@ def parse_args(argv=None):
     parser.add_argument('--sample-size', type=int, default=DEFAULT_SAMPLE_SIZE, help='0=全量')
     parser.add_argument('--outcome', choices=['conversion', 'visit'], default='conversion')
     parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
-    parser.add_argument('--primary-metric', choices=RANKING_METRICS, default='gain_ht')
+    parser.add_argument('--primary-metric', choices=['gain_ht'], default='gain_ht')
     parser.add_argument('--primary-budget', type=float, default=.2)
     parser.add_argument('--permutations', type=int, default=499)
     parser.add_argument('--c2st-sample', type=int, default=20000)
@@ -146,6 +160,11 @@ def parse_args(argv=None):
     parser.add_argument('--stability-fractions', type=float, nargs='+', default=DEFAULT_FRACTIONS)
     parser.add_argument('--planning-assumptions', type=Path, help='完整假设 JSON；默认沿用 planning.py 中明确标记的原教学情景')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--stage', choices=['development', 'full'], required=True)
+    parser.add_argument('--protocol', type=Path, required=True, help='预先冻结 Test 的协议目录')
+    stability_options = parser.add_mutually_exclusive_group()
+    stability_options.add_argument('--skip-stability', action='store_true', default=True, help='默认跳过额外重训，报告如实标注')
+    stability_options.add_argument('--run-stability', dest='skip_stability', action='store_false', help='显式启用开发集跨种子、规模和分组重训')
     args = parser.parse_args(argv)
     if (args.sample_size < 0 or not 0 < args.primary_budget <= 1 or args.permutations < 1
         or args.c2st_sample < 20 or args.c2st_sample % 20 or args.bootstrap < 2 or args.trees < 1
@@ -157,6 +176,17 @@ def parse_args(argv=None):
         _validate_fractions(args.stability_fractions)
     except ValueError as exc:
         parser.error(str(exc))
+    if args.stage in ('development', 'full'):
+        if args.protocol is None:
+            parser.error('两阶段实验必须提供 --protocol')
+        if args.outcome != 'conversion' or args.primary_metric != 'gain_ht' or args.primary_budget != .2:
+            parser.error('正式两阶段实验固定 conversion、HT Gain 和 20%')
+        if (args.stage == 'full' and args.sample_size != 0) or (args.stage == 'development' and args.sample_size != 5_000_000):
+            parser.error('development 需要 sample-size=5000000；full 需要 sample-size=0')
+        metadata, _ = load_protocol(args.protocol)
+        for name in ('seed', 'bootstrap', 'trees', 'c2st_sample', 'permutations'):
+            if getattr(args, name) != metadata[name]:
+                parser.error(f'{name} 与预冻结协议不一致')
     return args
 
 

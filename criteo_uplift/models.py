@@ -119,8 +119,8 @@ def s_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     # 固定 X，分别令 T=0 和 T=1，再用预测概率之差估计 CATE。
     features = _test_inputs_check(X, model_bundle, 's', ('fitted_model',))
     fitted_model = model_bundle['fitted_model']
-    p0 = fitted_model.predict_proba(np.column_stack((features, np.zeros(len(features)))))
-    p1 = fitted_model.predict_proba(np.column_stack((features, np.ones(len(features)))))
+    p0 = fitted_model.predict_proba(np.column_stack((features, np.zeros(len(features), dtype=features.dtype))))
+    p1 = fitted_model.predict_proba(np.column_stack((features, np.ones(len(features), dtype=features.dtype))))
     # 按类别标签选取正类列；只有类别 0 时，空列求和得到零概率。
     mu0 = p0[:, fitted_model.classes_ == 1].sum(axis=1, dtype=float)
     mu1 = p1[:, fitted_model.classes_ == 1].sum(axis=1, dtype=float)
@@ -236,3 +236,10 @@ def x_learner(X, *, X_train=None, t=None, y=None, model_bundle=None,
     return dict(model_bundle=model_bundle, mu0=mu0, mu1=mu1, cate=e * tau0 + (1 - e) * tau1,
                 fit_seconds=fit_seconds)
 
+
+
+def response_predict(X, model_bundle):
+    """Predict mu1 with a Train-treated-only model; the score is not CATE."""
+    features = _test_inputs_check(X, model_bundle, 'response', ('mu1_fitted_model',))
+    model = model_bundle['mu1_fitted_model']
+    return model.predict_proba(features)[:, model.classes_ == 1].sum(axis=1, dtype=float)

@@ -151,7 +151,7 @@ class EndToEndTests(unittest.TestCase):
             ranking = pd.read_csv((out / 'evaluation' / 'test_metrics.csv'))
             self.assertIn('qini_score', ranking)
             self.assertEqual(test_ranking.call_count, 1)
-            self.assertEqual(len(test_ranking.call_args.args[2]), 5)
+            self.assertEqual(len(test_ranking.call_args.args[2]), 8)
             self.assertEqual(manifest['selection']['selection_statistic'], 'bootstrap_mean')
             policies = pd.read_csv((out / 'evaluation' / 'test_metrics.csv'))
             self.assertEqual(set(policies.budget), {.02, .05, .1, .2, .3, .5, 1.})
@@ -177,7 +177,7 @@ class EndToEndTests(unittest.TestCase):
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 16)
+            self.assertEqual(len(equations), 17)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
@@ -185,18 +185,39 @@ class EndToEndTests(unittest.TestCase):
             business = re.search(r'<section id="business">(.+?)</section>', html, re.S).group(1)
             self.assertEqual(re.findall(r'<h3>([^<]+)</h3>', business), [
                 '1.1 广告投放的业务问题',
-                '1.2 Response Propensity 与 Uplift 的直观比较',
+                '1.2 转化倾向与增量定向的直观比较',
                 '1.3 因果增量与 CATE',
                 '1.4 本项目的研究问题与定向策略',
             ])
             self.assertIn('示意数据，非 Criteo 实验结果。', business)
             self.assertIn('class="targeting-example"', business)
             for value in ('80%', '85%', '+5 pp', '10%', '35%', '+25 pp'):
-                self.assertIn(f'<td>{value}</td>', business)
+                self.assertRegex(business, rf'<td[^>]*>{re.escape(value)}</td>')
             self.assertIn('平均处理效应（ATE）', business)
             self.assertIn('条件平均处理效应（CATE）', business)
+            self.assertIn('诊断总览', html)
+            self.assertIn('Pearson 卡方检验', html)
+            self.assertNotIn('二项检验', html)
+            comparison = re.search(r'<figure id="primary-policy-chart".+?</figure>', html, re.S).group()
+            bootstrap = pd.read_csv(out / 'evaluation/test_bootstrap.csv').query('budget == 0.2')
+            self.assertEqual(len(re.findall(r'class="policy-row\b', comparison)), len(bootstrap))
+            self.assertIn(f'class="policy-row frozen" data-policy="{winner}"', comparison)
+            for row in bootstrap.itertuples():
+                estimate = f'{row.point_estimate * 100_000:,.2f}'
+                interval = f'[{row.ci_low * 100_000:,.2f}, {row.ci_high * 100_000:,.2f}]'
+                self.assertIn(f'{estimate} <small>{interval}</small>', comparison)
+            pairwise = pd.read_csv(out / 'evaluation/test_pairwise.csv')
+            random_pair = pairwise.query('policy == @winner and reference == "random" and budget == 0.2').iloc[0]
+            executive = re.search(r'<section class="lead" id="summary".+?</section>', html, re.S).group()
+            self.assertIn(f'{random_pair.difference * 100_000:+.2f}', executive)
+            self.assertIn(
+                f'[{random_pair.ci_low * 100_000:,.2f}, {random_pair.ci_high * 100_000:,.2f}]',
+                executive,
+            )
+            self.assertIn('可能原因与不确定性', html)
+            self.assertIn('下一步线上验证', html)
             self.assertIn('各自横轴尺度', html)
-            self.assertIn(f'conversion 正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
+            self.assertIn(f'转化正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
             self.assertIn('<h3>扩大覆盖的边际增量</h3>', html)
             self.assertIn('<h3>全量投放情景</h3>', html)
             self.assertIn('<h3>开发集稳定性分析</h3>', html)
@@ -217,8 +238,8 @@ class EndToEndTests(unittest.TestCase):
                 for row in ranking.drop_duplicates("policy").itertuples():
                     self.assertEqual(shown_ranking.loc[row.policy, f'{label} × 10⁵'], f'{getattr(row, column) * 100_000:,.2f}')
             shown_budgets = tables['budget-sensitivity']
-            self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '100%'})
-            self.assertEqual(len(shown_budgets), 4 * len({winner, 'random', 'propensity'}))
+            self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '50%', '100%'})
+            self.assertEqual(len(shown_budgets), 5 * len({winner, 'random', 'response_xgboost'}))
             frozen = policies[policies.policy == winner].sort_values('budget')
             shown_marginal = tables['marginal-gain']
             expected_marginal = np.diff(np.r_[0., frozen.gain_ht_per_100k])
@@ -244,7 +265,7 @@ class EndToEndTests(unittest.TestCase):
                 ("data", "02. 数据来源与准备"),
                 ("diagnostics", "03. 实验诊断与因果识别"),
                 ("ate", "04. 平均处理效应（ATE）"),
-                ("modeling", "05. Uplift 建模"),
+                ("modeling", "05. 因果增量建模"),
                 ("evaluation", "06. 评估框架"),
                 ("validation", "07. 验证与模型选择"),
                 ("test", "08. 独立测试评估"),
@@ -258,6 +279,16 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(navigation, expected_chapters)
             with self.assertRaises(FileExistsError):
                 run(args)
+            # Report-only rebuild also works when optional repeat training is disabled.
+            from criteo_uplift.reporting import build_report
+            (out / 'stability/report.json').write_text(json.dumps({'status': 'not_run', 'reason': '测试关闭额外重训'}))
+            manifest['arguments']['skip_stability'] = True
+            (out / 'manifest.json').write_text(json.dumps(manifest))
+            build_report(out / 'manifest.json', out / 'report.html')
+            skipped = (out / 'report.html').read_text()
+            self.assertIn('本轮没有新增跨种子', skipped)
+            self.assertIn('--skip-stability', skipped)
+            self.assertNotIn('开发期训练规模敏感性</', skipped)
 
 
 

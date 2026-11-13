@@ -1,43 +1,51 @@
 # 在训练集拟合模型，在验证集选择策略；不使用测试结果进行选择。
 
 import joblib
+import warnings
+from datetime import datetime, timezone
+import numpy as np
 
-from .config import FEATURES, POLICY_NAMES
+from .config import FEATURES, POLICY_NAMES, UPLIFT_NAMES
 from .pipeline_io import safe_output, write_result
 from .metrics import evaluate_ranking
 from .models import s_learner, t_learner, x_learner
 
 def _fit_candidates(train, validation, outcome, seed, trees, progress):
-    """Fit the four fixed candidates and score the supplied validation rows."""
+    """Six CATE estimators and two independently named treated-response policies."""
     X_train, X_val = train[FEATURES], validation[FEATURES]
-    t_train, y_train = train.treatment, train[outcome]
-    logistic_params = {'random_state': seed}
-    xgb_params = {'random_state': seed, 'n_estimators': trees}
     results = {}
-
-    progress('训练 s_logistic')
-    results['s_logistic'] = s_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='logistic', outcome_params=logistic_params,
-    )
-    progress('训练 t_logistic')
-    results['t_logistic'] = t_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='logistic', outcome_params=logistic_params,
-    )
-    progress('训练 t_xgboost')
-    results['t_xgboost'] = t_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='xgboost', outcome_params=xgb_params,
-    )
-    progress('训练 x_xgboost')
-    results['x_xgboost'] = x_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='xgboost', effect_model='xgboost',
-        outcome_params=xgb_params, effect_params=xgb_params,
-    )
-
+    for learner in ('s', 't', 'x'):
+        for model in ('logistic', 'xgboost'):
+            name = f'{learner}_{model}'
+            progress(f'训练 {name}')
+            params = {'random_state': seed, **({'n_estimators': trees} if model == 'xgboost' else {})}
+            kwargs = dict(X_train=X_train, t=train.treatment, y=train[outcome],
+                          outcome_model=model, outcome_params=params)
+            if learner == 'x':
+                kwargs.update(effect_model='linear' if model == 'logistic' else 'xgboost',
+                              effect_params=params if model == 'xgboost' else {})
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter('always')
+                results[name] = {'s': s_learner, 't': t_learner, 'x': x_learner}[learner](X_val, **kwargs)
+            results[name]['warnings'] = [str(item.message) for item in caught]
+            for message in results[name]['warnings']:
+                progress(f'{name} 训练警告：{message}')
+    for model in ('logistic', 'xgboost'):
+        source = results[f't_{model}']
+        bundle = source['model_bundle']
+        results[f'response_{model}'] = dict(
+            model_bundle={**bundle, 'learner': 'response', 'fit_source': f't_{model}',
+                          'mu1_fitted_model': bundle['mu1_fitted_model']},
+            score=source['mu1'], fit_seconds=0.0,
+        )
+        # The serialized response artifact contains only the treated outcome model.
+        results[f'response_{model}']['model_bundle'].pop('mu0_fitted_model')
     return results
+
+
+def policy_scores(results):
+    return {name: result['score'] if name.startswith('response_') else result['cate']
+            for name, result in results.items()}
 
 
 def fit_and_select_models(
@@ -76,15 +84,12 @@ def fit_and_select_models(
     if n_bootstrap == 0:
         raise ValueError("Validation 选型需要至少两次 Bootstrap")
     results = _fit_candidates(train, validation, outcome, seed, trees, progress)
-    validation_scores = {name: result['cate'] for name, result in results.items()}
+    validation_scores = policy_scores(results)
 
-    # 2. 构建基线：复用 T-XGBoost 的 mu1，按接受处理时的转化概率排序。
-    validation_scores['propensity'] = results['t_xgboost']['mu1']
-
-    # 3. 一次评价五种评分。Validation 只评价预设覆盖率，面积仍使用完整曲线。
+    # Response 已复用对应 T-Learner 处理组模型。八种评分共同评价。Validation 只评价预设覆盖率，面积仍使用完整曲线。
     evaluation = evaluate_ranking(
         validation[outcome], validation.treatment, validation_scores, assignment_probability,
-        budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
+        include_random=True, budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
         n_bootstrap=n_bootstrap, seed=seed, include_curves=False,
     )
     inference = evaluation["bootstrap"]
@@ -93,11 +98,14 @@ def fit_and_select_models(
     ordered = inference["summary"].query("policy != 'random'").sort_values(
         "bootstrap_mean", ascending=False, kind="stable", na_position="last",
     )
-    uplift = ordered[ordered.policy.isin(results)]
+    uplift = ordered[ordered.policy.isin(UPLIFT_NAMES)]
     if ordered.bootstrap_mean.isna().all() or uplift.bootstrap_mean.isna().all():
         raise ValueError("Validation 主指标没有可用的 Bootstrap 均值，无法冻结策略或 uplift 候选")
     selection = {
         "primary_metric": primary_metric,
+        "frozen_at_utc": datetime.now(timezone.utc).isoformat(),
+        "assignment_probability": assignment_probability,
+        "seed": seed,
         "primary_budget": primary_budget,
         "selection_statistic": "bootstrap_mean",
         "n_bootstrap": n_bootstrap,
@@ -127,14 +135,41 @@ def fit_and_select_models(
             'parameters': result['model_bundle']['parameters'],
             'outcome_support': outcome_support,
             'seconds': result['fit_seconds'],
+            'fit_source': result['model_bundle'].get('fit_source', name),
+            'training_status': 'fitted',
+            'warnings': result.get('warnings', []),
+            'validation_score_std': float(np.std(validation_scores[name])),
+            'components': _model_diagnostics(result['model_bundle']),
         }
         for name, result in results.items()
     }
     for name, model_bundle in models.items():
         joblib.dump(model_bundle, safe_output(out / f'{name}.joblib'))
 
+    np.savez_compressed(out / 'validation_predictions.npz', row_id=validation.row_id.to_numpy(),
+                        y=validation[outcome].to_numpy(), t=validation.treatment.to_numpy(), **validation_scores)
+    write_result(model_metadata, out / 'training_metadata.json')
     write_result(selection, (out / 'selection.json'))
     return {
         "model_metadata": model_metadata,
         "selection": selection,
     }
+
+
+def _model_diagnostics(bundle):
+    """Record convergence and splits from fitted objects, without tuning on Test."""
+    diagnostics = {}
+    for key, model in bundle.items():
+        if not key.endswith('model'):
+            continue
+        fitted = model.steps[-1][1] if hasattr(model, 'steps') else model
+        item = {'type': type(fitted).__name__}
+        if hasattr(fitted, 'n_iter_'):
+            item['iterations'] = np.asarray(fitted.n_iter_).tolist()
+            item['iteration_limit_reached'] = bool(np.max(fitted.n_iter_) >= fitted.max_iter)
+        if hasattr(fitted, 'get_booster'):
+            tree = fitted.get_booster().trees_to_dataframe()
+            item['trees'] = int(tree.Tree.nunique())
+            item['split_nodes'] = int(tree.Feature.ne('Leaf').sum())
+        diagnostics[key] = item
+    return diagnostics

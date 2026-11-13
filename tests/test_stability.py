@@ -150,10 +150,10 @@ class StabilityTests(unittest.TestCase):
                     development, test_ids, output, seeds=[17], fractions=[0.5, 1.0], trees=3
                 )
             self.assertEqual(result, output.resolve())
-            self.assertEqual(len(original_fit_calls), 12)
+            self.assertEqual(len(original_fit_calls), 18)
             self.assertEqual(coverage_check.call_count, 3)
             metrics = pd.read_csv(output / "longmetrics.csv")
-            self.assertEqual(len(metrics), 15)
+            self.assertEqual(len(metrics), 24)
             self.assertTrue(
                 {"auuc", "qini_score", "bootstrap_mean"}.issubset(
                     metrics.columns
