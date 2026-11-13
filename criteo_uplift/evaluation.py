@@ -211,10 +211,6 @@ def evaluate_test_set(
     write_result(evaluation["curves"], out / 'curves.csv')
     write_result(evaluation["bootstrap"]["summary"], out / 'test_bootstrap.csv')
     write_result(evaluation["bootstrap"]["pairwise"], out / 'test_pairwise.csv')
-    for name, score in test_scores.items():
-        if name != "propensity":
-            write_result(calibration_table(test[outcome], test.treatment, score),
-                         out / f'calibration_{name}.csv')
 
     test_ate = [{"scope": "test", "outcome": label, **ate_summary(test[label], test.treatment)}
                 for label in ("conversion", "visit") if label in test]
