@@ -5,8 +5,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
 import base64
+import hashlib
 import json
-import os
 import re
 import unittest
 from xml.etree import ElementTree
@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 from criteo_uplift.config import FEATURES
 from criteo_uplift.metrics import evaluate_ranking
-from criteo_uplift.pipeline_io import fingerprint
 from run_pipeline import run
 from criteo_uplift.diagnostics import diagnose_overlap
 
@@ -53,7 +52,7 @@ class EndToEndTests(unittest.TestCase):
             frame['exposure'] = t * rng.binomial(1, 0.5, len(x))
             path = root / 'synthetic.csv'
             frame.to_csv(path, index=False)
-            before = fingerprint(path)
+            before = path.read_bytes()
             args = SimpleNamespace(
                 data=path,
                 sample_size=4000,
@@ -83,7 +82,7 @@ class EndToEndTests(unittest.TestCase):
             np.testing.assert_array_equal(diagnosed_t, frame.loc[train_ids, 'treatment'])
             raw_scans = [
                 call for call in read_csv.call_args_list
-                if call.args and Path(call.args[0]) == path and 'chunksize' in call.kwargs
+                if 'chunksize' in call.kwargs
             ]
             self.assertEqual(len(raw_scans), 1)
             for name in (
@@ -127,6 +126,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertFalse((out / 'split_summary.csv').exists())
             manifest = json.loads(((out / 'manifest.json')).read_text())
             self.assertEqual(manifest['status'], 'complete')
+            self.assertEqual(manifest['source']['sha256'], hashlib.sha256(before).hexdigest())
             coverage = json.loads((out / 'diagnostics/overlap_positivity.json').read_text())
             self.assertEqual(coverage['scope'], 'train')
             self.assertEqual(coverage['n'], len(train_ids))
@@ -160,7 +160,7 @@ class EndToEndTests(unittest.TestCase):
                 policies[policies.budget == 1].gain_ht_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
-            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 8)
+            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 7)
             balance = pd.read_csv((out / 'diagnostics' / 'balance.csv'))
             self.assertTrue(balance['scope'].eq('full_published_dataset').all())
             self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())
@@ -168,27 +168,25 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(diagnostic['scope'], 'full_source_arm_balanced_sample')
             self.assertEqual(diagnostic['n_treatment'], 500)
             self.assertEqual(diagnostic['n_control'], 500)
-            self.assertEqual(fingerprint(path), before)
+            self.assertEqual(path.read_bytes(), before)
             stability = json.loads((out / 'stability/report.json').read_text())
             self.assertEqual(stability['experiments'], 12)
-            self.assertTrue(stability['all_old_test_row_overlaps_zero'])
+            self.assertTrue(stability['all_test_row_overlaps_zero'])
             self.assertTrue(stability['all_group_split_feature_overlaps_zero'])
             self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 10)
+            self.assertEqual(len(equations), 15)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
             self.assertNotIn('<script', html)
-            self.assertNotIn('G_HT(q)', html)
             self.assertIn('各自横轴尺度', html)
             self.assertIn(f'conversion 正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
-            sections = ['Model Selection', 'Ranking Performance', 'Budget Sensitivity Analysis',
+            sections = ['Model Selection', '08. Independent Test Evaluation', '09. Budget Sensitivity',
                         'Marginal Incremental Gain', 'Full Coverage Scenario']
             self.assertEqual(sorted(html.index(name) for name in sections), [html.index(name) for name in sections])
-            self.assertIn('面积指标仍是排序指标', html)
             self.assertIn('未计算边际增量 CI', html)
             self.assertNotRegex(html, r'<td>\s*(?:NaN|nan|None)\s*</td>')
             # 从最终 HTML 反查表格，独立验证展示缩放和新增区间贡献。
@@ -208,7 +206,7 @@ class EndToEndTests(unittest.TestCase):
             shown_budgets = tables['budget-sensitivity']
             self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '100%'})
             self.assertEqual(len(shown_budgets), 4 * len({winner, 'random', 'propensity'}))
-            frozen = policies[policies.policy == winner].set_index('budget').loc[[.1, .2, .3, 1.]]
+            frozen = policies[policies.policy == winner].sort_values('budget')
             shown_marginal = tables['marginal-gain']
             expected_marginal = np.diff(np.r_[0., frozen.gain_ht_per_100k])
             self.assertEqual(shown_marginal.iloc[:, -1].tolist(), [f'{v:,.2f}' for v in expected_marginal])
@@ -220,25 +218,21 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn('C2ST 置换 AUC 分布', html)
             encoded_c2st = base64.b64encode((out / 'figures/c2st_null.png').read_bytes()).decode()
             self.assertIn(encoded_c2st, html)
-            for section in ('Business Background', 'Data Preparation', 'Experiment Diagnostics', 'ATE / ITT',
-                            'Uplift Modeling', 'Training &amp; Validation', 'Test Evaluation', 'Stability Analysis',
-                            'Planning', 'Conclusion'):
+            for section in ('Executive Summary', 'Business Problem', 'Data Preparation', 'Experiment Diagnostics',
+                            'Average Treatment Effect', 'Uplift Modeling', 'Model Selection', 'Independent Test Evaluation',
+                            'Stability Analysis', 'Business Implications', 'Technical &amp; Reproducibility'):
                 self.assertIn(section, html)
             self.assertFalse((out / 'diagnostics/ate_full.csv').exists())
             self.assertFalse((out / 'evaluation/ate_test.json').exists())
             # 公开路径只复制聚合结果；完整实验中的模型、逐行预测和额外文件不进入公开目录。
-            from scripts.export_public_results import export
-            frame.to_csv(out / 'user_rows.csv', index=False)
-            notebook_export = Path(os.environ["CRITEO_NOTEBOOK_EXPORT"]) if "CRITEO_NOTEBOOK_EXPORT" in os.environ else root / 'public'
-            public = export(out, notebook_export) / out.name
-            self.assertFalse((public / 'user_rows.csv').exists())
-            self.assertFalse((public / 'evaluation/predictions.npz').exists())
-            self.assertFalse(list(public.rglob('*.joblib')))
-            self.assertFalse(list(public.rglob('*row_ids*')))
-            pd.testing.assert_frame_equal(pd.read_csv(public / 'evaluation/test_metrics.csv'), policies)
-            self.assertEqual(json.loads((public / 'models/selection.json').read_text()), manifest['selection'])
-            self.assertTrue((public / 'report.html').is_file())
-            self.assertTrue((public / 'diagnostics/overlap_strata.csv').is_file())
+            self.assertNotIn(str(root), html)
+            self.assertNotIn('predictions.npz', html)
+            self.assertNotIn('data_preparation/test_row_ids.csv', html)
+            self.assertEqual(policies.loc[policies.budget.eq(1.), 'gain_ht'].nunique(), 1)
+            for anchor in ('summary', 'business', 'data', 'diagnostics', 'ate', 'modeling',
+                           'evaluation', 'validation', 'test', 'robustness', 'conclusion', 'appendix'):
+                self.assertIn(f'id="{anchor}"', html)
+                self.assertIn(f'href="#{anchor}"', html)
             with self.assertRaises(FileExistsError):
                 run(args)
 

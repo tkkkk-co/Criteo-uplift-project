@@ -78,7 +78,7 @@ class DataTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        before = preparation.fingerprint(self.source)
+        before = self.source.read_bytes()
         scanned = scan_raw_data(
             self.source, per_arm=10, sample_size=43, seed=31, chunk_size=57
         )
@@ -103,7 +103,7 @@ class DataTests(unittest.TestCase):
         self.assertNotIn("sample_n", audit)
         self.assertEqual(audit["n_treatment"], 200)
         self.assertEqual(audit["groups"]["0"]["conversion"]["positive"], 100)
-        self.assertEqual(preparation.fingerprint(self.source), before)
+        self.assertEqual(self.source.read_bytes(), before)
 
     def test_full_data_audit_counts_duplicates_without_removing_rows(self):
         #-------------
@@ -177,8 +177,6 @@ class DataTests(unittest.TestCase):
                     ValueError
                 ):
                     pipeline_io.write_result({"replace": True}, destination)
-            with self.assertRaises(ValueError):
-                pipeline_io.save_sample(pd.DataFrame(), link / "sample.npz")
             for destination in (protected, link):
                 with self.subTest(destination=destination), self.assertRaises(ValueError):
                     pipeline_io.write_result(pd.DataFrame({"n": [1]}), destination / "summary.csv")
@@ -187,25 +185,6 @@ class DataTests(unittest.TestCase):
             self.assertTrue(destination.is_file())
         self.assertEqual(marker.read_text(encoding="utf-8"), "original")
         self.assertFalse((protected / "new").exists())
-        self.assertFalse((protected / "sample.npz").exists())
-
-    def test_sample_round_trip_uses_an_output_directory(self):
-        #-------------
-        # 函数名：DataTests.test_sample_round_trip_uses_an_output_directory
-        # 功能：验证样本缓存保存和读取往返一致，且输出路径位于允许的结果目录。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        scanned = scan_raw_data(
-            self.source, per_arm=10, sample_size=33, seed=2, chunk_size=41
-        )
-        sample = scanned["sample"]
-        destination = self.root / "artifacts" / "sample.npz"
-        pipeline_io.save_sample(sample, destination)
-        loaded = pipeline_io.load_sample(destination)
-        pd.testing.assert_frame_equal(sample, loaded)
 
     def test_split_is_disjoint_reproducible_and_preserves_joint_strata(self):
         #-------------
@@ -371,6 +350,13 @@ class DataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             scan_raw_data(self.source, per_arm=10, chunk_size=0)
 
+    def test_rejects_extra_csv_field_at_chunk_boundary(self):
+        rows = self.frame.to_csv(index=False).splitlines()
+        rows[74] += ',0'
+        self.source.write_text('\n'.join(rows), encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, '16 个字段'):
+            scan_raw_data(self.source, per_arm=10, sample_size=5, chunk_size=73)
+
     def test_split_rejects_unsupported_outcome_and_too_small_strata(self):
         #-------------
         # 函数名：DataTests.test_split_rejects_unsupported_outcome_and_too_small_strata
@@ -464,25 +450,3 @@ class InputChecksTests(unittest.TestCase):
             with self.assertRaises(ValueError): check_row_ids(ids)
         with self.assertRaises(ValueError): check_row_ids([-1, 2], require_integer=True)
         check_row_ids(["a", "b"], n_rows=2)
-
-    def test_corrupt_cached_arrays_are_rejected(self):
-        #-------------
-        # 函数名：InputChecksTests.test_corrupt_cached_arrays_are_rejected
-        # 功能：验证形状、标签或来源行号损坏的 NPZ 缓存无法被静默加载。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        with tempfile.TemporaryDirectory() as folder:
-            path = Path(folder) / 'corrupt.npz'
-            valid = {'X': np.ones((3, 12)), 'labels': np.zeros((3, 4), dtype=np.int8),
-                     'row_id': np.arange(3)}
-            for changed in ({'row_id': np.array([0, 0, 1])},
-                            {'X': np.ones((3, 11))},
-                            {'X': np.full((3, 12), np.inf)},
-                            {'labels': np.full((3, 4), 2)},
-                            {'labels': np.zeros((2, 4))}):
-                np.savez(path, **{**valid, **changed})
-                with self.assertRaises(ValueError):
-                    pipeline_io.load_sample(path)

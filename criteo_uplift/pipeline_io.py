@@ -1,42 +1,12 @@
-# 统一管理路径保护、JSON、样本缓存和实验产物读写。
-# 这里负责“怎么保存/读取”，不负责决定何时训练或评价；主流程见 run_pipeline.py。
-# Notebook 与结果文件映射见 docs/RESULTS_GUIDE.md。
+"""Protect the raw data directory and write experiment results."""
 
 from pathlib import Path
-import hashlib
 import json
 
 import numpy as np
 import pandas as pd
 
-from .config import DATA_ROOT, FEATURES, LABELS
-from .input_checks import check_binary_vector, check_feature_matrix, check_row_ids
-
-def fingerprint(path):
-    #-------------
-    # 函数名：fingerprint
-    # 功能：计算文件的路径、大小、修改时间和分块 SHA256，用于核验数据来源及缓存有效性。
-    # 输入参数：
-    #     - path：需要计算指纹的文件路径。
-    # 输出参数：
-    #     - 来源指纹字典：包含绝对路径、文件大小、mtime_ns 和 SHA256。
-    #-------------
-    path = Path(path)
-    h = hashlib.sha256()
-
-    with path.open('rb') as f:  # 以二进制只读模式读取文件。
-        for block in iter(
-            lambda: f.read(8*1024*1024),
-            b''):
-            h.update(block)
-
-    return {
-        'path':str(path.resolve()),
-        'size':path.stat().st_size,
-        'mtime_ns':path.stat().st_mtime_ns,
-        'sha256':h.hexdigest()
-    }
-
+from .config import DATA_ROOT
 
 
 def safe_output(path):
@@ -95,46 +65,3 @@ def write_result(value, path):
     content = json.dumps(convert(value), ensure_ascii=False, indent=2, allow_nan=False)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-
-
-def save_sample(sample, path):
-    #-------------
-    # 函数名：save_sample
-    # 功能：将扫描已验证的建模样本压缩保存为 NPZ 缓存。
-    # 输入参数：
-    #     - sample：包含 row_id、FEATURES 和 LABELS 的建模样本 DataFrame。
-    #     - path：NPZ 样本缓存目标路径。
-    # 输出参数：
-    #     - 无；在 path 保存压缩样本数组。
-    #-------------
-    path = safe_output(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path,
-        row_id=sample.row_id.to_numpy(),
-        X=sample[FEATURES].to_numpy(dtype=np.float32),
-        labels=sample[LABELS].to_numpy(dtype=np.int8),
-    )
-
-
-def load_sample(path):
-    #-------------
-    # 函数名：load_sample
-    # 功能：读取 NPZ 样本缓存，校验数组形状、row_id 和二元标签后恢复为 DataFrame。
-    # 输入参数：
-    #     - path：待读取的 NPZ 样本缓存路径。
-    # 输出参数：
-    #     - 恢复后的样本 DataFrame，包含 row_id、特征和标签列。
-    #-------------
-    with np.load(path, allow_pickle=False) as z:
-        check_feature_matrix(z['X'], n_features=len(FEATURES))
-        check_row_ids(z['row_id'], n_rows=len(z['X']), require_integer=True)
-        if z['labels'].shape != (len(z['X']), len(LABELS)):
-            raise ValueError('缓存标签形状与特征行数及标签列数不一致')
-        for j, label in enumerate(LABELS):
-            check_binary_vector(z['labels'][:, j], label, len(z['X']))
-        frame = pd.DataFrame(z['X'], columns=FEATURES)
-        for j, c in enumerate(LABELS):
-            frame[c] = z['labels'][:, j]
-        frame.insert(0, 'row_id', z['row_id'])
-    return frame

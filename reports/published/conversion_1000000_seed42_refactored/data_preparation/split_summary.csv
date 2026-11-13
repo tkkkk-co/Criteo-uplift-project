@@ -1,7 +1,0 @@
-split,treatment,n,conversion_positive,visit_positive
-train,0,89754,164,3372
-train,1,510246,1565,24685
-validation,0,29917,54,1064
-validation,1,170083,522,8310
-test,0,29918,55,1113
-test,1,170082,522,8324

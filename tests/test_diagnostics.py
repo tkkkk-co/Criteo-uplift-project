@@ -11,7 +11,6 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 
 from criteo_uplift.config import COLUMNS, FEATURES, LABELS
-from criteo_uplift.pipeline_io import fingerprint
 
 from criteo_uplift.diagnostics import c2st, covariate_balance, learnability, srm_summary, run_diagnostics
 from criteo_uplift.raw_scan import scan_raw_data
@@ -247,9 +246,9 @@ class PublicDiagnosticsTests(unittest.TestCase):
             original = path.read_bytes()
             raw = pd.read_csv(path, dtype=np.float64)
             expected = covariate_balance(raw, FEATURES)
-            scanned = scan_raw_data(path, sample_enabled=False, per_arm=10, chunk_size=13, progress=lambda _: None)
+            scanned = scan_raw_data(path, per_arm=10, chunk_size=13, progress=lambda _: None)
             first, sample, meta = scanned["balance"], scanned["c2st_sample"], scanned["metadata"]
-            scanned = scan_raw_data(path, sample_enabled=False, per_arm=10, chunk_size=31, progress=lambda _: None)
+            scanned = scan_raw_data(path, per_arm=10, chunk_size=31, progress=lambda _: None)
             second, repeated = scanned["balance"], scanned["c2st_sample"]
             assert_frame_equal(first[expected.columns], expected)
             assert_frame_equal(first, second)
@@ -279,12 +278,12 @@ class PublicDiagnosticsTests(unittest.TestCase):
             frame.loc[0, "f0"] = np.nan
             frame.to_csv(path, index=False)
             with self.assertRaisesRegex(ValueError, "非有限值"):
-                scan_raw_data(path, sample_enabled=False, per_arm=10, progress=lambda _: None)
+                scan_raw_data(path, per_arm=10, progress=lambda _: None)
             frame = self.frame()
             frame.loc[0, "treatment"] = 2
             frame.to_csv(path, index=False)
             with self.assertRaisesRegex(ValueError, "二元值"):
-                scan_raw_data(path, sample_enabled=False, per_arm=10, progress=lambda _: None)
+                scan_raw_data(path, per_arm=10, progress=lambda _: None)
 
     def test_update_replaces_only_existing_diagnostic_files(self):
         #-------------
@@ -309,10 +308,11 @@ class PublicDiagnosticsTests(unittest.TestCase):
             protected = (directory / 'evaluation' / 'predictions.npz')
             protected.write_bytes(b'fixed-model-predictions')
             before_names = {str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file()}
+            scanned = scan_raw_data(raw, per_arm=10, progress=lambda _: None)
             details = run_diagnostics(
                 directory / "diagnostics", train=frame, validation=frame,
-                scanned=scan_raw_data(raw, sample_enabled=False, per_arm=10, progress=lambda _: None), audit={'n_treatment': 60, 'n_control': 20},
-                source=fingerprint(raw), sample_size=20, permutations=3,
+                scanned=scanned, audit=scanned['audit'],
+                source=scanned['source'], sample_size=20, permutations=3,
                 progress=lambda _: None,
             )
             self.assertEqual({str(p.relative_to(directory)) for p in directory.rglob('*') if p.is_file()}, before_names)

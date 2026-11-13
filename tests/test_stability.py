@@ -10,24 +10,13 @@ import numpy as np
 import pandas as pd
 
 from criteo_uplift.config import FEATURES
-from criteo_uplift.pipeline_io import fingerprint
-from criteo_uplift.pipeline_io import save_sample, write_result
 from functools import partial
 from criteo_uplift.models import s_learner, t_learner, x_learner
 from criteo_uplift.diagnostics import diagnose_overlap
-from criteo_uplift.stability import development_splits, feature_groups, load_development_sample, nested_stratified_indices, run_stability
+from criteo_uplift.stability import development_splits, feature_groups, nested_stratified_indices, run_stability
 
 
-def synthetic_inputs(root, n=2000):
-    #-------------
-    # 函数名：synthetic_inputs
-    # 功能：生成 Stability 测试用合成样本、NPZ 缓存、metadata、基准 manifest 和旧 Test row_id 文件。
-    # 输入参数：
-    #     - root：测试使用的临时项目根目录。
-    #     - n：合成样本行数。
-    # 输出参数：
-    #     - 二元组：(合成样本缓存路径、模拟基准实验目录路径)。
-    #-------------
+def synthetic_inputs(n=2000):
     rng = np.random.default_rng(91)
     # 构造重复的特征行，使组间泄漏检查确实能够发现问题。
     x = np.repeat(rng.normal(size=(n // 2, 12)), 2, axis=0).astype(np.float32)
@@ -41,26 +30,8 @@ def synthetic_inputs(root, n=2000):
         np.int8
     )
     frame["exposure"] = frame.treatment
-    cache = root / "cache/sample.npz"
-    base = root / "base"
-    base.mkdir()
-    (base / "data_preparation").mkdir()
-    save_sample(frame, cache)
-    write_result(
-        {"source": {"sha256": "synthetic_source"}, "sample_size": n, "source_n": n, "sample_n": n},
-        cache.with_suffix(".json"),
-    )
-    write_result(
-        {
-            "status": "complete",
-            "source": {"sha256": "synthetic_source"},
-            "sample_n": n,
-            "primary_outcome": "conversion",
-        },
-        base / "manifest.json",
-    )
-    frame.iloc[::5][["row_id"]].to_csv(base / "data_preparation" / "test_row_ids.csv", index=False)
-    return cache, base
+    held_out = frame.index % 5 == 0
+    return frame.loc[~held_out].reset_index(drop=True), frame.loc[held_out, 'row_id'].to_numpy()
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -116,51 +87,34 @@ class StabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             nested_stratified_indices([0, 1], [0, 1], [0.1])
 
-    def test_old_test_excluded_and_group_split_has_zero_overlap(self):
-        #-------------
-        # 函数名：StabilityTests.test_old_test_excluded_and_group_split_has_zero_overlap
-        # 功能：验证 Stability 开发样本排除原 Test，并在匿名特征分组划分中保持组间零重叠。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        with TemporaryDirectory() as folder:
-            cache, base = synthetic_inputs(Path(folder))
-            development, old_test = load_development_sample(cache, base)
-            self.assertEqual(len(development), 1600)
-            self.assertFalse(np.isin(development.row_id, old_test).any())
-            groups = feature_groups(development)
-            splits = development_splits(development, seed=17)
-            for method, (train, val) in splits.items():
-                self.assertEqual(len(set(train) & set(val)), 0)
-                self.assertEqual(len(train) + len(val), len(development))
-                if method == "feature_group":
-                    self.assertEqual(len(set(groups[train]) & set(groups[val])), 0)
-                else:
-                    self.assertGreater(len(set(groups[train]) & set(groups[val])), 0)
+    def test_group_split_excludes_test_and_has_zero_feature_overlap(self):
+        development, test_ids = synthetic_inputs()
+        groups = feature_groups(development)
+        for method, (train, val) in development_splits(development, seed=17).items():
+            self.assertEqual(len(set(train) & set(val)), 0)
+            self.assertEqual(len(train) + len(val), len(development))
+            self.assertFalse(np.isin(development.iloc[train].row_id, test_ids).any())
+            self.assertFalse(np.isin(development.iloc[val].row_id, test_ids).any())
+            if method == "feature_group":
+                self.assertEqual(len(set(groups[train]) & set(groups[val])), 0)
+            else:
+                self.assertGreater(len(set(groups[train]) & set(groups[val])), 0)
 
-    def test_unknown_test_id_rejected(self):
-        #-------------
-        # 函数名：StabilityTests.test_unknown_test_id_rejected
-        # 功能：验证旧 Test row_id 不存在于缓存时拒绝开展 Stability。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
+    def test_leaked_or_duplicate_test_rows_are_rejected_before_fitting(self):
+        development, test_ids = synthetic_inputs()
         with TemporaryDirectory() as folder:
-            cache, base = synthetic_inputs(Path(folder))
-            pd.DataFrame({"row_id": [999999]}).to_csv(
-                base / "data_preparation" / "test_row_ids.csv", index=False
-            )
-            with self.assertRaisesRegex(ValueError, "未包含原测试集"):
-                load_development_sample(cache, base)
+            output = Path(folder) / 'study'
+            leaked = np.r_[test_ids, development.row_id.iloc[0]]
+            with self.assertRaisesRegex(ValueError, '必须互斥'):
+                run_stability(development, leaked, output)
+            with self.assertRaisesRegex(ValueError, '唯一'):
+                run_stability(development, np.r_[test_ids, test_ids[0]], output)
+            self.assertFalse(output.exists())
 
     def test_small_integration_freezes_protocol_and_preserves_inputs(self):
         #-------------
         # 函数名：StabilityTests.test_small_integration_freezes_protocol_and_preserves_inputs
-        # 功能：验证小规模 Stability 集成流程先冻结 protocol、排除旧 Test、完成模型比较且不修改只读输入。
+        # 功能：验证小规模 Stability 集成流程先冻结 protocol、排除正式 Test、完成模型比较且不修改只读输入。
         # 输入参数：
         #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
         # 输出参数：
@@ -168,15 +122,10 @@ class StabilityTests(unittest.TestCase):
         #-------------
         with TemporaryDirectory() as folder:
             root = Path(folder)
-            cache, base = synthetic_inputs(root)
+            development, test_ids = synthetic_inputs()
             output = root / "study"
-            paths = [
-                cache,
-                cache.with_suffix(".json"),
-                base / "manifest.json",
-                base / "data_preparation" / "test_row_ids.csv",
-            ]
-            before = {str(p): fingerprint(p) for p in paths}
+            before = development.copy(deep=True)
+            test_before = test_ids.copy()
             original_fit_calls = []
             learners = {'s': s_learner, 't': t_learner, 'x': x_learner}
 
@@ -193,12 +142,12 @@ class StabilityTests(unittest.TestCase):
                 original_fit_calls.append(learner + '_' + kwargs['outcome_model'])
                 return learners[learner](X, **kwargs)
 
-            with patch('criteo_uplift.stability.s_learner', side_effect=partial(checked_learner, 's')), \
-                 patch('criteo_uplift.stability.t_learner', side_effect=partial(checked_learner, 't')), \
-                 patch('criteo_uplift.stability.x_learner', side_effect=partial(checked_learner, 'x')), \
+            with patch('criteo_uplift.training_validation.s_learner', side_effect=partial(checked_learner, 's')), \
+                 patch('criteo_uplift.training_validation.t_learner', side_effect=partial(checked_learner, 't')), \
+                 patch('criteo_uplift.training_validation.x_learner', side_effect=partial(checked_learner, 'x')), \
                  patch('criteo_uplift.stability.diagnose_overlap', wraps=diagnose_overlap) as coverage_check:
                 result = run_stability(
-                    cache, base, output, seeds=[17], fractions=[0.5, 1.0], trees=3
+                    development, test_ids, output, seeds=[17], fractions=[0.5, 1.0], trees=3
                 )
             self.assertEqual(result, output.resolve())
             self.assertEqual(len(original_fit_calls), 12)
@@ -218,8 +167,8 @@ class StabilityTests(unittest.TestCase):
             self.assertTrue(
                 audit[
                     [
-                        "train_old_test_overlap",
-                        "validation_old_test_overlap",
+                        "train_test_overlap",
+                        "validation_test_overlap",
                         "row_overlap",
                     ]
                 ]
@@ -236,13 +185,13 @@ class StabilityTests(unittest.TestCase):
                 self.assertEqual(subset.assignment_probability.nunique(), 1)
             report = json.loads((output / "report.json").read_text())
             self.assertEqual(report["status"], "complete")
-            self.assertEqual(report["old_test_n_excluded"], 400)
+            self.assertEqual(report["test_n_excluded"], 400)
             self.assertFalse(report["original_test_re_evaluated"])
             self.assertFalse(list(output.glob("*.joblib")))
-            for path in paths:
-                self.assertEqual(fingerprint(path), before[str(path)])
+            pd.testing.assert_frame_equal(development, before)
+            np.testing.assert_array_equal(test_ids, test_before)
             with self.assertRaises(FileExistsError):
-                run_stability(cache, base, output, seeds=[17], fractions=[1.0], trees=3)
+                run_stability(development, test_ids, output, seeds=[17], fractions=[1.0], trees=3)
             for kwargs in (
                 {"seeds": [17, 17]},
                 {"seeds": [-1]},
@@ -250,7 +199,7 @@ class StabilityTests(unittest.TestCase):
                 {"primary_budget": 0},
             ):
                 with self.assertRaises(ValueError):
-                    run_stability(cache, base, root / "unused", **kwargs)
+                    run_stability(development, test_ids, root / "unused", **kwargs)
 
 
 if __name__ == "__main__":

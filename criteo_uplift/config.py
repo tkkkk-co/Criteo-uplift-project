@@ -13,6 +13,7 @@ LABELS = ['treatment', 'conversion', 'visit', 'exposure']
 COLUMNS = FEATURES + LABELS
 DEFAULT_SAMPLE_SIZE = 1_000_000
 DEFAULT_SEED = 42
+POLICY_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
 
 _OPENMP = None
 
@@ -20,22 +21,20 @@ _OPENMP = None
 def configure_runtime():
     #-------------
     # 函数名：configure_runtime
-    # 功能：设置项目运行所需的线程环境变量、绘图缓存目录，并按需加载 OpenMP 运行库。
+    # 功能：设置项目运行所需的线程环境变量，并按需加载 OpenMP 运行库。
     # 输入参数：
     #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
     # 输出参数：
     #     - 无；修改当前 Python 进程的运行环境设置。
     #-------------
     global _OPENMP
-    root = ROOT
     os.environ.setdefault('OMP_NUM_THREADS', '4')
     os.environ.setdefault('OPENBLAS_NUM_THREADS', '4')
-    os.environ.setdefault('MPLCONFIGDIR', str(root / 'artifacts/.mplcache'))
     # 公开项目不随附平台专用的运行库二进制文件。
     # 可通过显式配置指向另行安装且可信的 OpenMP 运行库。
     library = Path(
         os.environ.get(
-            'CRITEO_OPENMP_LIBRARY', str(root / '.runtime/openmp/lib/libomp.dylib')
+            'CRITEO_OPENMP_LIBRARY', str(ROOT / '.runtime/openmp/lib/libomp.dylib')
         )
     )
     if library.exists() and _OPENMP is None:

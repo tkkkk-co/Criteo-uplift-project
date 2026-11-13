@@ -1,5 +1,5 @@
 #-------------
-# ATE、策略价值、分组校准与冻结模型的 Test 评价。
+# ATE、策略价值与冻结模型的 Test 评价。
 #-------------
 import json
 from math import sqrt
@@ -7,10 +7,10 @@ import joblib
 import numpy as np
 import pandas as pd
 from scipy.special import log_ndtr
-from .config import FEATURES
+from .config import FEATURES, POLICY_NAMES
 from .pipeline_io import safe_output, write_result
 from .models import s_learner, t_learner, x_learner
-from .metrics import _binary_inputs_check, _scores_check, evaluate_ranking
+from .metrics import _binary_inputs_check, evaluate_ranking
 
 DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.30, 0.50, 1.0)
 _Z_975 = 1.959963984540054
@@ -55,7 +55,7 @@ def _ate_summary_from_counts(n0, n1, r0, r1):
         raise ValueError("审计计数必须为有效整数")
     if not (n0 >= 0 and n1 >= 0 and n0 + n1 > 0 and 0 <= r0 <= n0 and 0 <= r1 <= n1):
         raise ValueError("审计计数必须为有效整数，且不能超过对应处理臂人数")
-    # 校准小分箱可能缺一组，此时保留 NaN，不伪造可估计的效果。
+    # 按处理臂计算响应率和未合并标准误。
     p0, p1 = r0 / n0 if n0 else np.nan, r1 / n1 if n1 else np.nan
     ate = p1 - p0
     se = sqrt(p1 * (1 - p1) / (n1 - 1) + p0 * (1 - p0) / (n0 - 1)) if min(n0, n1) > 1 else np.nan
@@ -108,51 +108,6 @@ def ate_summary_from_audit(audit, outcome):
     return _ate_summary_from_counts(n0, n1, r0, r1)
 
 
-def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
-    #-------------
-    # 函数名：calibration_table
-    # 功能：按预测 CATE 从低到高分箱，比较每箱平均预测效应与实际处理组/对照组结果率差。
-    # 输入参数：
-    #     - y：测试样本的二元结果变量。
-    #     - t：测试样本的二元处理分配变量。
-    #     - cate：每个样本的预测 CATE 分数。
-    #     - n_bins：等人数校准分箱数量。
-    # 输出参数：
-    #     - 校准结果 DataFrame：每箱的样本量、预测 CATE、观察 ATE 和置信区间。
-    #-------------
-    y, t = _binary_inputs_check(y, t)
-    cate = _scores_check(cate, len(y))
-    if not isinstance(n_bins, (int, np.integer)) or n_bins < 1:
-        raise ValueError("n_bins 必须为正整数")
-    # 校准分箱从低 CATE 到高 CATE 排列，同分仍使用原来的固定随机优先级。
-    tie_break = np.random.default_rng(42).random(len(cate))
-    order = np.lexsort((tie_break, cate))
-    records = []
-    for number, selected in enumerate(
-        np.array_split(order, min(n_bins, len(y))), start=1
-    ):
-        labels, treatment = y[selected], t[selected]
-        summary = _ate_summary_from_counts(
-            int((treatment == 0).sum()), int((treatment == 1).sum()),
-            int(labels[treatment == 0].sum()), int(labels[treatment == 1].sum()),
-        )
-        records.append(
-            {
-                "bin": number,
-                "n": len(selected),
-                "n_treatment": summary["n_treatment"],
-                "n_control": summary["n_control"],
-                "predicted_cate": float(cate[selected].mean()),
-                "prediction_min": float(cate[selected].min()),
-                "prediction_max": float(cate[selected].max()),
-                "observed_ate": summary["ate"],
-                "standard_error": summary["standard_error"],
-                "ci_low": summary["ci_low"],
-                "ci_high": summary["ci_high"],
-            }
-        )
-    return pd.DataFrame.from_records(records)
-
 def evaluate_test_set(
     test,
     *,
@@ -161,11 +116,11 @@ def evaluate_test_set(
     seed,
     out,
     progress=print,
-    full_ate=None,
+    full_ate,
 ):
     #-------------
     # 函数名：evaluate_test_set
-    # 功能：使用已经冻结的模型在 Test 集上生成 CATE 评分、排序指标、策略价值、校准结果和 ATE，并保存评价产物。
+    # 功能：使用已经冻结的模型在 Test 集上生成 CATE 评分、排序指标、策略价值和 ATE，并保存评价产物。
     # 输入参数：
     #     - test：独立 Test DataFrame，包含特征、treatment、结果和 row_id。
     #     - outcome：本次模型训练和主要排序评价使用的结果列名。
@@ -175,17 +130,16 @@ def evaluate_test_set(
     #     - progress：接收评价进度消息的回调函数。
     #     - full_ate：由全量 Audit 计算得到的 ATE 记录列表。
     # 输出参数：
-    #     - 统一评价结果字典。另保存校准、ATE 和逐行预测。
+    #     - 统一评价结果字典。另保存ATE 和逐行预测。
     #-------------
     out = safe_output(out)
     models_out = out.parent / 'models'
     selection = json.loads((models_out / 'selection.json').read_text(encoding='utf-8'))
-    if not selection["frozen_before_test"] or selection["selected_policy"] not in selection["candidates"]:
+    if (not selection["frozen_before_test"] or tuple(selection["candidates"]) != POLICY_NAMES
+            or selection["selected_policy"] not in POLICY_NAMES):
         raise ValueError("Test 需要有效的 Validation 冻结策略")
     test_scores = {}
-    for name in selection["candidates"]:
-        if name == "propensity":
-            continue
+    for name in POLICY_NAMES[:-1]:
         model_bundle = joblib.load(models_out / f'{name}.joblib')
         if model_bundle['learner'] == 's':
             result = s_learner(test[FEATURES], model_bundle=model_bundle)

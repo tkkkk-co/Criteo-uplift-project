@@ -1,13 +1,44 @@
 # 在训练集拟合模型，在验证集选择策略；不使用测试结果进行选择。
-# Notebook 03 的核心实现：fit_and_select_models。
-# 输出 validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
 import joblib
 
-from .config import FEATURES
+from .config import FEATURES, POLICY_NAMES
 from .pipeline_io import safe_output, write_result
 from .metrics import evaluate_ranking
 from .models import s_learner, t_learner, x_learner
+
+def _fit_candidates(train, validation, outcome, seed, trees, progress):
+    """Fit the four fixed candidates and score the supplied validation rows."""
+    X_train, X_val = train[FEATURES], validation[FEATURES]
+    t_train, y_train = train.treatment, train[outcome]
+    logistic_params = {'random_state': seed}
+    xgb_params = {'random_state': seed, 'n_estimators': trees}
+    results = {}
+
+    progress('训练 s_logistic')
+    results['s_logistic'] = s_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='logistic', outcome_params=logistic_params,
+    )
+    progress('训练 t_logistic')
+    results['t_logistic'] = t_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='logistic', outcome_params=logistic_params,
+    )
+    progress('训练 t_xgboost')
+    results['t_xgboost'] = t_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='xgboost', outcome_params=xgb_params,
+    )
+    progress('训练 x_xgboost')
+    results['x_xgboost'] = x_learner(
+        X_val, X_train=X_train, t=t_train, y=y_train,
+        outcome_model='xgboost', effect_model='xgboost',
+        outcome_params=xgb_params, effect_params=xgb_params,
+    )
+
+    return results
+
 
 def fit_and_select_models(
     train,
@@ -44,35 +75,7 @@ def fit_and_select_models(
     out = safe_output(out)
     if n_bootstrap == 0:
         raise ValueError("Validation 选型需要至少两次 Bootstrap")
-    # 1. 训练模型：仅用 Train 拟合四个固定候选，同时预测 Validation 的 CATE。
-    X_train, X_val = train[FEATURES], validation[FEATURES]
-    t_train, y_train = train.treatment, train[outcome]
-    logistic_params = {'random_state': seed}
-    xgb_params = {'random_state': seed, 'n_estimators': trees}
-    results = {}
-
-    progress('训练 s_logistic')
-    results['s_logistic'] = s_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='logistic', outcome_params=logistic_params,
-    )
-    progress('训练 t_logistic')
-    results['t_logistic'] = t_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='logistic', outcome_params=logistic_params,
-    )
-    progress('训练 t_xgboost')
-    results['t_xgboost'] = t_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='xgboost', outcome_params=xgb_params,
-    )
-    progress('训练 x_xgboost')
-    results['x_xgboost'] = x_learner(
-        X_val, X_train=X_train, t=t_train, y=y_train,
-        outcome_model='xgboost', effect_model='xgboost',
-        outcome_params=xgb_params, effect_params=xgb_params,
-    )
-
+    results = _fit_candidates(train, validation, outcome, seed, trees, progress)
     validation_scores = {name: result['cate'] for name, result in results.items()}
 
     # 2. 构建基线：复用 T-XGBoost 的 mu1，按接受处理时的转化概率排序。
@@ -100,7 +103,7 @@ def fit_and_select_models(
         "n_bootstrap": n_bootstrap,
         "selected_policy": ordered.iloc[0].policy,
         "selected_uplift_model": uplift.iloc[0].policy,
-        "candidates": list(validation_scores),
+        "candidates": POLICY_NAMES,
         "frozen_before_test": True,
         "note": "Models are fitted on Train only. Validation selects by the preset bootstrap mean.",
     }

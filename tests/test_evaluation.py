@@ -8,7 +8,7 @@ import unittest
 import numpy as np
 
 from criteo_uplift.metrics import RANKING_METRICS, evaluate_ranking
-from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate_summary, calibration_table
+from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate_summary
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -404,26 +404,10 @@ class EvaluationTests(unittest.TestCase):
         np.testing.assert_array_equal(points.n_selected, np.floor(points.budget * len(self.y)))
         self.assertEqual(points.query("budget == 1").gain_ht.nunique(), 1)
 
-    def test_calibration_bins_cover_data_and_missing_arms_are_nan(self):
-        #-------------
-        # 函数名：EvaluationTests.test_calibration_bins_cover_data_and_missing_arms_are_nan
-        # 功能：验证校准分箱完整覆盖样本，缺少某个处理臂的分箱保留 NaN。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
-        #-------------
-        bins = calibration_table(self.y, self.t, self.scores, n_bins=4)
-        self.assertEqual(bins.n.sum(), len(self.y))
-        self.assertTrue(bins.predicted_cate.is_monotonic_increasing)
-        self.assertTrue(bins.observed_ate.isna().all())
-        single = calibration_table(self.y, self.t, self.scores, n_bins=1)
-        self.assertEqual(single.observed_ate.iloc[0], 0.5)
-
     def test_invalid_inputs_fail_explicitly(self):
         #-------------
         # 函数名：EvaluationTests.test_invalid_inputs_fail_explicitly
-        # 功能：验证 ATE、Policy Evaluation 和校准函数对非法输入明确报错。
+        # 功能：验证 ATE 与排序评价函数对非法输入明确报错。
         # 输入参数：
         #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
         # 输出参数：

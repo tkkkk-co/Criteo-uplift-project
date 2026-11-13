@@ -9,7 +9,9 @@ import argparse
 import json
 from pathlib import Path
 import time
-from criteo_uplift.config import ROOT, DEFAULT_DATA, DEFAULT_SAMPLE_SIZE, DEFAULT_SEED, FEATURES
+
+import pandas as pd
+from criteo_uplift.config import ROOT, DEFAULT_DATA, DEFAULT_SAMPLE_SIZE, DEFAULT_SEED
 from criteo_uplift.metrics import RANKING_METRICS
 from criteo_uplift.preparation import prepare_sample, split_sample
 from criteo_uplift.diagnostics import run_diagnostics
@@ -32,7 +34,7 @@ def run(args):
     #-------------
     started = time.perf_counter()
 
-    # 01. 一次规划全部输出；缓存共享，正式结果按实验隔离。
+    # 01. 一次规划全部输出；正式结果按实验隔离。
     out = safe_output(args.output or ROOT / f'artifacts/{args.outcome}_{args.sample_size}_seed{args.seed}')
     if out.exists() and any(out.iterdir()):
         raise FileExistsError(f'结果目录非空：{out}。请用 --output 指定新的实验目录。')
@@ -44,14 +46,16 @@ def run(args):
     evaluation_out = out / 'evaluation'  # 统一 ATE、Test 预测、指标与区间
     stability_out = out / 'stability'  # 种子、训练规模和划分方式敏感性
     business_out = out / 'business'  # 假设参数、A/B 规划、经济情景
-    figures_out = out / 'figures'  # 报告和 Notebook 使用的结果图
-    sample_cache = ROOT / f'artifacts/cache/sample_{args.sample_size}_seed{args.seed}.npz'
+    figures_out = out / 'figures'  # 报告使用的结果图
     for directory in (data_out, diagnostics_out, models_out, evaluation_out, stability_out, business_out, figures_out):
         directory.mkdir(parents=True, exist_ok=True)
     assumptions = json.loads(args.planning_assumptions.read_text()) if args.planning_assumptions else None
 
     # 02. 一次流式扫描完成检查、审计与抽样，随后划分 60/20/20。
-    sample, audit, source, scanned = prepare_sample(args, root=ROOT, progress=log)
+    log('01. Data Preparation')
+    scanned = prepare_sample(args, progress=log)
+    sample = scanned.pop('sample')
+    audit, source = scanned['audit'], scanned['source']
     sample_n = len(sample)
     parts, summary, overlap = split_sample(sample, args.outcome, args.seed)
     train, validation, test = (parts[name] for name in ('train', 'validation', 'test'))
@@ -65,16 +69,19 @@ def run(args):
     del sample
 
     # 03. 复用扫描统计与 C2ST 样本，完成分组诊断和可学习性检查。
+    log('02. Experiment Diagnostics')
     run_diagnostics(diagnostics_out, audit=audit, source=source, scanned=scanned,
                     train=train, validation=validation, sample_size=args.c2st_sample,
                     permutations=args.permutations, seed=args.seed, progress=log)
     del scanned
 
     # 04. 全量 ATE 只用审计计数，后面与 Test ATE 合并保存。
+    log('03. Full Dataset ATE')
     full_ate = [{'scope': 'full_dataset', 'outcome': outcome, **ate_summary_from_audit(audit, outcome)}
                 for outcome in ('conversion', 'visit')]
 
     # 05. Train 拟合四个候选，Validation 选型并冻结，Test 不参与。
+    log('04. Train & Validation')
     e = float(train.treatment.mean())
     fitted = fit_and_select_models(
         train, validation, outcome=args.outcome, seed=args.seed, trees=args.trees,
@@ -83,23 +90,29 @@ def run(args):
     )
 
     # 06. 固定模型评价 Test，主指标和预算读取 Validation 已保存的选择。
+    log('05. Independent Test Evaluation')
     test_result = evaluate_test_set(
         test, outcome=args.outcome, assignment_probability=e,
         seed=args.seed, out=evaluation_out, progress=log, full_ate=full_ate,
     )
 
+    # 06. Stability 只接收开发数据与独立 Test 的行号。
+    log('06. Stability Analysis')
+    development = pd.concat([train, validation], ignore_index=True).sort_values('row_id', ignore_index=True)
+    test_row_ids = test.row_id.to_numpy()
     del train, validation, test, parts
-
-    # 07. 排除原 Test，按原设计检查随机种子、训练规模、分组划分。
-    run_stability(sample_cache, out, stability_out, seeds=args.stability_seeds,
+    run_stability(development, test_row_ids, stability_out, seeds=args.stability_seeds,
                   fractions=args.stability_fractions, trees=args.trees,
                   primary_budget=args.primary_budget, primary_metric=args.primary_metric,
                   n_bootstrap=args.bootstrap, outcome=args.outcome)
+    del development
 
     # 08. 使用明确的假设做线上 A/B 规划和条件性经济价值测算。
+    log('07. Business Planning')
     run_planning(test_result, fitted['selection'], business_out, assumptions=assumptions)
 
     # 09. 汇总已有结果，生成唯一正式 HTML，成功后标记实验完成。
+    log('08. Final Project Report')
     finalize_run(manifest_path=manifest_path, report_path=report_path, args=args, source=source,
                  sample_n=sample_n, assignment_probability=e, fitted=fitted,
                  elapsed_seconds=time.perf_counter() - started)

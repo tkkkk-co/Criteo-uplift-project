@@ -1,5 +1,4 @@
 # 在明确的假设下估算策略 A/B 实验样本量和成本收益，不代表真实线上收益。
-# Notebook 06 使用本模块；所有价值/成本输入均为显式假设，不能当作真实财务数据。
 
 from math import ceil, floor, isfinite, sqrt
 from statistics import NormalDist
@@ -137,7 +136,6 @@ def cost_value_scenario(
     }
 
 
-# 沿用原 planning_v1 的教学情景；全部为假设，不是线上业务参数。
 DEFAULT_PLANNING_ASSUMPTIONS = {
     "p0": 0.003, "absolute_mdes": [0.00015, 0.0003, 0.0006],
     "allocation_ratio": 1.0, "alpha": 0.05, "power": 0.8,

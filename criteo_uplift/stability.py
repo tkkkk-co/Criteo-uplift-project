@@ -1,24 +1,21 @@
 # 只使用开发数据研究训练规模和划分方式的敏感性，排除原测试集。
-# Notebook 06 的稳定性分析实现；它是开发期敏感性研究，不是新的独立 test 确认。
 # 重复开发验证之间存在重叠，结果离散程度属于描述性统计，不是新的独立测试证据。
 
 from __future__ import annotations
 
-from pathlib import Path
 import time
 
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
-from .config import FEATURES
-from .pipeline_io import load_sample, safe_output, write_result
+from .config import FEATURES, POLICY_NAMES
+from .pipeline_io import safe_output, write_result
 from .metrics import RANKING_METRIC_DESCRIPTION, RANKING_METRICS, evaluate_ranking
-from .models import s_learner, t_learner, x_learner
+from .training_validation import _fit_candidates
 from .diagnostics import diagnose_overlap
 from .input_checks import check_row_ids, check_binary_vector
 
-POLICY_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
@@ -82,25 +79,6 @@ def feature_groups(frame):
     return pd.util.hash_pandas_object(
         frame[FEATURES].astype(np.float32), index=False
     ).to_numpy(dtype=np.uint64)
-
-
-def load_development_sample(cache, base_run):
-    #-------------
-    # 函数名：load_development_sample
-    # 功能：读取当前样本和 Test 行号，排除原 Test 得到 Stability 开发样本。
-    # 输入参数：
-    #     - cache：建模样本 NPZ 缓存路径。
-    #     - base_run：已有完整实验的输出目录。
-    # 输出参数：
-    #     - 二元组：(排除旧 Test 后的 development DataFrame、旧 Test row_id 数组)。
-    #-------------
-    sample = load_sample(cache)
-    old_test_ids = pd.read_csv(Path(base_run) / 'data_preparation/test_row_ids.csv').row_id.to_numpy()
-    check_row_ids(old_test_ids, '原 Test', require_integer=True)
-    if not np.isin(old_test_ids, sample.row_id).all():
-        raise ValueError('提供的缓存未包含原测试集的全部来源行号')
-    development = sample.loc[~sample.row_id.isin(old_test_ids)].reset_index(drop=True)
-    return development, old_test_ids
 
 
 def nested_stratified_indices(t, y, fractions=DEFAULT_FRACTIONS, seed=17):
@@ -236,8 +214,8 @@ def _summarize(longmetrics):
 
 
 def run_stability(
-    cache,
-    base_run,
+    development,
+    test_row_ids,
     output,
     *,
     seeds=DEFAULT_SEEDS,
@@ -252,8 +230,8 @@ def run_stability(
     # 函数名：run_stability
     # 功能：在排除原 Test 的开发数据上运行多随机种子、训练规模和划分方式敏感性分析，并保存协议、明细和汇总。
     # 输入参数：
-    #     - cache：当前样本 NPZ 缓存路径。
-    #     - base_run：作为来源和旧 Test 行号依据的基准实验目录。
+    #     - development：本次 Train 和 Validation。
+    #     - test_row_ids：本次独立 Test 的来源行号。
     #     - output：本次 Stability 新输出目录。
     #     - seeds：重复开发实验使用的随机种子序列。
     #     - fractions：行分层划分下使用的嵌套训练比例序列。
@@ -279,13 +257,14 @@ def run_stability(
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f"output already exists and is nonempty: {output}")
     started = time.perf_counter()
-    development, old_test_ids = load_development_sample(
-        cache, base_run
-    )
+    check_row_ids(development.row_id, "Development", require_integer=True)
+    check_row_ids(test_row_ids, "Test", require_integer=True)
+    if np.isin(development.row_id, test_row_ids).any():
+        raise ValueError("Development 与 Test 的来源行号必须互斥")
     # 在拟合任何模型前，先准备并校验全部划分。
     splits = {seed: development_splits(development, seed, outcome) for seed in seeds}
     protocol = {
-        "study": "development_training_size_and_split_sensitivity_v1",
+        "study": "development_training_size_and_split_sensitivity",
         "status": "frozen_before_model_fits",
         "seeds": seeds,
         "training_fractions": fractions,
@@ -307,8 +286,6 @@ def run_stability(
         "selection": "one development winner by bootstrap mean per seed/split/fraction; stable ties follow candidate order",
         "uncertainty": "descriptive spread across overlapping development runs; each run selects by its own fixed-score bootstrap mean",
         "limitations": [
-            "Protocol was specified after the original study, not before the original test was seen.",
-            "Excluding old test rows prevents direct reuse but does not erase earlier analyst knowledge.",
             "The group holdout changes feature support; its values are sensitivity results, not a matched causal comparison of splitting methods.",
             "Rare-event counts and performance associations do not establish a causal explanation for model differences.",
             "Equal contact cost and conversion value are assumptions; public-sample assignment effects are not online revenue.",
@@ -333,9 +310,8 @@ def run_stability(
                     f"stability seed={seed} split={method} fraction={fraction:g} train={len(train):,} validation={len(validation):,}",
                     flush=True,
                 )
-                group_overlap = int(
-                    np.intersect1d(feature_groups(train), val_groups).size
-                )
+                train_groups = feature_groups(train)
+                group_overlap = int(np.intersect1d(train_groups, val_groups).size)
                 audit = {
                     "seed": seed,
                     "split_method": method,
@@ -349,23 +325,23 @@ def run_stability(
                     "row_overlap": int(
                         np.intersect1d(train.row_id, validation.row_id).size
                     ),
-                    "train_old_test_overlap": int(
-                        np.isin(train.row_id, old_test_ids).sum()
+                    "train_test_overlap": int(
+                        np.isin(train.row_id, test_row_ids).sum()
                     ),
-                    "validation_old_test_overlap": int(
-                        np.isin(validation.row_id, old_test_ids).sum()
+                    "validation_test_overlap": int(
+                        np.isin(validation.row_id, test_row_ids).sum()
                     ),
                     "feature_group_overlap": group_overlap,
                     "validation_fraction_matching_train_features": float(
-                        np.isin(val_groups, feature_groups(train)).mean()
+                        np.isin(val_groups, train_groups).mean()
                     ),
                 }
                 if any(
                     audit[name]
                     for name in (
                         "row_overlap",
-                        "train_old_test_overlap",
-                        "validation_old_test_overlap",
+                        "train_test_overlap",
+                        "validation_test_overlap",
                     )
                 ):
                     raise AssertionError("forbidden row leakage detected")
@@ -377,30 +353,7 @@ def run_stability(
                 audit['overlap_status'] = coverage['status']
                 audit['overlap_weak_bins'] = coverage['weak_bins']
 
-                X_train, X_val = train[FEATURES], validation[FEATURES]
-                t_train, y_train = train.treatment, train[outcome]
-                logistic_params = {'random_state': seed}
-                xgb_params = {'random_state': seed, 'n_estimators': trees}
-                # 四个固定模型直接拟合，避免候选表和 Learner 映射两层跳转。
-                results = {
-                    's_logistic': s_learner(
-                        X_val, X_train=X_train, t=t_train, y=y_train,
-                        outcome_model='logistic', outcome_params=logistic_params,
-                    ),
-                    't_logistic': t_learner(
-                        X_val, X_train=X_train, t=t_train, y=y_train,
-                        outcome_model='logistic', outcome_params=logistic_params,
-                    ),
-                    't_xgboost': t_learner(
-                        X_val, X_train=X_train, t=t_train, y=y_train,
-                        outcome_model='xgboost', outcome_params=xgb_params,
-                    ),
-                    'x_xgboost': x_learner(
-                        X_val, X_train=X_train, t=t_train, y=y_train,
-                        outcome_model='xgboost', effect_model='xgboost',
-                        outcome_params=xgb_params, effect_params=xgb_params,
-                    ),
-                }
+                results = _fit_candidates(train, validation, outcome, seed, trees, progress=lambda _: None)
                 score_dict = {name: result['cate'] for name, result in results.items()}
                 score_dict['propensity'] = results['t_xgboost']['mu1']
                 fit_seconds = {name: result['fit_seconds'] for name, result in results.items()}
@@ -446,9 +399,9 @@ def run_stability(
         "experiments": len(audits),
         "fitted_models": len(audits) * 4,
         "development_n": len(development),
-        "old_test_n_excluded": len(old_test_ids),
-        "all_old_test_row_overlaps_zero": all(
-            a["train_old_test_overlap"] == a["validation_old_test_overlap"] == 0
+        "test_n_excluded": len(test_row_ids),
+        "all_test_row_overlaps_zero": all(
+            a["train_test_overlap"] == a["validation_test_overlap"] == 0
             for a in audits
         ),
         "all_group_split_feature_overlaps_zero": all(
