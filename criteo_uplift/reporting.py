@@ -213,6 +213,84 @@ def _equation(expression: str, label: str) -> str:
     )
 
 
+def _business_section(title, coverage, outcome, criterion):
+    example = (
+        ("A：高自然转化人群", 80, 85),
+        ("B：高广告敏感人群", 10, 35),
+    )
+    rows = [(name, f"{control}%", f"{treated}%", f"+{treated - control} pp")
+            for name, control, treated in example]
+    table = _table(pd.DataFrame(
+        rows, columns=["人群", "不处理转化概率", "处理后转化概率", "增量"],
+    ))
+    bars = "".join(
+        '<div class="targeting-example-row">'
+        f'<strong>{name}</strong>'
+        f'<span>不处理 {control}% · 处理后 {treated}% · 增量 +{treated - control} pp</span>'
+        '<div class="targeting-example-bar" aria-hidden="true">'
+        f'<span class="targeting-baseline" style="width:{control}%"></span>'
+        f'<span class="targeting-increase" style="width:{treated - control}%"></span>'
+        '</div></div>'
+        for name, control, treated in example
+    )
+    outcome_label = {"conversion": "转化", "visit": "访问"}[outcome]
+    return (
+        f'<section id="business"><h2>{html.escape(title)}</h2>'
+        '<h3>1.1 广告投放的业务问题</h3>'
+        '<p>以互联网平台上的电商广告为例，广告主希望带来更多下单等转化。平台先圈出符合投放条件的候选用户，'
+        '再决定优先向谁分配广告资格。预算、广告库存和频次限制使可触达的人数有限，'
+        '每用掉一个名额，就少一个触达其他候选用户的机会。</p>'
+        '<p>传统 Response Propensity 模型预测用户在处理条件下的转化概率，并从高到低排序。'
+        '这一分数回答“分配广告资格后，谁更可能转化”。例如，原本就打算下单的用户，即使没有获得广告资格也可能完成购买。'
+        '评估广告带来的额外转化，需要比较同类用户在获得和未获得广告资格两种情景下的转化概率。</p>'
+        '<p class="key">在触达规模有限的情况下，应该优先选择哪些用户，才能创造更多额外转化？</p>'
+        '<h3>1.2 Response Propensity 与 Uplift 的直观比较</h3>'
+        '<p><strong>示意数据，非 Criteo 实验结果。</strong> 假设有以下两类候选用户。</p>'
+        + table
+        + '<figure class="targeting-example" aria-label="两类用户的转化概率与增量">'
+        '<div class="targeting-example-legend" aria-hidden="true">'
+        '<span><i class="targeting-baseline"></i>不处理转化概率</span>'
+        '<span><i class="targeting-increase"></i>分配广告资格带来的增量</span>'
+        '</div>'
+        + bars
+        + '<div class="targeting-example-axis" aria-hidden="true"><span>0%</span><span>50%</span><span>100%</span></div>'
+        '<figcaption>示意数据，非 Criteo 实验结果。两段条形相加得到处理后转化概率，pp 表示百分点。</figcaption>'
+        '</figure>'
+        '<p>Response Propensity 优先选择 A，因为 A 的处理后转化概率更高（85% 对 35%）。'
+        'Uplift 优先选择 B，因为 B 在获得广告资格后增加的转化概率更大（25 个百分点对 5 个百分点）。'
+        '如果单位触达成本与每次转化的价值相同，且一位用户的处理分配不会影响其他用户的结果，'
+        '每分配 100 个名额给 B，预期比把同样的名额给 A 多带来 20 次增量转化。'
+        '这就是按预期增量排序的业务动机。</p>'
+        '<h3>1.3 因果增量与 CATE</h3>'
+        '<p>用潜在结果框架描述这两个情景。<var>X</var> 表示处理前的用户特征。'
+        '<var>Y(1)</var> 和 <var>Y(0)</var> 分别表示同一用户在获得和未获得广告处理资格时的潜在转化结果。'
+        '在 Criteo 中，<code>treatment</code> 记录资格分配，<code>exposure</code> 记录实际曝光。'
+        '本项目估计资格分配对结果的意向处理效应（ITT），处理组中未实际曝光的用户也计入该组。</p>'
+        + _equation(r'\mathrm{ATE}=\mathbb{E}[Y(1)-Y(0)]', '平均处理效应（ATE）')
+        + '<p>ATE 衡量对候选总体分配广告资格所带来的平均增量，可用来判断总体效果的大小。'
+        '人群定向还需要了解这一效果如何随处理前特征变化。</p>'
+        + _equation(r'\tau(x)=\mathbb{E}[Y(1)-Y(0)\mid X=x]', '条件平均处理效应（CATE）')
+        + '<p>真实 CATE 是给定特征 <var>X</var> = <var>x</var> 时的平均增量。'
+        'Uplift Modeling 利用处理前特征估计这一量，实际排序使用的是模型预测的 CATE。'
+        '同一个体只经历一种分配，因此只能观察对应的结果。'
+        '从观测数据估计 ATE 和 CATE，需要随机分配等实验设计支持，并依赖一致性、无干扰和两种分配都有可能等识别假设。</p>'
+        '<h3>1.4 本项目的研究问题与定向策略</h3>'
+        '<p>本项目使用 Criteo Uplift v2.1 公开随机实验数据。'
+        f'将广告资格分配规模固定为候选总体的 <strong>{html.escape(coverage)}</strong>，'
+        '这是项目预设的业务开发假设。两种策略在相同候选总体中各选出同样比例的用户。</p>'
+        f'<ol><li><strong>Response Propensity Targeting</strong> 按处理条件下的预测{outcome_label}概率 '
+        f'<code>P(Y=1 | X,T=1)</code> 排序。本项目复用 T-XGBoost 处理组模型的概率预测。'
+        '处理分配倾向分数 <code>P(T=1 | X)</code> 描述的是获得处理资格的概率。</li>'
+        '<li><strong>Uplift Targeting</strong> 按预测 CATE 排序。候选包括 S-Learner + Logistic、'
+        'T-Learner + Logistic、T-Learner + XGBoost 和 X-Learner + XGBoost。</li></ol>'
+        f'<p class="flow">在固定 {html.escape(coverage)} 广告资格分配规模下，Uplift Targeting 能否比传统 '
+        f'Response Propensity Targeting 获得更多预期增量{outcome_label}？</p>'
+        f'<p>两种策略使用同一无处理比较基准及同一<a href="#evaluation">评价口径</a>。'
+        f'验证集以预设的{html.escape(criterion)}冻结策略，再在<a href="#test">独立测试集</a>比较固定覆盖率下的'
+        f'增量{outcome_label}点估计及配对区间。结果用于判断是否值得开展线上验证。</p></section>'
+    )
+
+
 def _errorbar(ax, point, low, high, positions, *, horizontal=False, color="#2171ad"):
     #-------------
     # 函数名：_errorbar
@@ -246,7 +324,7 @@ def _overlap_section(out):
     #     - 可嵌入诊断章节的 HTML。
     #-------------
     path = out / 'diagnostics/overlap_positivity.json'
-    heading = '<h3>Overlap / Positivity · 训练集经验覆盖</h3>'
+    heading = '<h3>训练集覆盖与正值性</h3>'
     summary = json.loads(path.read_text())
     strata = pd.read_csv(out / 'diagnostics/overlap_strata.csv')
     counts = strata.assign(nonempty_min=strata.min_arm_n.where(~strata.empty_bin))
@@ -875,11 +953,25 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     else:
         test_relationship = "Validation 选出的 Uplift 策略在 Test 中保持冻结，配对差值衡量其相对传统排序的独立证据。"
 
+    section_titles = {
+        "summary": "00. 执行摘要",
+        "business": "01. 业务问题与定向策略",
+        "data": "02. 数据来源与准备",
+        "diagnostics": "03. 实验诊断与因果识别",
+        "ate": "04. 平均处理效应（ATE）",
+        "modeling": "05. Uplift 建模",
+        "evaluation": "06. 评估框架",
+        "validation": "07. 验证与模型选择",
+        "test": "08. 独立测试评估",
+        "robustness": "09. 预算敏感性与稳健性",
+        "conclusion": "10. 业务启示与结论",
+        "appendix": "附录：技术细节与复现",
+    }
     sections = [
         f'<header><p class="eyebrow">End-to-End Applied Data Science Case Study</p>'
         f'<h1>{_TITLE}</h1>'
         '<p class="subtitle">Causal Uplift Modeling, Experimental Diagnostics and Policy Evaluation on the Criteo Dataset</p></header>',
-        '<section class="lead" id="summary"><h2>00. Executive Summary</h2>'
+        f'<section class="lead" id="summary"><h2>{section_titles["summary"]}</h2>'
         f'<p>在固定覆盖预算内，选择能带来最多增量{"转化" if outcome == "conversion" else "访问"}的广告定向策略。'
         f'使用 Criteo 全量 {int(audit["n_rows"]):,} 行做审计与诊断，抽取 {int(manifest["sample_n"]):,} 行建模，'
         f'以独立 Test {n_test:,} 行评估。预设主指标为 <strong>{esc(criterion)}</strong>。</p>'
@@ -890,13 +982,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + (f'<span>95% CI {_interval(selected_row)}</span>' if primary_metric == "gain_ht" else "")
         + f'</div></div><p>{propensity_finding} {uplift_finding if selected == "propensity" else ""}</p><p>{random_finding}</p>'
         f'<p class="key">{decision}</p></section>',
-        '<section id="business"><h2>01. Business Problem &amp; Targeting Strategy</h2>'
-        '<p>广告运营需要在触达人群有限时决定投给谁。传统做法按处理下的响应概率排序，可能优先选择本来就会转化的人。'
-        '若每次触达成本和转化价值相同，目标是让固定名额带来更多原本不会发生的转化。</p>'
-        + _equation(r'\tau(x)=\mathbb{E}[Y(1)-Y(0)\mid X=x]', '条件平均处理效应（CATE）')
-        + '<p>CATE 描述在同类人群中改变实验分配的平均效果。四个 Uplift 候选估计该效果后排序，'
-        '第五个策略以处理下的响应概率模拟传统定向。所有策略共享同一覆盖率和同一个无处理比较基准。</p></section>',
-        '<section id="data"><h2>02. Dataset &amp; Data Preparation</h2>'
+        _business_section(section_titles["business"], primary_pct, outcome, criterion),
+        f'<section id="data"><h2>{section_titles["data"]}</h2>'
         f'<p>源文件 <code>{source_file}</code> 共 {int(audit["n_rows"]):,} 行；本次建模样本 {int(manifest["sample_n"]):,} 行，'
         f'抽样方法：{esc(sample_report["sampling"])}，随机种子 {int(manifest["seed"])}。固定采用 train / validation / test = 60% / 20% / 20%，'
         '按 treatment × 主结果联合分层；模型均只在 train 拟合，没有 train + validation 重拟合。</p>'
@@ -920,21 +1007,21 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _image(figures / "sample_features.png", "十二个建模特征的分布",
                  "横轴为对应匿名特征值，纵轴为对数刻度的建模样本频数。尖峰和离散值有助于解释 KS 的并列值及特征向量重合。")
         + '</section>',
-        '<section id="diagnostics"><h2>03. Experiment Diagnostics &amp; Causal Validity</h2>'
+        f'<section id="diagnostics"><h2>{section_titles["diagnostics"]}</h2>'
         '<p>识别目标是公开样本中分配处理对结果的平均效应与排序政策价值。'
         '解释依赖一致性、无干扰、分配与潜在结果近似独立及各特征区域的处理概率远离 0 和 1。'
         'Criteo 的实验描述提供设计依据，以下检查衡量公开数据中的可观测差异。'
         '公开版本的抽样与隐私处理、未知实验分层和用户依赖限制了对原始随机机制的核验。</p>'
-        '<h3>SRM · 公开分流比例</h3>'
+        '<h3>公开分流比例检查（SRM）</h3>'
         f'<p>{srm_text} 当前训练集处理比例 e = {e:.6f} 只作为 HT 评估的 plug-in 分配概率，并非已知实验设计参数。</p>'
-        + '<h3>SMD / KS · 单特征分布平衡</h3><p>SMD 检查标准化均值差，KS 检查两组经验分布的最大距离。'
+        + '<h3>单特征分布平衡（SMD / KS）</h3><p>SMD 检查标准化均值差，KS 检查两组经验分布的最大距离。'
         '全量数据下应结合差异幅度与特征分布判断实际意义。</p>'
         + _image(
             paths["balance"],
             "处理前协变量平衡",
             balance_caption,
         )
-        + f'<h3>C2ST · 联合分布可区分性</h3><p>{c2st_sampling_text}，固定70/30内部训练/留出划分；'
+        + f'<h3>联合分布可区分性（C2ST）</h3><p>{c2st_sampling_text}，固定70/30内部训练/留出划分；'
         f'在两部分内分别打乱 treatment，完整重拟合两类固定模型，共 {b} 次。诊断结果如下：</p>'
         + _table(c2_display)
         + _image(figures / "c2st_null.png", "C2ST 置换 AUC 分布",
@@ -944,7 +1031,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + '<p>高于置换基线的 AUC 提示可观测分配差异，需要检查实验设计、抽样和特征时序；不显著不能证明随机化。'
         '该置换方案假设可交换分配；如存在未知实验分层或多个广告实验混合，需使用匹配实际设计的置换方案。</p>'
         + _overlap_section(out)
-        + '<h3>结果可预测性：固定模型对照 Dummy</h3>'
+        + '<h3>结果可预测性与基线对照</h3>'
         + _table(learning_display)
         + f'<p>{esc(outcome)} 的 XGBoost AP 为 {_num(outcome_learning.loc["xgboost", "average_precision"], 4)}，'
         f'Dummy AP 为 {_num(outcome_learning.loc["dummy", "average_precision"], 4)}。'
@@ -952,7 +1039,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + '<p>上表使用 train 拟合、validation 评估，仅显示 whole 范围；按处理组分别训练的结果保存在 learnability.csv。'
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
         '这些指标诊断结果模型，不评估个体因果效应；普通结果预测较弱不能推出不存在效应异质性。</p></section>',
-        '<section id="ate"><h2>04. Average Treatment Effect</h2><p>分别以全量源数据和独立 Test 估计分配处理的 ITT 效应。'
+        f'<section id="ate"><h2>{section_titles["ate"]}</h2><p>分别以全量源数据和独立 Test 估计分配处理的 ITT 效应。'
         'ATE 是处理组结果率减去对照组结果率；绝对效应用百分点表示，相对增幅以对照率为分母。</p>'
         + _table(ate_display)
         + _image(
@@ -962,7 +1049,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         )
         + '<p>Conversion 与 Visit 对应不同漏斗阶段。全量估计给出实验的平均背景，Test 估计描述最终留出人群。'
         '总体平均值无法指出应优先触达哪些人，固定预算决策需要评价排序前缀中的增量。</p></section>',
-        '<section id="modeling"><h2>05. Uplift Modeling</h2>'
+        f'<section id="modeling"><h2>{section_titles["modeling"]}</h2>'
         '<p class="flow">Train 60% → 拟合结果与效应模型 → Validation 评分与冻结 → Test 加载模型并评分</p>'
         + _table(pd.DataFrame([
             ("S-Logistic", "单个 Logistic，输入 X 和 T", "分别代入 T=1 与 T=0，预测概率相减"),
@@ -977,7 +1064,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _equation(r'D_1=Y-\hat{\mu}_0(X),\qquad D_0=\hat{\mu}_1(X)-Y,\qquad \hat{\tau}(X)=e\hat{\tau}_0(X)+(1-e)\hat{\tau}_1(X)',
                     'X-Learner 的伪效应与加权')
         + '<p>两个伪效应分别在对应处理臂回归，e 取 Train 处理比例。Validation 只负责评分与选型，四个模型随后直接交给独立 Test。</p></section>',
-        '<section id="evaluation"><h2>06. Evaluation Framework</h2>'
+        f'<section id="evaluation"><h2>{section_titles["evaluation"]}</h2>'
         '<p>全曲线指标衡量排序在覆盖率变化时的整体表现。预算指标衡量 Top-k 的累计结果。'
         'Uplift Gain 用前缀内实际处理与对照响应率之差乘以覆盖率。Traditional Qini Gain 估计前缀内实际处理人数对应的增量。'
         'HT Gain 用固定分配概率逆概率加权，以全部 N 名可触达对象为分母，估计对整个前缀分配处理的增量。</p>'
@@ -1013,7 +1100,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '未进行“完美排序面积”归一化，因此不能直接等同于其他库中同名的 normalized Qini score。</p>'
         '<p>相同分数用独立于 outcome 的固定随机优先级破同分；模型必须在被评估样本之外训练。</p>'
         '</div></section>',
-        '<section id="validation"><h2>07. Validation &amp; Model Selection</h2>'
+        f'<section id="validation"><h2>{section_titles["validation"]}</h2>'
         f'<p>五种策略在 Validation 上统一评价。以下为 {primary_pct} 覆盖率的预算指标及两个完整曲线面积。'
         '主指标以 Bootstrap 均值排序，Random 仅作为参考。</p>'
         + _table(point_estimates(frames["validation_metrics"]))
@@ -1024,7 +1111,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         f'下表以{scale_label}报告获选策略的配对差值。获胜频率来自所有候选均有定义的重复，表示固定评分下的波动。</p>'
         + paired_table(val_pairs)
         + '</section>',
-        '<section id="test"><h2>08. Independent Test Evaluation</h2>'
+        f'<section id="test"><h2>{section_titles["test"]}</h2>'
         f'<p>Test 共 {n_test:,} 行，其中 {esc(outcome)} 正例 {n_events:,} 个，对照组正例 {n_control_events:,} 个。'
         f'{test_relationship}</p>'
         + _table(point_estimates(policies.loc[policies.budget.eq(budget) & policies.policy.ne("random")]))
@@ -1038,7 +1125,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                  "横轴为触达比例。虚线连接该指标的原点与全量终点。面积计算使用完整前缀。")
         + '<div id="ranking-metrics">' + _table(ranking_display) + '</div>'
         + f'<p>{best_areas}</p></section>',
-        '<section id="robustness"><h2>09. Budget Sensitivity &amp; Robustness</h2>'
+        f'<section id="robustness"><h2>{section_titles["robustness"]}</h2>'
         '<p>Budget 表示投放覆盖率（Contact Fraction），不是货币金额；所有增量均以 10 万名总体可触达用户为分母。'
         '下表展示冻结策略、Random 和 Propensity；若冻结策略就是其中一个基线，仅展示一次。</p>'
         + '<div id="budget-sensitivity">' + _table(budget_key_display) + '</div>'
@@ -1050,7 +1137,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '从 10% 扩到 20% 加入排名 10%–20% 的人，从 20% 扩到 30% 加入排名 20%–30% 的人；'
         '选中人数按覆盖率乘以评价总人数向下取整。匿名特征不能用于编造这些人群的业务画像。'
         'Random 是相同人数的随机触达解析期望，不对应模型排序。辅助预算不用于 Test 后挑选最优商业预算。</p>'
-        '<h3>Marginal Incremental Gain · 新增覆盖区间贡献</h3>'
+        '<h3>扩大覆盖的边际增量</h3>'
         f'<p>保持冻结策略 <strong>{esc(selected)}</strong> 不变，以 ΔV = V(b) − V(a)、V(0) = 0 计算新增区间贡献。'
         '</p>'
         + '<div id="marginal-gain">' + _table(marginal_display) + '</div>'
@@ -1058,7 +1145,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<p>这里仅报告点估计，未计算边际增量 CI，不能用两个累计 CI 的端点相减来构造区间。'
         '因此正、负和递减均为描述，不是显著性结论；30%–100% 宽达 70%，其总贡献不能直接与 10% 宽区间比较单位触达效率。'
         '没有实际成本和收入信息，本节只讨论估计增量转化，不能据此判断利润或 ROI。</p>'
-        '<h3>Full Coverage Scenario · 全量投放情景</h3>'
+        '<h3>全量投放情景</h3>'
         + _equation(r'G_{\mathrm{HT}}(1)=\widehat{\mathrm{ATE}}_{\mathrm{HT}},\qquad V(1)=100{,}000\,\widehat{\mathrm{ATE}}_{\mathrm{HT}}',
                     '全量覆盖与 HT-ATE')
         + f'<p>100% 覆盖表示对当前 Test 的全部 {n_test:,} 名可触达用户分配处理，估计增量为 '
@@ -1068,7 +1155,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '扩大覆盖是否继续增加估计转化，需结合上一节各新增区间的实际符号判断，不预设越多越好。</p>'
         '<p>这是以当前测试人群和固定处理分配概率为前提的离线情景，HT-ATE 与差均值 ATE 在有限样本中可能不同。'
         '这些数字不代表已经实现的广告曝光、收入或利润，不能据此宣称找到了最优商业投放覆盖率。</p>'
-        '<h3>Stability Analysis · 开发期敏感性分析</h3>'
+        '<h3>开发集稳定性分析</h3>'
         f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原 Test {int(stability["test_n_excluded"]):,} 行。'
         f'正式 Test 交集为零：{stability["all_test_row_overlaps_zero"]}；按特征分组的交集为零：{stability["all_group_split_feature_overlaps_zero"]}。</p>'
         f'<p>Seeds {esc(str(protocol["seeds"]))}；训练比例 {esc(str(protocol["training_fractions"]))}；比较行分层与特征分组划分。'
@@ -1077,10 +1164,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _table(aggregate[stability_columns].round(2))
         + '<details><summary>各随机种子、训练规模与划分方式</summary>'
         + _table(stability_detail.round(2)) + '</details>'
-        + '<h3>Validation 选择频率</h3>' + _table(frequencies.round(3))
+        + '<h3>验证集策略获选频率</h3>' + _table(frequencies.round(3))
         + f'<p>特征分组划分下的获选策略与次数为 {group_winners}。'
         '不同划分改变开发评估的特征支持与正例构成，频率用于描述这种敏感性。</p></section>',
-        '<section id="conclusion"><h2>10. Business Implications &amp; Conclusion</h2>'
+        f'<section id="conclusion"><h2>{section_titles["conclusion"]}</h2>'
         f'<p><strong>{decision}</strong> {uplift_finding}</p>'
         f'<p>{marginal_findings}。{marginal_trend} 行分层 Stability 中，冻结策略在不同训练规模下的平均 HT 增量 / 10 万人为 {sensitivity}。</p>'
         '<h3>线上策略 A/B</h3>'
@@ -1101,7 +1188,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         f'{_num(scenario_example.break_even_contact_cost, 4)}。</p>'
         + '<p>推广边界包括广告活动与人群漂移、未知用户层依赖、稀少的对照转化、不可见的实验分层和真实成本差异。'
         '稳定性分析中重叠的开发样本用于刻画敏感性，独立 Test 提供一次留出验证。</p></section>',
-        '<section class="provenance" id="appendix"><h2>Appendix. Technical &amp; Reproducibility</h2>'
+        f'<section class="provenance" id="appendix"><h2>{section_titles["appendix"]}</h2>'
         + _equation(r'\widehat{\mathrm{ATE}}=\bar{Y}_1-\bar{Y}_0,\qquad '
                     r'\mathrm{SE}=\sqrt{s_1^2/N_1+s_0^2/N_0}', '差均值与未合并标准误')
         + _equation(r'p=\frac{1+\sum_{b=1}^{B}\mathbf{1}\{\mathrm{AUC}^{(b)}_{\mathrm{perm}}\geq\mathrm{AUC}_{\mathrm{obs}}\}}{B+1}',
@@ -1131,16 +1218,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<p><a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与基准论文</a> · '
         '<a href="https://arxiv.org/abs/1706.03461">Künzel et al. (2019), Meta-learners</a></p></section>',
     ]
-    navigation = (
-        ("summary", "00. Executive Summary"), ("business", "01. Business Problem"),
-        ("data", "02. Dataset & Preparation"), ("diagnostics", "03. Diagnostics"),
-        ("ate", "04. Average Treatment Effect"), ("modeling", "05. Uplift Modeling"),
-        ("evaluation", "06. Evaluation Framework"), ("validation", "07. Validation"),
-        ("test", "08. Independent Test"), ("robustness", "09. Sensitivity & Robustness"),
-        ("conclusion", "10. Business Implications"), ("appendix", "Appendix"),
-    )
     sections.insert(2, '<nav aria-label="报告目录"><ul>' + "".join(
-        f'<li><a href="#{anchor}">{esc(label)}</a></li>' for anchor, label in navigation
+        f'<li><a href="#{anchor}">{esc(label)}</a></li>' for anchor, label in section_titles.items()
     ) + '</ul></nav>')
     css = """
     :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#f4f7fa;color:#263746;font:15px/1.8 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -1152,6 +1231,19 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     a{color:#185983;text-underline-offset:.18em}nav ul{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:0 18px;padding:0 14px}
     .flow{background:#eff5f9;border-left:3px solid #2171ad;padding:12px 16px;font-weight:600}section[id]{scroll-margin-top:16px}
     .key{font-size:17px;font-weight:650}.cards strong{overflow-wrap:anywhere}
+    #business .table-wrap{overflow:visible}
+    #business table{table-layout:fixed;white-space:normal}
+    #business th,#business td{padding:8px;overflow-wrap:anywhere}
+    #business th:first-child{width:30%}
+    #business .math-equation{max-width:100%}
+    #business .flow{overflow-wrap:anywhere}
+    #business .targeting-example{padding:16px 20px;background:#f6f9fc;border:1px solid #dce7ef;border-radius:8px}
+    .targeting-example-legend,.targeting-example-axis{display:flex;flex-wrap:wrap;gap:4px 16px;color:#586e80;font-size:13px}
+    .targeting-example-legend i{display:inline-block;width:12px;height:12px;margin-right:6px;border-radius:2px;vertical-align:middle}
+    .targeting-example-row{display:grid;gap:2px;margin-top:12px;font-size:14px}
+    .targeting-example-bar{display:flex;height:14px;overflow:hidden;background:#e3ebf2;border-radius:3px}
+    .targeting-example-axis{justify-content:space-between;gap:0}
+    .targeting-baseline{background:#2171ad}.targeting-increase{background:#e38636}
     @media(max-width:700px){.formula{padding:16px 12px}.equation{padding:12px 10px}}
     @media print{.equation-scroll{overflow:visible}.math-equation{max-width:100%;height:auto}.equation{border-color:#ddd}}
     @media(max-width:700px){main{padding:24px 12px}section{padding:18px}h1{font-size:28px}.cards{grid-template-columns:1fr}.cards strong{font-size:23px}}@media print{body{background:white}main{padding:0;max-width:none}section{border:0;padding:12px 0;break-inside:auto}figure,.cards{break-inside:avoid}.table-wrap{overflow:visible}table{white-space:normal;font-size:10px}h2,h3{break-after:avoid}}

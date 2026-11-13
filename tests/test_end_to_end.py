@@ -177,16 +177,29 @@ class EndToEndTests(unittest.TestCase):
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 15)
+            self.assertEqual(len(equations), 16)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
             self.assertNotIn('<script', html)
+            business = re.search(r'<section id="business">(.+?)</section>', html, re.S).group(1)
+            self.assertEqual(re.findall(r'<h3>([^<]+)</h3>', business), [
+                '1.1 广告投放的业务问题',
+                '1.2 Response Propensity 与 Uplift 的直观比较',
+                '1.3 因果增量与 CATE',
+                '1.4 本项目的研究问题与定向策略',
+            ])
+            self.assertIn('示意数据，非 Criteo 实验结果。', business)
+            self.assertIn('class="targeting-example"', business)
+            for value in ('80%', '85%', '+5 pp', '10%', '35%', '+25 pp'):
+                self.assertIn(f'<td>{value}</td>', business)
+            self.assertIn('平均处理效应（ATE）', business)
+            self.assertIn('条件平均处理效应（CATE）', business)
             self.assertIn('各自横轴尺度', html)
             self.assertIn(f'conversion 正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
-            sections = ['Model Selection', '08. Independent Test Evaluation', '09. Budget Sensitivity',
-                        'Marginal Incremental Gain', 'Full Coverage Scenario']
-            self.assertEqual(sorted(html.index(name) for name in sections), [html.index(name) for name in sections])
+            self.assertIn('<h3>扩大覆盖的边际增量</h3>', html)
+            self.assertIn('<h3>全量投放情景</h3>', html)
+            self.assertIn('<h3>开发集稳定性分析</h3>', html)
             self.assertIn('未计算边际增量 CI', html)
             self.assertNotRegex(html, r'<td>\s*(?:NaN|nan|None)\s*</td>')
             # 从最终 HTML 反查表格，独立验证展示缩放和新增区间贡献。
@@ -213,15 +226,11 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(shown_marginal['新增人数'].astype(int).tolist(), np.diff(np.r_[0, frozen.n_selected]).tolist())
             for encoded in re.findall(r'src="data:image/png;base64,([^"]+)"', html):
                 self.assertTrue(base64.b64decode(encoded).startswith(b'\x89PNG\r\n\x1a\n'))
-            self.assertIn('Overlap / Positivity', html)
+            self.assertIn('<h3>训练集覆盖与正值性</h3>', html)
             self.assertIn('不能证明高维联合支持', html)
             self.assertIn('C2ST 置换 AUC 分布', html)
             encoded_c2st = base64.b64encode((out / 'figures/c2st_null.png').read_bytes()).decode()
             self.assertIn(encoded_c2st, html)
-            for section in ('Executive Summary', 'Business Problem', 'Data Preparation', 'Experiment Diagnostics',
-                            'Average Treatment Effect', 'Uplift Modeling', 'Model Selection', 'Independent Test Evaluation',
-                            'Stability Analysis', 'Business Implications', 'Technical &amp; Reproducibility'):
-                self.assertIn(section, html)
             self.assertFalse((out / 'diagnostics/ate_full.csv').exists())
             self.assertFalse((out / 'evaluation/ate_test.json').exists())
             # 公开路径只复制聚合结果；完整实验中的模型、逐行预测和额外文件不进入公开目录。
@@ -229,10 +238,24 @@ class EndToEndTests(unittest.TestCase):
             self.assertNotIn('predictions.npz', html)
             self.assertNotIn('data_preparation/test_row_ids.csv', html)
             self.assertEqual(policies.loc[policies.budget.eq(1.), 'gain_ht'].nunique(), 1)
-            for anchor in ('summary', 'business', 'data', 'diagnostics', 'ate', 'modeling',
-                           'evaluation', 'validation', 'test', 'robustness', 'conclusion', 'appendix'):
-                self.assertIn(f'id="{anchor}"', html)
-                self.assertIn(f'href="#{anchor}"', html)
+            expected_chapters = [
+                ("summary", "00. 执行摘要"),
+                ("business", "01. 业务问题与定向策略"),
+                ("data", "02. 数据来源与准备"),
+                ("diagnostics", "03. 实验诊断与因果识别"),
+                ("ate", "04. 平均处理效应（ATE）"),
+                ("modeling", "05. Uplift 建模"),
+                ("evaluation", "06. 评估框架"),
+                ("validation", "07. 验证与模型选择"),
+                ("test", "08. 独立测试评估"),
+                ("robustness", "09. 预算敏感性与稳健性"),
+                ("conclusion", "10. 业务启示与结论"),
+                ("appendix", "附录：技术细节与复现"),
+            ]
+            chapters = re.findall(r'<section[^>]* id="([^"]+)"><h2>([^<]+)</h2>', html)
+            navigation = re.findall(r'<li><a href="#([^"]+)">([^<]+)</a></li>', html)
+            self.assertEqual(chapters, expected_chapters)
+            self.assertEqual(navigation, expected_chapters)
             with self.assertRaises(FileExistsError):
                 run(args)
 
