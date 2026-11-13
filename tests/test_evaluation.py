@@ -7,8 +7,8 @@ import unittest
 
 import numpy as np
 
-from criteo_uplift.metrics import _prefix_values, evaluate_ranking, ranking_confidence_intervals
-from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate_summary, calibration_table, evaluate_policies
+from criteo_uplift.metrics import RANKING_METRICS, evaluate_ranking
+from criteo_uplift.evaluation import _normal_pvalue, ate_summary_from_audit, ate_summary, calibration_table
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -169,7 +169,7 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        curve = evaluate_ranking(self.y, self.t, self.scores, e=0.8)["curves"]
+        curve = evaluate_ranking(self.y, self.t, {"model": self.scores}, e=0.8)["curves"]
         expected_z = self.t * self.y / 0.8 - (1 - self.t) * self.y / 0.2
         np.testing.assert_allclose(curve.gain_ht, np.r_[0.0, expected_z.cumsum()] / 8)
         self.assertNotAlmostEqual(
@@ -189,23 +189,18 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        result = evaluate_ranking(self.y, self.t, self.scores, e=0.5)
+        result = evaluate_ranking(self.y, self.t, {"model": self.scores}, e=0.5)
         curve, metrics = result["curves"], result["metrics"]
         metrics_only = evaluate_ranking(
-            self.y, self.t, self.scores, e=0.5, include_curves=False
+            self.y, self.t, {"model": self.scores}, e=0.5, include_curves=False
         )
         self.assertIsNone(metrics_only["curves"])
-        self.assertEqual(metrics_only["metrics"], metrics)
+        pd.testing.assert_frame_equal(metrics_only["metrics"], metrics)
         np.testing.assert_array_equal(curve.n_selected, np.arange(9))
-        self.assertTrue(np.isnan(curve.treatment_fraction.iloc[0]))
-        np.testing.assert_array_equal(
-            curve.treatment_fraction.iloc[1:], curve.n_treatment.iloc[1:] / np.arange(1, 9)
-        )
-        expected = sum(
-            (curve.gain_ht.iloc[i] + curve.gain_ht.iloc[i + 1]) / 16 for i in range(8)
-        )
-        self.assertAlmostEqual(metrics["auuc_ht"], expected)
-        self.assertAlmostEqual(metrics["qini_ht"], expected - metrics["ate_ht"] / 2)
+        points = curve.dropna(subset=["gain_plugin"])
+        self.assertAlmostEqual(metrics.auuc.iloc[0], np.trapezoid(points.gain_plugin, points.fraction))
+        self.assertEqual(set(metrics.columns) & set(RANKING_METRICS), set(RANKING_METRICS))
+        self.assertEqual(len(metrics.columns), 9)
 
     def test_traditional_qini_bridges_initial_undefined_prefix(self):
         #-------------
@@ -218,13 +213,13 @@ class EvaluationTests(unittest.TestCase):
         #-------------
         y, t = [1, 0, 0, 1], [1, 1, 0, 0]
         scores = [4, 3, 2, 1]
-        result = evaluate_ranking(y, t, scores, e=0.5)
+        result = evaluate_ranking(y, t, {"model": scores}, e=0.5)
         curve, metrics = result["curves"], result["metrics"]
         # 传统 Qini 的有效点为 (3/4, 1/4)、(1, 0)，并加入原点。
         # 两段梯形面积分别为 3/32 和 1/32，随机基线面积为零。
         self.assertTrue(curve.qini_traditional.iloc[:3].isna().all())
         self.assertEqual(curve.qini_traditional.iloc[-1], 0)
-        self.assertEqual(metrics["qini_score_traditional"], 1 / 8)
+        self.assertEqual(metrics.qini_score.iloc[0], 1 / 8)
 
     def test_traditional_qini_centers_its_own_full_coverage_endpoint(self):
         #-------------
@@ -237,13 +232,12 @@ class EvaluationTests(unittest.TestCase):
         #-------------
         y, t = [1, 0, 0, 0], [1, 1, 0, 0]
         scores = [4, 3, 2, 1]
-        result = evaluate_ranking(y, t, scores, e=0.6)
+        result = evaluate_ranking(y, t, {"model": scores}, e=0.6)
         curve, metrics = result["curves"], result["metrics"]
         # 传统 Qini 终点为 1/4，原始面积为 3/32 + 1/16 = 5/32。
         # 扣除随机基线的三角形面积 1/8，得到 1/32。
         self.assertEqual(curve.qini_traditional.iloc[-1], 1 / 4)
-        self.assertEqual(metrics["qini_score_traditional"], 1 / 32)
-        self.assertNotEqual(metrics["qini_score_traditional"], metrics["qini_ht"])
+        self.assertEqual(metrics.qini_score.iloc[0], 1 / 32)
 
     def test_traditional_score_is_not_changed_by_ht_assignment_probability(self):
         #-------------
@@ -254,9 +248,9 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        a = evaluate_ranking(self.y, self.t, self.scores, e=0.5, include_curves=False)["metrics"]
-        b = evaluate_ranking(self.y, self.t, self.scores, e=0.8, include_curves=False)["metrics"]
-        self.assertEqual(a["qini_score_traditional"], b["qini_score_traditional"])
+        a = evaluate_ranking(self.y, self.t, {"model": self.scores}, e=0.5, include_curves=False)["metrics"]
+        b = evaluate_ranking(self.y, self.t, {"model": self.scores}, e=0.8, include_curves=False)["metrics"]
+        self.assertEqual(a.qini_score.iloc[0], b.qini_score.iloc[0])
 
     def test_tie_break_is_seeded_and_does_not_use_row_order(self):
         #-------------
@@ -270,9 +264,9 @@ class EvaluationTests(unittest.TestCase):
         n = 100
         t = np.r_[np.ones(n // 2), np.zeros(n // 2)]
         y = np.ones(n)
-        a = evaluate_ranking(y, t, np.ones(n), e=0.5, seed=42)["curves"]
-        b = evaluate_ranking(y, t, np.ones(n), e=0.5, seed=42)["curves"]
-        c = evaluate_ranking(y, t, np.ones(n), e=0.5, seed=43)["curves"]
+        a = evaluate_ranking(y, t, {"model": np.ones(n)}, e=0.5, seed=42)["curves"]
+        b = evaluate_ranking(y, t, {"model": np.ones(n)}, e=0.5, seed=42)["curves"]
+        c = evaluate_ranking(y, t, {"model": np.ones(n)}, e=0.5, seed=43)["curves"]
         np.testing.assert_array_equal(a.gain_ht, b.gain_ht)
         self.assertFalse(np.array_equal(a.gain_ht, c.gain_ht))
         self.assertGreater(a.n_control.iloc[10], 0)
@@ -286,12 +280,15 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        # 展开重复次数后的排序样本为 [3, 3, -2, -2, -2, 7]。
-        z = np.array([10.0, 3.0, -2.0, 7.0])
+        # 展开重复记录后，直接核对每个预算的人数和累计 HT Gain。
         counts = np.array([0, 2, 3, 1])
+        y = np.repeat([0, 1, 1, 0], counts)
+        t = np.repeat([0, 1, 0, 1], counts)
+        scores = np.repeat([4, 3, 2, 1], counts)
         k = np.array([0, 1, 2, 3, 5, 6])
-        expected = np.r_[0, np.cumsum(np.repeat(z, counts))][k]
-        np.testing.assert_array_equal(_prefix_values(z, counts, k), expected)
+        result = evaluate_ranking(y, t, {"model": scores}, .5, budgets=k / 6, primary_budget=.5)
+        expected = np.r_[0, np.cumsum(2 * t * y - 2 * (1 - t) * y)][k] / 6
+        np.testing.assert_allclose(result["metrics"].gain_ht, expected)
 
     def test_same_score_paired_difference_is_exactly_zero(self):
         #-------------
@@ -302,24 +299,18 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        result = evaluate_policies(
-            self.y,
-            self.t,
-            {"propensity": self.scores, "T": self.scores},
-            e=0.5,
-            budgets=[0.25, 0.5, 1.0],
-            bootstrap=40,
-            seed=19,
+        result = evaluate_ranking(
+            self.y, self.t, {"propensity": self.scores, "T": self.scores},
+            e=.5, budgets=[.25, .5, 1.], n_bootstrap=40, seed=19,
         )
-        same = result[result.policy == "T"]
-        np.testing.assert_array_equal(same.vs_propensity_per_100k, 0)
-        np.testing.assert_array_equal(same.vs_propensity_ci_low, 0)
-        np.testing.assert_array_equal(same.vs_propensity_ci_high, 0)
-        full = result[result.budget == 1]
-        np.testing.assert_allclose(full.incremental_per_100k, 50_000)
-        np.testing.assert_allclose(full.vs_random_per_100k, 0, atol=1e-10)
-        np.testing.assert_allclose(full.vs_random_ci_low, 0, atol=1e-10)
-        np.testing.assert_allclose(full.vs_random_ci_high, 0, atol=1e-10)
+        pairs = result["bootstrap"]["pairwise"]
+        same = pairs.query("policy == 'T' and reference == 'propensity'")
+        np.testing.assert_array_equal(same[["difference", "ci_low", "ci_high"]], 0)
+        full = pairs.query("budget == 1 and reference == 'random'")
+        np.testing.assert_array_equal(full[["difference", "ci_low", "ci_high"]], 0)
+        wins = result["bootstrap"]["selection_frequency"]
+        self.assertNotIn("random", set(wins.policy))
+        self.assertTrue(wins.query("policy == 'propensity'").win_frequency.eq(1).all())
 
     def test_bootstrap_is_reproducible_and_point_estimates_unchanged(self):
         #-------------
@@ -338,16 +329,13 @@ class EvaluationTests(unittest.TestCase):
             budgets=[0.5],
             seed=77,
         )
-        a = evaluate_policies(**kwargs, bootstrap=30)
-        b = evaluate_policies(**kwargs, bootstrap=30)
-        point = evaluate_policies(**kwargs, bootstrap=0)
-        np.testing.assert_array_equal(a.ci_low, b.ci_low)
-        np.testing.assert_array_equal(a.ci_high, b.ci_high)
-        np.testing.assert_array_equal(
-            a.incremental_per_100k, point.incremental_per_100k
-        )
-        self.assertTrue(point.ci_low.isna().all())
-        self.assertTrue(point.vs_propensity_per_100k.isna().all())
+        a = evaluate_ranking(**kwargs, n_bootstrap=30)
+        b = evaluate_ranking(**kwargs, n_bootstrap=30)
+        point = evaluate_ranking(**kwargs, n_bootstrap=0)
+        for name in ("summary", "pairwise", "selection_frequency"):
+            pd.testing.assert_frame_equal(a["bootstrap"][name], b["bootstrap"][name], check_exact=True)
+        pd.testing.assert_frame_equal(a["metrics"], point["metrics"])
+        self.assertIsNone(point["bootstrap"])
 
     def test_budget_rounding_and_analytic_random(self):
         #-------------
@@ -358,13 +346,11 @@ class EvaluationTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        result = evaluate_policies(
-            self.y, self.t, {"S": self.scores}, e=0.5, budgets=[0.01, 0.3], bootstrap=0
-        )
-        random = result[result.policy == "random"]
-        np.testing.assert_array_equal(random.n_selected, [0, 2])
-        np.testing.assert_array_equal(random.selected_fraction, [0, 0.25])
-        np.testing.assert_array_equal(random.incremental_per_100k, [0, 12_500])
+        result = evaluate_ranking(self.y, self.t, {"S": self.scores}, .5,
+                                  budgets=[.01, .3], primary_budget=.3, n_bootstrap=2)
+        np.testing.assert_array_equal(result["metrics"].n_selected, [0, 2])
+        random = result["bootstrap"]["summary"].query("policy == 'random'")
+        np.testing.assert_array_equal(random.point_estimate, [0, .125])
 
     def test_paired_difference_matches_direct_resampling(self):
         #-------------
@@ -378,15 +364,8 @@ class EvaluationTests(unittest.TestCase):
         # 通过显式展开抽样行，独立核对优化后的重抽样计算。
         budgets = np.array([0.25, 0.3, 0.5])
         seed, replicates = 15, 30
-        result = evaluate_policies(
-            self.y,
-            self.t,
-            {"S": self.scores},
-            e=0.5,
-            budgets=budgets,
-            bootstrap=replicates,
-            seed=seed,
-        )
+        result = evaluate_ranking(self.y, self.t, {"S": self.scores}, .5,
+                                  budgets=budgets, primary_budget=.25, n_bootstrap=replicates, seed=seed)
         rng = np.random.default_rng(np.random.SeedSequence([seed, 314159]))
         z = 2 * self.t * self.y - 2 * (1 - self.t) * self.y
         arm1, arm0 = np.flatnonzero(self.t == 1), np.flatnonzero(self.t == 0)
@@ -400,9 +379,9 @@ class EvaluationTests(unittest.TestCase):
             gain = np.r_[0, np.cumsum(z[sample])][(budgets * 8).astype(int)] / 8
             delta.append((gain - np.floor(budgets * 8) / 8 * z[sample].mean()) * 100_000)
         expected = np.quantile(delta, [0.025, 0.975], axis=0)
-        selected = result[result.policy == "S"]
-        np.testing.assert_allclose(selected.vs_random_ci_low, expected[0])
-        np.testing.assert_allclose(selected.vs_random_ci_high, expected[1])
+        selected = result["bootstrap"]["pairwise"].query("policy == 'S' and reference == 'random'")
+        np.testing.assert_allclose(selected.ci_low * 100_000, expected[0])
+        np.testing.assert_allclose(selected.ci_high * 100_000, expected[1])
 
     def test_thirty_percent_preserves_existing_budgets_and_paired_intervals(self):
         #-------------
@@ -415,24 +394,15 @@ class EvaluationTests(unittest.TestCase):
         #-------------
         scores = {"S": self.scores, "propensity": self.scores[::-1]}
         old_budgets = [.02, .05, .1, .2, .5, 1.]
-        old = evaluate_policies(self.y, self.t, scores, e=.5, budgets=old_budgets, bootstrap=30)
-        expanded = evaluate_policies(self.y, self.t, scores, e=.5, bootstrap=30)
-        retained = expanded[expanded.budget != .3].reset_index(drop=True)
-        pd.testing.assert_frame_equal(old, retained, check_exact=True)
-        self.assertEqual(set(expanded.budget), {*old_budgets, .3})
-        separate = evaluate_policies(self.y, self.t, scores, e=.5, budgets=[.3], bootstrap=30)
-        pd.testing.assert_frame_equal(separate, expanded[expanded.budget == .3].reset_index(drop=True), check_exact=True)
-        np.testing.assert_array_equal(expanded.n_selected, np.floor(expanded.budget * len(self.y)))
-        full = expanded[expanded.budget == 1.]
-        for column in ('incremental_per_100k', 'ci_low', 'ci_high'):
-            self.assertEqual(full[column].nunique(), 1)
-        z = 2 * self.t * self.y - 2 * (1 - self.t) * self.y
-        self.assertEqual(full.incremental_per_100k.iloc[0], 100_000 * z.mean())
-        frozen = expanded[expanded.policy == 'S'].set_index('budget').loc[[.1, .2, .3, 1.]]
-        counts = np.r_[0, frozen.n_selected.to_numpy()]
-        marginal = np.diff(np.r_[0., frozen.incremental_per_100k.to_numpy()])
-        for i, (start, end) in enumerate(zip(counts[:-1], counts[1:])):
-            self.assertAlmostEqual(marginal[i], z[start:end].sum() / len(z) * 100_000)
+        old = evaluate_ranking(self.y, self.t, scores, .5, budgets=old_budgets, n_bootstrap=30)
+        expanded = evaluate_ranking(self.y, self.t, scores, .5, budgets=[*old_budgets, .3], n_bootstrap=30)
+        for name in ("summary", "pairwise", "selection_frequency"):
+            retained = expanded["bootstrap"][name].query("budget != .3").reset_index(drop=True)
+            pd.testing.assert_frame_equal(old["bootstrap"][name], retained, check_exact=True)
+        points = expanded["metrics"]
+        self.assertEqual(set(points.budget), {*old_budgets, .3})
+        np.testing.assert_array_equal(points.n_selected, np.floor(points.budget * len(self.y)))
+        self.assertEqual(points.query("budget == 1").gain_ht.nunique(), 1)
 
     def test_calibration_bins_cover_data_and_missing_arms_are_nan(self):
         #-------------
@@ -464,15 +434,13 @@ class EvaluationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ate_summary([1, np.nan], [1, 0])
         with self.assertRaises(ValueError):
-            evaluate_ranking(self.y, self.t, self.scores, e=1)
+            evaluate_ranking(self.y, self.t, {"model": self.scores}, e=1)
         with self.assertRaises(ValueError):
-            evaluate_ranking(self.y, self.t, [1, 2], e=0.5, include_curves=False)
+            evaluate_ranking(self.y, self.t, {"model": [1, 2]}, e=0.5, include_curves=False)
         with self.assertRaises(ValueError):
-            evaluate_policies(
-                self.y, self.t, {"random": self.scores}, e=0.5, bootstrap=0
-            )
+            evaluate_ranking(self.y, self.t, {"random": self.scores}, .5, n_bootstrap=0)
         with self.assertRaises(ValueError):
-            evaluate_policies(self.y, self.t, {}, e=0.5, budgets=[1.2], bootstrap=0)
+            evaluate_ranking(self.y, self.t, {"s": self.scores}, .5, budgets=[1.2], n_bootstrap=0)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -506,7 +474,7 @@ class ExtendedMetricTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        result = evaluate_ranking(self.y, self.t, self.s, 0.5)
+        result = evaluate_ranking(self.y, self.t, {"model": self.s}, 0.5)
         c = result["curves"]
         np.testing.assert_allclose(
             c.uplift_rate.iloc[2:], [1, 1, 1, 2 / 3, 1 / 3, 5 / 12, 1 / 2]
@@ -518,15 +486,9 @@ class ExtendedMetricTests(unittest.TestCase):
             c.qini_traditional.iloc[2:],
             [1 / 8, 1 / 4, 1 / 4, 1 / 4, 1 / 8, 5 / 24, 1 / 4],
         )
-        m = result["metrics"]
-        for name, expected in {
-            'auuc_plugin': 81 / 256,
-            'auuc_plugin_centered': 17 / 256,
-            'qini_score_traditional': 19 / 384,
-            'auuc_ht': 3 / 8,
-            'qini_ht': 1 / 8,
-        }.items():
-            self.assertAlmostEqual(m[name], expected)
+        m = result["metrics"].iloc[0]
+        self.assertAlmostEqual(m.auuc, 81 / 256)
+        self.assertAlmostEqual(m.qini_score, 19 / 384)
 
     def test_qini_keeps_defined_control_only_zero_nodes(self):
         #-------------
@@ -539,12 +501,12 @@ class ExtendedMetricTests(unittest.TestCase):
         #-------------
         # Qini 曲线点为 (0,0)、(.25,0)、(.5,.25)、(.75,.25)、(1,.5)。
         # 曲线面积 3/16 减去随机基线面积 1/4，得到 -1/16。
-        m = evaluate_ranking([0, 1, 0, 1], [0, 1, 0, 1], [4, 3, 2, 1], 0.5, include_curves=False)["metrics"]
-        self.assertEqual(m['qini_score_traditional'], -1 / 16)
+        m = evaluate_ranking([0, 1, 0, 1], [0, 1, 0, 1], {"model": [4, 3, 2, 1]}, 0.5, include_curves=False)["metrics"]
+        self.assertEqual(m.qini_score.iloc[0], -1 / 16)
 
         # 连续两个对照组前缀的零值点都参与积分。
         y, t, scores = [0, 0, 1, 1], [0, 0, 1, 1], [4, 3, 2, 1]
-        result = evaluate_ranking(y, t, scores, 0.5)
+        result = evaluate_ranking(y, t, {"model": scores}, 0.5)
         curve = result["curves"]
         self.assertTrue(np.isnan(curve.qini_traditional.iloc[0]))
         np.testing.assert_array_equal(curve.qini_traditional.iloc[1:3], [0, 0])
@@ -567,7 +529,7 @@ class ExtendedMetricTests(unittest.TestCase):
         with_both_arms = centered_area((curve.n_control > 0) & (curve.n_treatment > 0))
         self.assertEqual(with_control_only, -1 / 8)
         self.assertEqual(with_both_arms, -1 / 16)
-        self.assertEqual(result["metrics"]["qini_score_traditional"], with_control_only)
+        self.assertEqual(result["metrics"].qini_score.iloc[0], with_control_only)
 
     def test_gain_remains_defined_for_nonpositive_total_effect(self):
         #-------------
@@ -579,7 +541,7 @@ class ExtendedMetricTests(unittest.TestCase):
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
         for y in [np.zeros(8), 1 - self.y]:
-            c = evaluate_ranking(y, self.t, self.s, 0.5)["curves"]
+            c = evaluate_ranking(y, self.t, {"model": self.s}, 0.5)["curves"]
             expected = y[self.t == 1].mean() - y[self.t == 0].mean()
             self.assertLessEqual(expected, 0)
             self.assertEqual(c.uplift_rate.iloc[-1], expected)
@@ -594,64 +556,68 @@ class ExtendedMetricTests(unittest.TestCase):
         # 输出参数：
         #     - 无；通过断言验证预期行为，失败时由测试框架报告。
         #-------------
-        r = ranking_confidence_intervals(
-            self.y, self.t, {'propensity': self.s, 'same': self.s}, 0.5, 30
-        )
-        same = r[r.policy == 'same']
-        np.testing.assert_array_equal(same.vs_propensity, 0)
-        np.testing.assert_array_equal(same.vs_propensity_ci_low, 0)
-        np.testing.assert_array_equal(same.vs_propensity_ci_high, 0)
+        r = evaluate_ranking(self.y, self.t, {"propensity": self.s, "same": self.s},
+                             .5, primary_metric="qini_score", n_bootstrap=30)
+        same = r["bootstrap"]["pairwise"].query("policy == 'same' and reference == 'propensity'")
+        np.testing.assert_array_equal(same[["difference", "ci_low", "ci_high"]], 0)
 
-    def test_ranking_bootstrap_matches_independent_expanded_sample(self):
+    def test_primary_bootstrap_matches_independent_expanded_sample(self):
         #-------------
-        # 函数名：ExtendedMetricTests.test_ranking_bootstrap_matches_independent_expanded_sample
-        # 功能：验证排名指标 Bootstrap 与独立展开重抽样样本的计算结果一致。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        # 功能：逐个检查五种可选主指标的均值、有效重复与配对区间。
+        # 输入：八行样本和独立重建的分层抽样记录。
+        # 输出：验证统一入口每次只输出指定主指标的推断。
         #-------------
-        seed, draws = 19, 40
-        score_dict = {'propensity': self.s, 'reverse': -self.s}
-        r = ranking_confidence_intervals(self.y, self.t, score_dict, 0.5, draws, seed)
-        rng = np.random.default_rng(np.random.SeedSequence([seed, 271828]))
-        a1, a0 = np.flatnonzero(self.t == 1), np.flatnonzero(self.t == 0)
-        expected = []
-        for _ in range(draws):
-            ix = np.r_[rng.choice(a1, len(a1)), rng.choice(a0, len(a0))]
-            # 重复记录的结果相同，因此这些记录之间的同分顺序不影响结果。
-            rev = evaluate_ranking(self.y[ix], self.t[ix], -self.s[ix], 0.5, include_curves=False)["metrics"][
-                'qini_score_traditional'
-            ]
-            ref = evaluate_ranking(self.y[ix], self.t[ix], self.s[ix], 0.5, include_curves=False)["metrics"][
-                'qini_score_traditional'
-            ]
-            expected.append(rev - ref)
-        actual = r[
-            (r.policy == 'reverse') & (r.metric == 'qini_score_traditional')
-        ].iloc[0]
-        np.testing.assert_allclose(
-            [actual.vs_propensity_ci_low, actual.vs_propensity_ci_high],
-            np.quantile(expected, [0.025, 0.975]),
-        )
+        score_dict = {"propensity": self.s, "reverse": -self.s}
+        seed, draws, fraction = 19, 40, .25
+        arms = [np.flatnonzero(self.t == arm) for arm in (1, 0)]
+        for metric in RANKING_METRICS:
+            with self.subTest(metric=metric):
+                result = evaluate_ranking(self.y, self.t, score_dict, .5, budgets=[fraction],
+                                          primary_metric=metric, primary_budget=fraction,
+                                          n_bootstrap=draws, seed=seed, include_curves=False)
+                rng = np.random.default_rng(np.random.SeedSequence([seed, 314159]))
+                values = []
+                for _ in range(draws):
+                    ix = np.r_[rng.choice(arms[0], len(arms[0])), rng.choice(arms[1], len(arms[1]))]
+                    point = evaluate_ranking(self.y[ix], self.t[ix], {k: s[ix] for k, s in score_dict.items()},
+                                             .5, budgets=[fraction], primary_metric=metric,
+                                             primary_budget=fraction, n_bootstrap=0, include_curves=False)
+                    values.append(point["metrics"][metric].to_numpy())
+                values = np.asarray(values)
+                inference = result["bootstrap"]
+                self.assertEqual(set(inference["summary"].metric), {metric})
+                candidates = inference["summary"].query("policy != 'random'")
+                for j, row in enumerate(candidates.itertuples()):
+                    valid = values[np.isfinite(values[:, j]), j]
+                    self.assertEqual(row.valid_replicates, len(valid))
+                    self.assertAlmostEqual(row.bootstrap_mean, valid.mean())
+                pair = inference["pairwise"].query("policy == 'reverse' and reference == 'propensity'").iloc[0]
+                delta = values[:, 1] - values[:, 0]
+                delta = delta[np.isfinite(delta)]
+                self.assertEqual(pair.valid_replicates, len(delta))
+                np.testing.assert_allclose([pair.ci_low, pair.ci_high], np.quantile(delta, [.025, .975]))
 
     def test_no_draws_and_invalid_bootstrap(self):
         #-------------
-        # 函数名：ExtendedMetricTests.test_no_draws_and_invalid_bootstrap
-        # 功能：验证关闭 Bootstrap 和传入非法重抽样次数时的边界行为。
-        # 输入参数：
-        #     - 无显式业务参数（实例方法中的 self 表示当前对象）。
-        # 输出参数：
-        #     - 无；通过断言验证预期行为，失败时由测试框架报告。
+        # 功能：检查关闭 Bootstrap 和非法主指标、预算、抽样次数。
         #-------------
-        r = ranking_confidence_intervals(self.y, self.t, {'s': self.s}, 0.5, 0)
-        self.assertTrue(r.ci_low.isna().all())
-        self.assertTrue(r.vs_propensity.isna().all())
-        for draws in [-1, 1, 2.5]:
+        args = (self.y, self.t, {"s": self.s}, .5)
+        result = evaluate_ranking(*args, n_bootstrap=0, include_curves=False)
+        self.assertIsNone(result["bootstrap"])
+        self.assertIsNone(result["curves"])
+        for invalid in ({"n_bootstrap": -1}, {"n_bootstrap": 1}, {"n_bootstrap": 2.5},
+                        {"primary_metric": "unknown"}, {"primary_budget": 0}):
             with self.assertRaises(ValueError):
-                ranking_confidence_intervals(self.y, self.t, {'s': self.s}, 0.5, draws)
-        with self.assertRaises(ValueError):
-            ranking_confidence_intervals(self.y, self.t, {}, 0.5)
+                evaluate_ranking(*args, **invalid)
+        missing = evaluate_ranking(*args, budgets=[.125], primary_metric="gain_plugin",
+                                   primary_budget=.125, n_bootstrap=2)
+        row = missing["bootstrap"]["summary"].query("policy == 's'").iloc[0]
+        self.assertEqual(row.valid_replicates, 0)
+        self.assertTrue(np.isnan(row.ci_low))
+        area = evaluate_ranking(*args, budgets=[.5], primary_metric="auuc",
+                                primary_budget=None, n_bootstrap=2)
+        self.assertEqual(area["metrics"].budget.tolist(), [.5])
+        self.assertTrue(area["bootstrap"]["summary"].budget.isna().all())
 
 
 if __name__ == "__main__":

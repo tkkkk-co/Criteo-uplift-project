@@ -9,8 +9,8 @@ import argparse
 import json
 from pathlib import Path
 import time
-import numpy as np
 from criteo_uplift.config import ROOT, DEFAULT_DATA, DEFAULT_SAMPLE_SIZE, DEFAULT_SEED, FEATURES
+from criteo_uplift.metrics import RANKING_METRICS
 from criteo_uplift.preparation import prepare_sample, split_sample
 from criteo_uplift.diagnostics import run_diagnostics
 from criteo_uplift.training_validation import fit_and_select_models
@@ -76,36 +76,36 @@ def run(args):
 
     # 05. Train 拟合四个候选，Validation 选型并冻结，Test 不参与。
     e = float(train.treatment.mean())
-    fitted = fit_and_select_models(train, 
-                                   validation, 
-                                   outcome=args.outcome, 
-                                   seed=args.seed,
-                                   trees=args.trees, 
-                                   primary_budget=args.primary_budget,
-                                   assignment_probability=e, 
-                                   out=models_out, 
-                                   progress=log)
-    
-    # 06. 固定模型评价 Test；统一保存两种 scope、两种 outcome 的 ATE。
-    policies = evaluate_test_set(test, fitted['models'], outcome=args.outcome,
-                                 assignment_probability=e, seed=args.seed, bootstrap=args.bootstrap,
-                                 primary_budget=args.primary_budget, out=evaluation_out,
-                                 progress=log, full_ate=full_ate)
+    fitted = fit_and_select_models(
+        train, validation, outcome=args.outcome, seed=args.seed, trees=args.trees,
+        primary_metric=args.primary_metric, primary_budget=args.primary_budget,
+        n_bootstrap=args.bootstrap, assignment_probability=e, out=models_out, progress=log,
+    )
+
+    # 06. 固定模型评价 Test，主指标和预算读取 Validation 已保存的选择。
+    test_result = evaluate_test_set(
+        test, outcome=args.outcome, assignment_probability=e,
+        seed=args.seed, out=evaluation_out, progress=log, full_ate=full_ate,
+    )
+
     del train, validation, test, parts
 
     # 07. 排除原 Test，按原设计检查随机种子、训练规模、分组划分。
     run_stability(sample_cache, out, stability_out, seeds=args.stability_seeds,
                   fractions=args.stability_fractions, trees=args.trees,
-                  primary_budget=args.primary_budget, outcome=args.outcome)
+                  primary_budget=args.primary_budget, primary_metric=args.primary_metric,
+                  n_bootstrap=args.bootstrap, outcome=args.outcome)
 
     # 08. 使用明确的假设做线上 A/B 规划和条件性经济价值测算。
-    run_planning(policies, fitted['selection'], business_out, assumptions=assumptions)
+    run_planning(test_result, fitted['selection'], business_out, assumptions=assumptions)
+
     # 09. 汇总已有结果，生成唯一正式 HTML，成功后标记实验完成。
     finalize_run(manifest_path=manifest_path, report_path=report_path, args=args, source=source,
                  sample_n=sample_n, assignment_probability=e, fitted=fitted,
                  elapsed_seconds=time.perf_counter() - started)
     log(f'完成：{report_path}')
-    print(policies[np.isclose(policies.budget, args.primary_budget)].to_string(index=False))
+    selected = fitted["selection"]["selected_policy"]
+    print(test_result["bootstrap"]["summary"].query("policy == @selected").to_string(index=False))
     return out
 
 
@@ -123,6 +123,7 @@ def parse_args(argv=None):
     parser.add_argument('--sample-size', type=int, default=DEFAULT_SAMPLE_SIZE, help='0=全量')
     parser.add_argument('--outcome', choices=['conversion', 'visit'], default='conversion')
     parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
+    parser.add_argument('--primary-metric', choices=RANKING_METRICS, default='gain_ht')
     parser.add_argument('--primary-budget', type=float, default=.2)
     parser.add_argument('--permutations', type=int, default=499)
     parser.add_argument('--c2st-sample', type=int, default=20000)

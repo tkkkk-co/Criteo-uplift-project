@@ -1,16 +1,16 @@
 #-------------
 # ATE、策略价值、分组校准与冻结模型的 Test 评价。
 #-------------
+import json
 from math import sqrt
-from typing import Mapping, Sequence
+import joblib
 import numpy as np
 import pandas as pd
 from scipy.special import log_ndtr
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
 from .models import s_learner, t_learner, x_learner
-from .metrics import (_binary_inputs_check, _scores_check, _ht_outcome, _prefix_values,
-                      evaluate_ranking, ranking_confidence_intervals)
+from .metrics import _binary_inputs_check, _scores_check, evaluate_ranking
 
 DEFAULT_BUDGETS = (0.02, 0.05, 0.10, 0.20, 0.30, 0.50, 1.0)
 _Z_975 = 1.959963984540054
@@ -108,138 +108,6 @@ def ate_summary_from_audit(audit, outcome):
     return _ate_summary_from_counts(n0, n1, r0, r1)
 
 
-def evaluate_policies(
-    y,
-    t,
-    score_dict: Mapping[str, Sequence[float]],
-    e: float,
-    budgets: Sequence[float] = DEFAULT_BUDGETS,
-    bootstrap: int = 200,
-    seed: int = 42,
-) -> pd.DataFrame:
-    #-------------
-    # 函数名：evaluate_policies
-    # 功能：在给定预算下比较多种策略的 HT 增量价值，并计算组内配对 Bootstrap 置信区间。
-    # 输入参数：
-    #     - y：测试/评价样本的二元结果变量。
-    #     - t：对应样本的二元处理分配变量。
-    #     - score_dict：策略名称到逐行评分向量的映射。
-    #     - e：固定处理分配概率，用于 HT 结果加权。
-    #     - budgets：需要评价的触达比例序列。
-    #     - bootstrap：组内配对 Bootstrap 重抽样次数；0 表示不计算区间。
-    #     - seed：排序破同分和 Bootstrap 的随机种子。
-    # 输出参数：
-    #     - Policy Evaluation DataFrame：每种策略、每个预算的增量值、区间及相对随机/倾向基线的差值。
-    #-------------
-    y, t = _binary_inputs_check(y, t)
-    n = len(y)
-    z = _ht_outcome(y, t, e)
-    budget = np.asarray(budgets, dtype=float)
-    if (
-        budget.ndim != 1
-        or not len(budget)
-        or not np.isfinite(budget).all()
-        or np.any((budget < 0) | (budget > 1))
-    ):
-        raise ValueError(
-            "budgets 必须为非空序列，各比例需介于 0 和 1 之间"
-        )
-    if not isinstance(bootstrap, (int, np.integer)) or bootstrap < 0 or bootstrap == 1:
-        raise ValueError("bootstrap 必须为 0 或大于等于 2 的整数")
-    if "random" in score_dict:
-        raise ValueError("'random' 为解析随机策略基线的保留名称")
-    if any(not isinstance(name, str) or not name for name in score_dict):
-        raise ValueError("策略名称必须为非空字符串")
-    k = np.floor(budget * n + 1e-12).astype(np.int64)
-    fractions = k / n
-    names = ["random", *score_dict]
-    orders = []
-    for name in names[1:]:
-        scores = _scores_check(score_dict[name], n)
-        # 按分数降序；各策略共用同一种子生成的同分优先级，不读取结果标签。
-        tie_break = np.random.default_rng(seed).random(n)
-        orders.append(np.lexsort((tie_break, -scores)))
-    sorted_z = [z[order] for order in orders]
-    point = np.empty((len(names), len(budget)))
-    point[0] = fractions * z.mean()
-    for j, values in enumerate(sorted_z, start=1):
-        cumulative = np.r_[0.0, np.cumsum(values)]
-        point[j] = cumulative[k] / n
-    # 全量触达时所有策略使用同一个汇总结果。
-    # 避免累加顺序产生微小浮点差异，被误读为策略收益。
-    point[:, k == n] = point[0, k == n]
-
-    boot = np.empty((bootstrap, len(names), len(budget)))
-    if bootstrap:
-        # 重抽样随机流独立于同分排序的随机流。
-        rng = np.random.default_rng(np.random.SeedSequence([seed, 314159]))
-        arm1 = np.flatnonzero(t == 1)
-        arm0 = np.flatnonzero(t == 0)
-        for b in range(bootstrap):
-            draws1 = arm1[rng.integers(len(arm1), size=len(arm1))]
-            draws0 = arm0[rng.integers(len(arm0), size=len(arm0))]
-            counts = np.bincount(draws1, minlength=n) + np.bincount(draws0, minlength=n)
-            boot[b, 0] = fractions * np.dot(counts, z) / n
-            for j, (order, values) in enumerate(zip(orders, sorted_z), start=1):
-                boot[b, j] = _prefix_values(values, counts[order], k) / n
-            boot[b, :, k == n] = boot[b, 0, k == n, None]
-
-    scale = 100_000.0
-    point *= scale
-    boot *= scale
-    nan_intervals = np.full((2, len(names), len(budget)), np.nan)
-    ci = np.quantile(boot, [0.025, 0.975], axis=0) if bootstrap else nan_intervals
-    random_delta = point - point[0]
-    random_ci = (
-        np.quantile(boot - boot[:, :1], [0.025, 0.975], axis=0)
-        if bootstrap
-        else nan_intervals
-    )
-    response_index = names.index("propensity") if "propensity" in names else None
-    propensity_delta = (
-        point - point[response_index]
-        if response_index is not None
-        else np.full_like(point, np.nan)
-    )
-    propensity_ci = (
-        np.quantile(
-            boot - boot[:, response_index : response_index + 1], [0.025, 0.975], axis=0
-        )
-        if bootstrap and response_index is not None
-        else nan_intervals
-    )
-    records = []
-    for j, name in enumerate(names):
-        for b, requested in enumerate(budget):
-            records.append(
-                {
-                    "policy": name,
-                    "budget": float(requested),
-                    "n_selected": int(k[b]),
-                    "selected_fraction": float(fractions[b]),
-                    "incremental_per_100k": float(point[j, b]),
-                    "ci_low": float(ci[0, j, b]),
-                    "ci_high": float(ci[1, j, b]),
-                    "vs_random_per_100k": float(random_delta[j, b]),
-                    "vs_random_ci_low": float(random_ci[0, j, b]),
-                    "vs_random_ci_high": float(random_ci[1, j, b]),
-                    "vs_propensity_per_100k": float(propensity_delta[j, b]),
-                    "vs_propensity_ci_low": float(propensity_ci[0, j, b]),
-                    "vs_propensity_ci_high": float(propensity_ci[1, j, b]),
-                    "bootstrap_replicates": int(bootstrap),
-                }
-            )
-    result = pd.DataFrame.from_records(records)
-    result.attrs.update(
-        {
-            "assignment_probability": float(e),
-            "ci_method": "paired arm-stratified percentile bootstrap; fixed learned scores; top-k reselected",
-            "random_policy": "analytic expected value at the realized selected fraction",
-            "seed": seed,
-        }
-    )
-    return result
-
 def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
     #-------------
     # 函数名：calibration_table
@@ -287,13 +155,10 @@ def calibration_table(y, t, cate, n_bins: int = 10) -> pd.DataFrame:
 
 def evaluate_test_set(
     test,
-    models,
     *,
     outcome,
     assignment_probability,
     seed,
-    bootstrap,
-    primary_budget,
     out,
     progress=print,
     full_ate=None,
@@ -303,21 +168,25 @@ def evaluate_test_set(
     # 功能：使用已经冻结的模型在 Test 集上生成 CATE 评分、排序指标、策略价值、校准结果和 ATE，并保存评价产物。
     # 输入参数：
     #     - test：独立 Test DataFrame，包含特征、treatment、结果和 row_id。
-    #     - models：已在训练集拟合并冻结的模型字典。
     #     - outcome：本次模型训练和主要排序评价使用的结果列名。
     #     - assignment_probability：用于 HT 评价的固定处理分配概率。
     #     - seed：排序破同分和 Bootstrap 随机种子。
-    #     - bootstrap：评价区间的 Bootstrap 重抽样次数。
-    #     - primary_budget：Validation 阶段冻结的主要触达预算。
     #     - out：本次实验的 evaluation 输出目录。
     #     - progress：接收评价进度消息的回调函数。
     #     - full_ate：由全量 Audit 计算得到的 ATE 记录列表。
     # 输出参数：
-    #     - Test Policy Evaluation DataFrame；同时保存 ATE、曲线、排名、校准、区间和逐行预测缓存。
+    #     - 统一评价结果字典。另保存校准、ATE 和逐行预测。
     #-------------
     out = safe_output(out)
+    models_out = out.parent / 'models'
+    selection = json.loads((models_out / 'selection.json').read_text(encoding='utf-8'))
+    if not selection["frozen_before_test"] or selection["selected_policy"] not in selection["candidates"]:
+        raise ValueError("Test 需要有效的 Validation 冻结策略")
     test_scores = {}
-    for name, model_bundle in models.items():
+    for name in selection["candidates"]:
+        if name == "propensity":
+            continue
+        model_bundle = joblib.load(models_out / f'{name}.joblib')
         if model_bundle['learner'] == 's':
             result = s_learner(test[FEATURES], model_bundle=model_bundle)
         elif model_bundle['learner'] == 't':
@@ -331,56 +200,21 @@ def evaluate_test_set(
             propensity = result['mu1']
     test_scores['propensity'] = propensity
 
-    rankings = []
-    curves = []
+    budgets = sorted({*DEFAULT_BUDGETS, selection["primary_budget"]})
+    progress("用冻结评分计算 Test 点估计和主指标配对区间")
+    evaluation = evaluate_ranking(
+        test[outcome], test.treatment, test_scores, assignment_probability,
+        budgets=budgets, primary_metric=selection["primary_metric"],
+        primary_budget=selection["primary_budget"], n_bootstrap=selection["n_bootstrap"], seed=seed,
+    )
+    write_result(evaluation["metrics"], out / 'test_metrics.csv')
+    write_result(evaluation["curves"], out / 'curves.csv')
+    write_result(evaluation["bootstrap"]["summary"], out / 'test_bootstrap.csv')
+    write_result(evaluation["bootstrap"]["pairwise"], out / 'test_pairwise.csv')
     for name, score in test_scores.items():
-        ranking = evaluate_ranking(
-            test[outcome], test.treatment, score, assignment_probability, seed
-        )
-        rankings.append(
-            {
-                "policy": name,
-                **ranking["metrics"],
-                "mean_score": float(np.mean(score)),
-                "negative_fraction": float(np.mean(score < 0)),
-            }
-        )
-        # 指标使用完整曲线；仅压缩用于绘图的保存表。
-        curve = ranking["curves"]
-        curve = curve.iloc[
-            np.unique(np.linspace(0, len(curve) - 1, 501).astype(int))
-        ].copy()
-        curve.insert(0, "policy", name)
-        curves.append(curve)
-        del ranking
         if name != "propensity":
-            calibration = calibration_table(test[outcome], test.treatment, score)
-            write_result(calibration, out / f'calibration_{name}.csv')
-
-    write_result(pd.DataFrame(rankings), out / 'test_ranking.csv')
-    write_result(pd.concat(curves), out / 'curves.csv')
-
-    budgets = sorted({*DEFAULT_BUDGETS, primary_budget})
-    policies = evaluate_policies(
-        test[outcome],
-        test.treatment,
-        test_scores,
-        assignment_probability,
-        budgets=budgets,
-        bootstrap=bootstrap,
-        seed=seed,
-    )
-    write_result(policies, out / 'test_policies.csv')
-    progress("计算冻结模型的配对 AUUC / Qini 区间")
-    ranking_intervals = ranking_confidence_intervals(
-        test[outcome],
-        test.treatment,
-        test_scores,
-        assignment_probability,
-        bootstrap=bootstrap,
-        seed=seed,
-    )
-    write_result(ranking_intervals, out / 'ranking_intervals.csv')
+            write_result(calibration_table(test[outcome], test.treatment, score),
+                         out / f'calibration_{name}.csv')
 
     test_ate = [{"scope": "test", "outcome": label, **ate_summary(test[label], test.treatment)}
                 for label in ("conversion", "visit") if label in test]
@@ -393,4 +227,4 @@ def evaluate_test_set(
         t=test.treatment.to_numpy(),
         **test_scores,
     )
-    return policies
+    return evaluation

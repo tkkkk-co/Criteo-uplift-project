@@ -3,11 +3,9 @@
 # 输出 validation_*.csv、模型文件和冻结选择 selection.json；见 docs/RESULTS_GUIDE.md。
 
 import joblib
-import pandas as pd
 
 from .config import FEATURES
 from .pipeline_io import safe_output, write_result
-from .evaluation import evaluate_policies
 from .metrics import evaluate_ranking
 from .models import s_learner, t_learner, x_learner
 
@@ -21,6 +19,8 @@ def fit_and_select_models(
     primary_budget,
     assignment_probability,
     out,
+    primary_metric="gain_ht",
+    n_bootstrap=200,
     progress=print,
 ):
     #-------------
@@ -32,15 +32,19 @@ def fit_and_select_models(
     #     - outcome：本次训练使用的二元结果列名。
     #     - seed：模型及排序随机种子。
     #     - trees：XGBoost 候选模型的树数量。
-    #     - primary_budget：用于 Validation 选型的主要触达预算。
+    #     - primary_budget：Gain 主指标的选型覆盖率。
+    #     - primary_metric：选型使用的唯一主指标。
+    #     - n_bootstrap：选型的分层配对重抽样次数。
     #     - assignment_probability：用于 HT 指标的处理分配概率代入值。
     #     - out：模型、验证指标和 selection.json 的输出目录。
     #     - progress：接收模型训练进度的回调函数。
     # 输出参数：
-    #     - 结果字典：包含拟合模型、模型参数/耗时 metadata 和冻结 selection。
+    #     - 结果字典：模型参数、拟合耗时和冻结选择。
     #-------------
     out = safe_output(out)
-    # 1. 固定四种候选：逐个直接调用 Learner，Train 拟合、Validation 预测。
+    if n_bootstrap == 0:
+        raise ValueError("Validation 选型需要至少两次 Bootstrap")
+    # 1. 训练模型：仅用 Train 拟合四个固定候选，同时预测 Validation 的 CATE。
     X_train, X_val = train[FEATURES], validation[FEATURES]
     t_train, y_train = train.treatment, train[outcome]
     logistic_params = {'random_state': seed}
@@ -71,54 +75,41 @@ def fit_and_select_models(
 
     validation_scores = {name: result['cate'] for name, result in results.items()}
 
-    # 2. baseline：传统转化倾向response propenity score：预测 T=1 的 Y=1 概率，与 Treatment Propensity 区分。
+    # 2. 构建基线：复用 T-XGBoost 的 mu1，按接受处理时的转化概率排序。
     validation_scores['propensity'] = results['t_xgboost']['mu1']
-    names = list(results)
-    validation_ranking = [
-        {
-            "policy": name,
-            **evaluate_ranking(
-                validation[outcome],
-                validation.treatment,
-                validation_scores[name],
-                assignment_probability,
-                seed=seed,
-                include_curves=False,
-            )["metrics"],
-        }
-        for name in names
-    ]
-    validation_policies = evaluate_policies(
-        validation[outcome],
-        validation.treatment,
-        validation_scores,
-        assignment_probability,
-        budgets=[primary_budget],
-        bootstrap=0,
-        seed=seed,
-    )
-    write_result(validation_policies, out / 'validation_policies.csv')
-    write_result(pd.DataFrame(validation_ranking), out / 'validation_ranking.csv')
 
-    # 分别冻结全部可用策略中的最佳策略，以及仅增量模型中的最佳候选。
-    ordered_policies = validation_policies.sort_values(
-        "incremental_per_100k", ascending=False, kind="stable"
+    # 3. 一次评价五种评分。Validation 只评价预设覆盖率，面积仍使用完整曲线。
+    evaluation = evaluate_ranking(
+        validation[outcome], validation.treatment, validation_scores, assignment_probability,
+        budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
+        n_bootstrap=n_bootstrap, seed=seed, include_curves=False,
     )
-    selected_policy = ordered_policies.iloc[0].policy
-    selected_uplift_model = ordered_policies[ordered_policies.policy.isin(names)].iloc[0].policy
+    inference = evaluation["bootstrap"]
+
+    # 4. 按主指标的 Bootstrap 均值排序。随机参考线不参与选择，同分沿用固定候选顺序。
+    ordered = inference["summary"].query("policy != 'random'").sort_values(
+        "bootstrap_mean", ascending=False, kind="stable", na_position="last",
+    )
+    uplift = ordered[ordered.policy.isin(results)]
+    if ordered.bootstrap_mean.isna().all() or uplift.bootstrap_mean.isna().all():
+        raise ValueError("Validation 主指标没有可用的 Bootstrap 均值，无法冻结策略或 uplift 候选")
     selection = {
+        "primary_metric": primary_metric,
         "primary_budget": primary_budget,
-        "criterion": "validation HT incremental responses per 100k eligible people",
-        "selected_policy": selected_policy,
-        "selected_uplift_model": selected_uplift_model,
-        "candidates": ["random", "propensity", *names],
+        "selection_statistic": "bootstrap_mean",
+        "n_bootstrap": n_bootstrap,
+        "selected_policy": ordered.iloc[0].policy,
+        "selected_uplift_model": uplift.iloc[0].policy,
+        "candidates": list(validation_scores),
         "frozen_before_test": True,
-        "note": (
-            "All models remain trained on training split only; no test tuning, "
-            "no train+validation refit."
-        ),
+        "note": "Models are fitted on Train only. Validation selects by the preset bootstrap mean.",
     }
-    # 把用于报告与 Test 的保存逻辑集中在末尾。
+
+    # 5. 保存 Validation 评价、冻结选择和 Train 模型，供 Test 独立预测。
+    write_result(evaluation["metrics"], out / 'validation_metrics.csv')
+    write_result(inference["summary"], out / 'validation_bootstrap.csv')
+    write_result(inference["pairwise"], out / 'validation_pairwise.csv')
+    write_result(inference["selection_frequency"], out / 'validation_selection_frequency.csv')
     outcome_support = []
     for arm in (0, 1):
         labels = train.loc[train.treatment == arm, outcome]
@@ -141,7 +132,6 @@ def fit_and_select_models(
 
     write_result(selection, (out / 'selection.json'))
     return {
-        "models": models,
         "model_metadata": model_metadata,
         "selection": selection,
     }

@@ -204,14 +204,16 @@ class StabilityTests(unittest.TestCase):
             self.assertEqual(len(original_fit_calls), 12)
             self.assertEqual(coverage_check.call_count, 3)
             metrics = pd.read_csv(output / "longmetrics.csv")
-            self.assertEqual(len(metrics), 18)
+            self.assertEqual(len(metrics), 15)
             self.assertTrue(
-                {"qini_ht", "qini_score_traditional", "auuc_ht"}.issubset(
+                {"auuc", "qini_score", "bootstrap_mean"}.issubset(
                     metrics.columns
                 )
             )
             self.assertEqual(metrics.selected_on_validation.sum(), 3)
-            self.assertTrue(metrics[metrics.policy == "random"].qini_ht.eq(0).all())
+            self.assertNotIn("random", metrics.policy.unique())
+            protocol = json.loads((output / "protocol.json").read_text())
+            self.assertEqual(protocol["selection_statistic"], "bootstrap_mean")
             audit = pd.read_csv(output / "split_audit.csv")
             self.assertTrue(
                 audit[

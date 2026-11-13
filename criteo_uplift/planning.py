@@ -146,12 +146,12 @@ DEFAULT_PLANNING_ASSUMPTIONS = {
 }
 
 
-def run_planning(policies, selection, out, *, assumptions=None):
+def run_planning(evaluation, selection, out, *, assumptions=None):
     #-------------
     # 函数名：run_planning
     # 功能：读取冻结策略在主预算下的 Test 结果，按明确的业务假设生成 A/B 样本量规划和经济情景文件。
     # 输入参数：
-    #     - policies：Test 阶段生成的各策略、各预算 Policy Evaluation 表。
+    #     - evaluation：Test 的统一评价结果，业务情景使用 HT Gain。
     #     - selection：Validation 阶段冻结的策略名称和主预算。
     #     - out：本次实验的 business 输出目录。
     #     - assumptions：可选的业务假设字典；未提供时使用 planning.py 中的教学情景。
@@ -169,25 +169,31 @@ def run_planning(policies, selection, out, *, assumptions=None):
         if not isinstance(settings[key], (list, tuple)) or not settings[key]:
             raise ValueError(f'{key} 必须为非空列表')
     budget = selection['primary_budget']
-    chosen = policies[(policies.policy == selection['selected_policy']) & np.isclose(policies.budget, budget)]
-    if len(chosen) != 1:
-        raise ValueError('主预算下必须恰好有一条冻结策略结果')
-    row = chosen.iloc[0]
+    policy = selection['selected_policy']
+    metrics = evaluation["metrics"]
+    row = metrics[(metrics.policy == policy) & metrics.budget.eq(budget)].iloc[0]
+    ci_low = ci_high = None
+    if selection["primary_metric"] == "gain_ht":
+        summary = evaluation["bootstrap"]["summary"]
+        interval = summary[(summary.policy == policy) & summary.budget.eq(budget)].iloc[0]
+        if np.isfinite([interval.ci_low, interval.ci_high]).all():
+            ci_low, ci_high = interval.ci_low * 100_000, interval.ci_high * 100_000
     plans = pd.DataFrame([
         plan_policy_ab(settings['p0'], delta, settings['allocation_ratio'], budget,
                        settings['alpha'], settings['power'])
         for delta in settings['absolute_mdes']
     ])
     scenarios = pd.DataFrame([
-        cost_value_scenario(float(row.incremental_per_100k), budget=budget,
+        cost_value_scenario(float(row.gain_ht_per_100k), budget=budget,
                             value_per_conversion=value, contact_cost=cost,
-                            eligible_n=settings['eligible_n'], ci_low=float(row.ci_low), ci_high=float(row.ci_high))
+                            eligible_n=settings['eligible_n'], ci_low=ci_low, ci_high=ci_high)
         for value in settings['values_per_conversion'] for cost in settings['contact_costs']
     ])
     out = safe_output(out)
     write_result({"hypothetical": True, "parameters": settings,
                   "frozen_selected_policy": selection['selected_policy'], "budget": budget,
-                  "effect_source": "../evaluation/test_policies.csv",
+                  "effect_source": "../evaluation/test_metrics.csv",
+                  "conditional_ht_interval": ci_low is not None,
                   "interpretation": "假设固定价值、触达成本与效果可迁移；不是 Criteo 真实线上收入或 ROI。"},
                  out / 'assumptions.json')
     write_result(plans, out / 'hypothetical_ab_plans.csv')

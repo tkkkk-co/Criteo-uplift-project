@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import base64
 import json
+import os
 import re
 import unittest
 from xml.etree import ElementTree
@@ -59,6 +60,7 @@ class EndToEndTests(unittest.TestCase):
                 seed=814,
                 outcome='conversion',
                 primary_budget=0.2,
+                primary_metric="gain_ht",
                 permutations=2,
                 c2st_sample=1000,
                 bootstrap=5,
@@ -90,7 +92,8 @@ class EndToEndTests(unittest.TestCase):
                 'diagnostics/learnability.csv', 'diagnostics/balance.csv',
                 'diagnostics/overlap_positivity.json', 'diagnostics/overlap_strata.csv',
                 'models/selection.json', 'models/t_xgboost.joblib',
-                'evaluation/test_policies.csv', 'evaluation/predictions.npz',
+                'evaluation/test_metrics.csv', 'evaluation/test_bootstrap.csv', 'evaluation/test_pairwise.csv',
+                'models/validation_metrics.csv', 'models/validation_bootstrap.csv', 'evaluation/predictions.npz',
                 'figures/sample_features.png', 'figures/c2st_null.png',
             ):
                 self.assertTrue((out / name).is_file(), name)
@@ -138,21 +141,23 @@ class EndToEndTests(unittest.TestCase):
                 self.assertNotIn(key, audit)
 
             self.assertTrue(manifest['selection']['frozen_before_test'])
-            val = pd.read_csv((out / 'models' / 'validation_policies.csv'))
+            val = pd.read_csv((out / 'models' / 'validation_bootstrap.csv'))
             winner = (
-                val.sort_values('incremental_per_100k', ascending=False, kind='stable')
+                val.query("policy != 'random'").sort_values('bootstrap_mean', ascending=False, kind='stable')
                 .iloc[0]
                 .policy
             )
             self.assertEqual(manifest['selection']['selected_policy'], winner)
-            ranking = pd.read_csv((out / 'evaluation' / 'test_ranking.csv'))
-            self.assertIn('qini_score_traditional', ranking)
-            self.assertEqual(test_ranking.call_count, len(ranking))
-            policies = pd.read_csv((out / 'evaluation' / 'test_policies.csv'))
+            ranking = pd.read_csv((out / 'evaluation' / 'test_metrics.csv'))
+            self.assertIn('qini_score', ranking)
+            self.assertEqual(test_ranking.call_count, 1)
+            self.assertEqual(len(test_ranking.call_args.args[2]), 5)
+            self.assertEqual(manifest['selection']['selection_statistic'], 'bootstrap_mean')
+            policies = pd.read_csv((out / 'evaluation' / 'test_metrics.csv'))
             self.assertEqual(set(policies.budget), {.02, .05, .1, .2, .3, .5, 1.})
             np.testing.assert_array_equal(policies.n_selected, np.floor(policies.budget * summary.loc[summary.split == 'test', 'n'].sum()))
             self.assertEqual(
-                policies[policies.budget == 1].incremental_per_100k.nunique(), 1
+                policies[policies.budget == 1].gain_ht_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
             self.assertEqual(len(list((out / 'figures').glob('*.png'))), 8)
@@ -172,7 +177,7 @@ class EndToEndTests(unittest.TestCase):
             html = (out / 'report.html').read_text()
             # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 12)
+            self.assertEqual(len(equations), 10)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
@@ -196,20 +201,16 @@ class EndToEndTests(unittest.TestCase):
                 self.assertTrue(rows)
                 tables[section_id] = pd.DataFrame(rows, columns=headers)
             shown_ranking = tables['ranking-metrics'].set_index('政策')
-            for column, label in (
-                ('auuc_ht', 'HT AUUC'), ('qini_ht', 'HT Centered Area'),
-                ('auuc_plugin', 'Uplift AUUC'), ('auuc_plugin_centered', 'Centered Uplift AUUC'),
-                ('qini_score_traditional', 'Traditional Qini Score'), ('ate_ht', 'ATE_HT'),
-            ):
-                displayed_column = next(c for c in shown_ranking if c.startswith(label + ' ×'))
-                for row in ranking.itertuples():
-                    self.assertEqual(shown_ranking.loc[row.policy, displayed_column], f'{getattr(row, column) * 100_000:,.2f}')
+            self.assertEqual(len(shown_ranking.columns), 2)
+            for column, label in (('auuc', 'AUUC'), ('qini_score', 'Traditional Qini Score')):
+                for row in ranking.drop_duplicates("policy").itertuples():
+                    self.assertEqual(shown_ranking.loc[row.policy, f'{label} × 10⁵'], f'{getattr(row, column) * 100_000:,.2f}')
             shown_budgets = tables['budget-sensitivity']
             self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '100%'})
             self.assertEqual(len(shown_budgets), 4 * len({winner, 'random', 'propensity'}))
             frozen = policies[policies.policy == winner].set_index('budget').loc[[.1, .2, .3, 1.]]
             shown_marginal = tables['marginal-gain']
-            expected_marginal = np.diff(np.r_[0., frozen.incremental_per_100k])
+            expected_marginal = np.diff(np.r_[0., frozen.gain_ht_per_100k])
             self.assertEqual(shown_marginal.iloc[:, -1].tolist(), [f'{v:,.2f}' for v in expected_marginal])
             self.assertEqual(shown_marginal['新增人数'].astype(int).tolist(), np.diff(np.r_[0, frozen.n_selected]).tolist())
             for encoded in re.findall(r'src="data:image/png;base64,([^"]+)"', html):
@@ -228,12 +229,13 @@ class EndToEndTests(unittest.TestCase):
             # 公开路径只复制聚合结果；完整实验中的模型、逐行预测和额外文件不进入公开目录。
             from scripts.export_public_results import export
             frame.to_csv(out / 'user_rows.csv', index=False)
-            public = export(out, root / 'public') / out.name
+            notebook_export = Path(os.environ["CRITEO_NOTEBOOK_EXPORT"]) if "CRITEO_NOTEBOOK_EXPORT" in os.environ else root / 'public'
+            public = export(out, notebook_export) / out.name
             self.assertFalse((public / 'user_rows.csv').exists())
             self.assertFalse((public / 'evaluation/predictions.npz').exists())
             self.assertFalse(list(public.rglob('*.joblib')))
             self.assertFalse(list(public.rglob('*row_ids*')))
-            pd.testing.assert_frame_equal(pd.read_csv(public / 'evaluation/test_policies.csv'), policies)
+            pd.testing.assert_frame_equal(pd.read_csv(public / 'evaluation/test_metrics.csv'), policies)
             self.assertEqual(json.loads((public / 'models/selection.json').read_text()), manifest['selection'])
             self.assertTrue((public / 'report.html').is_file())
             self.assertTrue((public / 'diagnostics/overlap_strata.csv').is_file())

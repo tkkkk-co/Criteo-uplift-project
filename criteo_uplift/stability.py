@@ -13,13 +13,12 @@ from sklearn.model_selection import GroupShuffleSplit, train_test_split
 
 from .config import FEATURES
 from .pipeline_io import load_sample, safe_output, write_result
-from .metrics import RANKING_METRIC_DESCRIPTION, evaluate_ranking
-from .evaluation import evaluate_policies
+from .metrics import RANKING_METRIC_DESCRIPTION, RANKING_METRICS, evaluate_ranking
 from .models import s_learner, t_learner, x_learner
 from .diagnostics import diagnose_overlap
 from .input_checks import check_row_ids, check_binary_vector
 
-POLICY_NAMES = ("random", "s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
+POLICY_NAMES = ("s_logistic", "t_logistic", "t_xgboost", "x_xgboost", "propensity")
 DEFAULT_SEEDS = (17, 29, 83)
 DEFAULT_FRACTIONS = (0.25, 0.5, 1.0)
 
@@ -216,19 +215,9 @@ def _summarize(longmetrics):
     #-------------
     dimensions = ["split_method", "training_fraction", "policy"]
     quantities = [
-        "incremental_per_100k",
-        "vs_random_per_100k",
-        "vs_propensity_per_100k",
-        "auuc_ht",
-        "qini_ht",
-        "qini_score_traditional",
-        "fit_seconds",
-        "train_n",
-        "train_control_events",
+        "gain_ht_per_100k", "vs_propensity_per_100k", "bootstrap_mean",
+        *RANKING_METRICS, "fit_seconds", "train_n", "train_control_events",
         "validation_control_events",
-    ]
-    quantities += [
-        name for name in ("auuc_plugin", "auuc_plugin_centered") if name in longmetrics
     ]
     aggregate = longmetrics.groupby(dimensions, sort=False)[quantities].agg(
         ["mean", "std", "min", "max"]
@@ -255,6 +244,8 @@ def run_stability(
     fractions=DEFAULT_FRACTIONS,
     trees=150,
     primary_budget=0.2,
+    primary_metric="gain_ht",
+    n_bootstrap=200,
     outcome="conversion",
 ):
     #-------------
@@ -267,7 +258,9 @@ def run_stability(
     #     - seeds：重复开发实验使用的随机种子序列。
     #     - fractions：行分层划分下使用的嵌套训练比例序列。
     #     - trees：Stability 中 XGBoost 模型的树数量。
-    #     - primary_budget：比较策略时使用的主要触达预算。
+    #     - primary_budget：Gain 主指标的选型覆盖率。
+    #     - primary_metric：与正式 Validation 一致的主指标。
+    #     - n_bootstrap：各开发实验使用的重抽样次数。
     #     - outcome：模型训练和指标计算使用的结果列名。
     # 输出参数：
     #     - 完成后的 Stability 输出目录 pathlib.Path；同时写入 protocol、逐次指标、划分审计和汇总文件。
@@ -280,6 +273,8 @@ def run_stability(
         raise ValueError("trees 必须为正整数")
     if not np.isfinite(primary_budget) or not 0 < primary_budget <= 1:
         raise ValueError("primary_budget 必须属于 (0, 1]")
+    if primary_metric not in RANKING_METRICS or not isinstance(n_bootstrap, (int, np.integer)) or n_bootstrap < 2:
+        raise ValueError("Stability 需要有效主指标和至少两次 Bootstrap")
     output = safe_output(output)
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f"output already exists and is nonempty: {output}")
@@ -304,13 +299,13 @@ def run_stability(
         "group_split": "GroupShuffleSplit 75/25 distinct 64-bit hashes of 12 float32 features; full training fraction only; row counts may differ",
         "group_interpretation": "identical anonymous feature vectors are not established user identities; no automatic deduplication; hash collisions theoretically possible",
         "assignment_probability": "plug-in treatment fraction of the full training partition, shared across its nested fractions; validation outcomes do not estimate it",
-        "primary_metric": "validation HT incremental conversions per 100000 eligible people at the realized floor(budget*n)/n fraction",
-        "secondary_metrics": "full-resolution HT AUUC, centered HT Qini, and separately scaled traditional Qini score",
+        "primary_metric": primary_metric,
+        "n_bootstrap": n_bootstrap,
+        "selection_statistic": "bootstrap_mean",
         "ranking_metric_definition_from_loaded_function": RANKING_METRIC_DESCRIPTION,
-        "random_ranking": "analytic reference line: AUUC_HT=ATE_HT/2, centered Qini scores=0; not a sampled random ranking",
         "response_baseline": "propensity means P(Y=1|X,T=1), reused from t_xgboost; not P(T=1|X)",
-        "selection": "one development winner per seed/split/fraction; stable ties follow candidate order; selection frequency is descriptive",
-        "uncertainty": "mean/sample std/min/max over overlapping development runs; no confidence intervals, no bootstrap, no new independent test claim",
+        "selection": "one development winner by bootstrap mean per seed/split/fraction; stable ties follow candidate order",
+        "uncertainty": "descriptive spread across overlapping development runs; each run selects by its own fixed-score bootstrap mean",
         "limitations": [
             "Protocol was specified after the original study, not before the original test was seen.",
             "Excluding old test rows prevents direct reuse but does not erase earlier analyst knowledge.",
@@ -410,79 +405,34 @@ def run_stability(
                 score_dict['propensity'] = results['t_xgboost']['mu1']
                 fit_seconds = {name: result['fit_seconds'] for name, result in results.items()}
                 del results
-                ranks = {}
-                for name, scores in score_dict.items():
-                    ranks[name] = evaluate_ranking(
-                        validation[outcome], validation.treatment, scores, e,
-                        seed=seed, include_curves=False,
-                    )["metrics"]
-                ate = ranks["s_logistic"]["ate_ht"]
-                ranks["random"] = {
-                    "n": len(validation),
-                    "ate_ht": ate,
-                    "auuc_ht": ate / 2,
-                    "qini_ht": 0.0,
-                    "qini_score_traditional": 0.0,
-                }
-                policy_values = evaluate_policies(
-                    validation[outcome],
-                    validation.treatment,
-                    score_dict,
-                    e,
-                    budgets=[primary_budget],
-                    bootstrap=0,
-                    seed=seed,
+                evaluated = evaluate_ranking(
+                    validation[outcome], validation.treatment, score_dict, e,
+                    budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
+                    n_bootstrap=n_bootstrap, seed=seed, include_curves=False,
                 )
-                winner = (
-                    policy_values.sort_values(
-                        "incremental_per_100k", ascending=False, kind="stable"
-                    )
-                    .iloc[0]
-                    .policy
-                )
-                for row in policy_values.to_dict("records"):
+                means = evaluated["bootstrap"]["summary"].query("policy != 'random'").set_index("policy")
+                if means.bootstrap_mean.isna().all():
+                    raise ValueError("Stability 主指标没有可用的 Bootstrap 均值")
+                winner = means.bootstrap_mean.idxmax()
+                points = evaluated["metrics"]
+                propensity_ht = points.loc[points.policy.eq("propensity"), "gain_ht_per_100k"].iloc[0]
+                for row in points.to_dict("records"):
                     name = row["policy"]
-                    records.append(
-                        {
-                            **{
-                                k: audit[k]
-                                for k in (
-                                    "seed",
-                                    "split_method",
-                                    "training_fraction",
-                                    "assignment_probability",
-                                    "train_n",
-                                    "train_control_n",
-                                    "train_treatment_n",
-                                    "train_control_events",
-                                    "train_treatment_events",
-                                    "validation_n",
-                                    "validation_control_n",
-                                    "validation_treatment_n",
-                                    "validation_control_events",
-                                    "validation_treatment_events",
-                                )
-                            },
-                            **{
-                                k: row[k]
-                                for k in (
-                                    "policy",
-                                    "budget",
-                                    "n_selected",
-                                    "selected_fraction",
-                                    "incremental_per_100k",
-                                    "vs_random_per_100k",
-                                    "vs_propensity_per_100k",
-                                )
-                            },
-                            **ranks[name],
-                            "fit_seconds": fit_seconds.get(name, 0.0),
-                            "fit_source": (
-                                "t_xgboost_reused" if name == "propensity" else name
-                            ),
-                            "selected_on_validation": name == winner,
-                        }
-                    )
+                    records.append({
+                        **{key: audit[key] for key in (
+                            "seed", "split_method", "training_fraction", "assignment_probability",
+                            "train_n", "train_control_n", "train_treatment_n", "train_control_events",
+                            "train_treatment_events", "validation_n", "validation_control_n",
+                            "validation_treatment_n", "validation_control_events",
+                            "validation_treatment_events",
+                        )},
+                        **row,
+                        "vs_propensity_per_100k": row["gain_ht_per_100k"] - propensity_ht,
+                        "bootstrap_mean": float(means.loc[name, "bootstrap_mean"]),
+                        "fit_seconds": fit_seconds.get(name, 0.0),
+                        "fit_source": "t_xgboost_reused" if name == "propensity" else name,
+                        "selected_on_validation": name == winner,
+                    })
                 # 进度文件只保存在本次新目录中；预先冻结的分析配置保持不变。
                 write_result(pd.DataFrame(records), output / "longmetrics.csv")
                 write_result(pd.DataFrame(audits), output / "split_audit.csv")

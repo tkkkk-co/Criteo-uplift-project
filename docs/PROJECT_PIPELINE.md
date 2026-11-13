@@ -8,9 +8,9 @@
 | 02 准备 | prepare_sample、split_sample | 原始 CSV/缓存 → audit、样本、60/20/20 划分 | 最多一次 CSV 分块扫描；三任务独立缓存 |
 | 03 诊断 | run_diagnostics | 扫描统计、C2ST 样本、Train/Validation → SRM、SMD/KS、C2ST、Learnability、Train Overlap | diagnostics 不读原始 CSV、不重新审计 |
 | 04 全量效果 | ate_summary_from_audit | 两组人数及正例数 → 全量 ATE/ITT | 全量结果只提供背景，不选模型 |
-| 05 训练/验证 | fit_and_select_models | Train 拟合，Validation 比较 → 模型与 selection.json | 固定四候选，按主预算 HT 增量选策略 |
+| 05 训练/验证 | fit_and_select_models | Train 拟合，Validation 比较 → 模型与 selection.json | 四个模型产生五种评分，按主指标 Bootstrap 均值选策略 |
 | 06 Test | evaluate_test_set | 冻结模型与 Test → CATE 排序、策略值、Bootstrap、校准、Test ATE | 不按 Test 改选；统一 ATE 表 |
-| 07 稳定性 | run_stability | 缓存减去原 Test → 12 个开发配置 | 原种子、嵌套训练比例、特征分组方案不变 |
+| 07 稳定性 | run_stability | 缓存减去原 Test → 12 个开发配置 | 沿用原划分设计，各配置按主指标 Bootstrap 均值选型 |
 | 08 规划 | run_planning | 冻结策略效果与明确假设 → A/B 样本量、经济情景 | 假设全部保存，不称为真实收入 |
 | 09 展示 | finalize_run、build_report | 已存结果 → manifest 与唯一 report.html | 不重新训练、不重新计算统计量 |
 
@@ -66,7 +66,7 @@ X-Learner 保留原式 D0 = mu1(X0) − Y0、D1 = Y1 − mu0(X1)，再按 e × t
 
 模型字典用于本地保存和冻结 Test 预测，直接传给 Learner 的 `model_bundle` 参数。不提供外部批量打分接口。
 
-HTML Diagnostics 会嵌入已保存的 C2ST 置换 AUC 直方图，展示真实标签的 AUC、原始 p、Holm p 和 0.5 参考线，不重新执行置换。旧聚合快照若没有 Overlap 文件，展示 `not_checked`，不能伪造通过状态。
+HTML Diagnostics 会嵌入已保存的 C2ST 置换 AUC 直方图，展示真实标签的 AUC、原始 p、Holm p 和 0.5 参考线，不重新执行置换。Overlap 表读取本次运行保存的分箱结果。
 
 metrics.py 保留完整排序前缀、原点、传统 Qini 的仅对照组零值节点、种子控制的平分处理与配对臂分层 Bootstrap。HT 与 plug-in 口径分开标明，显示曲线抽点不能用来重新积分。
 
@@ -76,10 +76,10 @@ Stability 直接读取当前建模样本并排除原 Test 行号，不再比较�
 
 ## 运行与展示
 
-完整运行命令与环境说明见根 README。Notebook 固定读取 `reports/published/conversion_1000000_seed42_refactored` 的公开聚合结果，不再在本地缓存和公开结果间自动切换。
+完整运行命令与环境说明见根 README。Notebook 通过 `CRITEO_RESULTS_DIR` 读取当前运行或聚合导出。
 
 ```bash
-python scripts/execute_notebooks.py  # 仅用公开聚合快照验收
+CRITEO_RESULTS_DIR=artifacts/my_new_run python scripts/execute_notebooks.py
 ```
 
 项目不再保留 diagnostic refresh、Demo、SQL Audit、独立 metrics extension 或独立 Stability 执行入口。历史结果原样保留，清理只针对已迁移的源码与正式展示入口。

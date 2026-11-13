@@ -9,11 +9,11 @@
 
 ## 当前完成的实验
 
-原始数据全量审计，建模使用均匀无放回抽取的 1,000,000 行。按 treatment × conversion 联合分层划分 Train / Validation / Test = 60% / 20% / 20%。正式模型和预处理只在 Train 拟合；Validation 在 20% 主预算下选择并冻结策略，Test 只用于评价。
+历史百万行实验使用全量审计，建模使用均匀无放回抽取的 1,000,000 行。按 treatment × conversion 联合分层划分 Train / Validation / Test = 60% / 20% / 20%。正式模型和预处理只在 Train 拟合；Validation 在 20% 主预算下选择并冻结策略，Test 只用于评价。
 
 四个候选保持为 S＋Logistic、T＋Logistic、T＋XGBoost、X＋XGBoost。XGBoost 默认 150 轮、depth=4、learning_rate=0.05、min_child_weight=20、subsample=0.8、colsample_bytree=0.9、hist；本项目没有做超参数搜索或 early stopping。诊断中的 XGBoost 有独立配置，不能与正式基模型混淆。
 
-Validation 冻结的最终策略是 **response propensity**，即 P(Y=1 | X,T=1)，不是处理分配倾向分数。Test 上 20% 预算的增量估计为每 10 万名符合条件者约 **117.23** 次转化，95% 条件性 Bootstrap 区间约 **[64.09, 166.21]**。这是假设成立时的离线估计，不是实际广告投放或收入增长。最佳 uplift 候选为 S＋Logistic；不能按 Test 上更高的点估计回头改选。
+已发布的历史实验中，Validation 冻结的最终策略是 **response propensity**，即 P(Y=1 | X,T=1)，不是处理分配倾向分数。Test 上 20% 预算的增量估计为每 10 万名符合条件者约 **117.23** 次转化，95% 条件性 Bootstrap 区间约 **[64.09, 166.21]**。这是假设成立时的离线估计，不是实际广告投放或收入增长。最佳 uplift 候选为 S＋Logistic；不能按 Test 上更高的点估计回头改选。
 
 Stability 包含种子 17/29/83、训练比例 25%/50%/100% 和特征分组划分，共 12 个开发配置、48 次模型拟合，排除原 Test 的 200,000 行。重复开发结果的标准差不是独立 Test 置信区间。
 
@@ -22,10 +22,10 @@ Stability 包含种子 17/29/83、训练比例 25%/50%/100% 和特征分组划�
 ```bash
 python -m pip install -e '.[notebooks]'
 python -m unittest discover -s tests
-python scripts/execute_notebooks.py
+CRITEO_RESULTS_DIR=artifacts/my_new_run python scripts/execute_notebooks.py
 ```
 
-不下载原始数据也可以执行测试、查看聚合快照和运行 Notebook。测试中的人工数据仅用于核验实现，不作为 Criteo 实验结果。macOS 的 XGBoost 需要可用的 OpenMP 运行库；已有可信库可通过 `CRITEO_OPENMP_LIBRARY` 指定。项目不发布本机运行库二进制。
+测试无需下载原始数据。Notebook 从 CRITEO_RESULTS_DIR 读取使用当前接口生成的运行目录或聚合导出。测试中的人工数据仅用于核验实现，不作为 Criteo 实验结果。macOS 的 XGBoost 需要可用的 OpenMP 运行库；已有可信库可通过 `CRITEO_OPENMP_LIBRARY` 指定。项目不发布本机运行库二进制。
 
 ## 完整 Pipeline
 
@@ -34,6 +34,8 @@ python scripts/execute_notebooks.py
 ```bash
 python run_pipeline.py --output artifacts/conversion_1000000_seed42_repeat
 ```
+
+新运行按 Validation 主指标的 Bootstrap 均值冻结策略。默认主指标为 20% HT Gain，可用 `--primary-metric` 选择其他指标。
 
 默认完整执行 C2ST 499 次完整重拟合置换、150 轮 XGBoost、200 次 Bootstrap，以及全部稳定性配置。已有非空输出目录会被拒绝。`--sample-size 0` 表示全量建模，不改变默认的百万行实验。
 

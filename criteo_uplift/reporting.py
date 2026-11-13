@@ -241,12 +241,10 @@ def _overlap_section(out, manifest):
     #     - out：当前报告的结果目录。
     #     - manifest：当前实验复现信息，含模型训练摘要。
     # 输出参数：
-    #     - 可嵌入诊断章节的 HTML；历史结果缺少该诊断时明确标为未检查。
+    #     - 可嵌入诊断章节的 HTML。
     #-------------
     path = out / 'diagnostics/overlap_positivity.json'
     heading = '<h3>Overlap / Positivity · 训练集经验覆盖</h3>'
-    if not path.exists():
-        return heading + '<p>not_checked：此结果没有保存完整的 Overlap 诊断，不能据此声称已经通过正值性检查。</p>'
     summary = json.loads(path.read_text())
     strata = pd.read_csv(out / 'diagnostics/overlap_strata.csv')
     counts = strata.assign(nonempty_min=strata.min_arm_n.where(~strata.empty_bin))
@@ -299,8 +297,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         name: pd.read_csv(out / folder / f"{name}.csv", dtype={"p_value_text": "string"} if name == "ate_summary" else None)
         for folder, names in (
             ("diagnostics", ("balance", "c2st", "learnability")),
-            ("models", ("validation_policies",)),
-            ("evaluation", ("ate_summary", "test_policies", "test_ranking", "ranking_intervals", "curves")),
+            ("models", ("validation_bootstrap",)),
+            ("evaluation", ("ate_summary", "test_metrics", "test_bootstrap", "test_pairwise", "curves")),
             ("data_preparation", ("split_summary",)),
         )
         for name in names
@@ -316,19 +314,41 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     budget = float(selection["primary_budget"])
     outcome = manifest["primary_outcome"]
     e = float(manifest["assignment_probability"])
-    policies = frames["test_policies"]
-    # 报告读取实际评价点；旧结果缺少 30% 时须复用冻结评分补算，不能插值。
-    for name, group in policies.groupby("policy", sort=False):
-        if not all(np.isclose(group["budget"], q).any() for q in (.1, .2, .3, 1.)):
-            raise ValueError(f"策略 {name} 缺少 10%、20%、30% 或 100% 评价点，请用冻结 Test 评分补算预算结果。")
-    primary = policies[np.isclose(policies["budget"], budget)].copy()
-    primary = primary.sort_values(
-        "incremental_per_100k", ascending=False, kind="stable"
-    )
-    selected_row = primary.loc[primary["policy"] == selected].iloc[0]
-    calibration_model = (
-        selected if selected not in {"random", "propensity"} else selected_uplift
-    )
+    primary_metric = selection["primary_metric"]
+    metric_labels = {
+        "auuc": "AUUC", "qini_score": "Traditional Qini Score",
+        "gain_ht": "HT Gain", "gain_plugin": "Uplift Gain", "qini_traditional": "Traditional Qini Gain",
+    }
+    area_primary = primary_metric in ("auuc", "qini_score")
+    primary_label = metric_labels[primary_metric]
+    criterion = f"完整曲线的 {primary_label}" if area_primary else f"{budget:.0%} 覆盖率的 {primary_label}"
+    scale_label = "面积 × 10⁵" if area_primary else "每 10 万总体用户标度"
+    test_bootstrap = frames["test_bootstrap"]
+    test_pairs = frames["test_pairwise"]
+    policies = frames["test_metrics"].copy()
+    ranking = policies.drop_duplicates("policy")
+    full = policies[policies.budget.eq(1.)].iloc[0]
+    random = policies[policies.policy.eq(selected)].copy()
+    random["policy"] = "random"
+    random[["auuc", "qini_score"]] = [full.gain_plugin / 2, 0.]
+    for metric in ("gain_ht", "gain_plugin", "qini_traditional"):
+        random[metric] = random.n_selected / full.n_selected * full[metric]
+    random["gain_ht_per_100k"] = random.gain_ht * 100_000
+    policies = pd.concat([policies, random], ignore_index=True)
+    policies["incremental_per_100k"] = policies["gain_ht_per_100k"]
+    random_gain = random.set_index("budget").gain_ht_per_100k
+    propensity_gain = policies[policies.policy.eq("propensity")].set_index("budget").gain_ht_per_100k
+    policies["vs_random_per_100k"] = policies.incremental_per_100k - policies.budget.map(random_gain)
+    policies["vs_propensity_per_100k"] = policies.incremental_per_100k - policies.budget.map(propensity_gain)
+    if primary_metric == "gain_ht":
+        intervals = test_bootstrap[["policy", "budget", "ci_low", "ci_high"]].copy()
+        intervals[["ci_low", "ci_high"]] *= 100_000
+        policies = policies.merge(intervals, on=["policy", "budget"], validate="one_to_one")
+    else:
+        policies[["ci_low", "ci_high"]] = np.nan
+    primary = policies[policies.budget.eq(budget)].sort_values("incremental_per_100k", ascending=False)
+    selected_row = primary.loc[primary.policy.eq(selected)].iloc[0]
+    calibration_model = selected_uplift if selected == "propensity" else selected
     calibration = pd.read_csv(out / "evaluation" / f"calibration_{calibration_model}.csv")
     figures = safe_output(out / "figures")
     figures.mkdir(exist_ok=True)
@@ -552,9 +572,9 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                 linestyle="--" if name == "random" else "-",
                 label=_LABELS.get(name, name) + (" *" if name == selected else ""),
             )
-        axes[0].axvline(budget, color="#a7b3be", lw=1, ls=":", label=f"Primary: {budget:.0%}")
+        axes[0].axvline(budget, color="#a7b3be", lw=1, ls=":", label=f"Scenario: {budget:.0%}")
         axes[0].set_xticks(sorted({0., .1, .2, .3, .5, 1., budget}))
-        axes[0].set_title(f"Contact fraction | primary {budget:.0%}; full coverage 100%")
+        axes[0].set_title("Contact fraction | full coverage 100%")
         axes[0].set_xlabel("Contact fraction (not currency)")
         axes[0].set_ylabel("HT incremental responses / 100,000 eligible users")
         axes[0].xaxis.set_major_formatter(PercentFormatter(1))
@@ -581,7 +601,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         )
         axes[1].axvline(0, color="#a7b3be", lw=1)
         axes[1].set_xlabel("Incremental responses / 100,000 eligible people")
-        axes[1].set_title(f"Primary budget: {budget:.0%} | pointwise 95% CI")
+        axes[1].set_title(f"HT Gain at {budget:.0%}" + (" | pointwise 95% CI" if primary_metric == "gain_ht" else " | point estimates"))
         axes[1].grid(axis="x")
         save(fig, "policy")
 
@@ -634,18 +654,18 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     primary_pct = f"{budget:.0%}"
     source = manifest["source"]
     source_file = esc(Path(source["path"]).name)
-    delta_lower, delta_upper = (
-        selected_row["vs_random_ci_low"],
-        selected_row["vs_random_ci_high"],
-    )
-    if selected == "random":
-        conclusion = "验证集在主预算下选择了随机投放；当前这次模型比较没有选出优于该基线的定向政策。"
-    elif pd.notna(delta_lower) and delta_lower > 0:
-        conclusion = "冻结政策在测试集上相对随机投放的配对区间完全高于 0，在本次条件推断下支持增量改善。"
-    elif pd.notna(delta_upper) and delta_upper < 0:
-        conclusion = "冻结政策在测试集上相对随机投放的配对区间完全低于 0，本次测试不支持上线该定向政策。"
+    frozen_random = test_pairs[test_pairs.policy.eq(selected) & test_pairs.reference.eq("random")]
+    if not area_primary:
+        frozen_random = frozen_random[frozen_random.budget.eq(budget)]
+    delta = frozen_random.iloc[0]
+    if pd.isna(delta.ci_low):
+        conclusion = f"冻结策略对 Random 的 {criterion} 配对区间缺少有效重复。"
+    elif delta.ci_low > 0:
+        conclusion = f"冻结策略对 Random 的 {criterion} 配对区间完全高于 0。"
+    elif delta.ci_high < 0:
+        conclusion = f"冻结策略对 Random 的 {criterion} 配对区间完全低于 0。"
     else:
-        conclusion = "冻结政策相对随机投放的配对区间跨越或接触 0，现有测试结果不足以确认定向带来额外收益。"
+        conclusion = f"冻结策略对 Random 的 {criterion} 配对区间包含 0。"
     if selected == "propensity":
         conclusion += "本次获选的是转化倾向基线，不能据此宣称 uplift 模型胜出。"
 
@@ -675,82 +695,54 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             "Holm p（两模型）": c2["pvalue_holm"].map(_p),
         }
     )
-    val_primary = frames["validation_policies"]
-    val_primary = val_primary[np.isclose(val_primary["budget"], budget)].sort_values(
-        "incremental_per_100k", ascending=False
+    # 只展示主指标的不确定性。面积按 10⁵ 缩放，Gain 使用每十万总体用户标度。
+    val = frames["validation_bootstrap"].query("policy != 'random'").sort_values(
+        "bootstrap_mean", ascending=False, kind="stable",
     )
-    val_display = pd.DataFrame(
-        {
-            "政策": val_primary["policy"],
-            "验证集增量 / 10 万人": val_primary["incremental_per_100k"].map(_num),
-            "相对随机": val_primary["vs_random_per_100k"].map(_num),
-            "已冻结选择": val_primary["policy"].map(
-                lambda x: "是" if x == selected else ""
-            ),
-        }
-    )
-    policy_display = pd.DataFrame(
-        {
-            "政策": primary["policy"].map(
-                lambda x: x + ("（验证集获选）" if x == selected else "")
-            ),
-            "增量 / 10 万人": primary["incremental_per_100k"].map(_num),
-            "95% CI": primary.apply(_interval, axis=1),
-            "对随机差值": primary["vs_random_per_100k"].map(_num),
-            "配对 95% CI（对随机）": primary.apply(
-                lambda r: _interval(r, "vs_random_ci_low", "vs_random_ci_high"), axis=1
-            ),
-            "对倾向差值": primary["vs_propensity_per_100k"].map(_num),
-            "配对 95% CI（对倾向）": primary.apply(
-                lambda r: _interval(r, "vs_propensity_ci_low", "vs_propensity_ci_high"),
-                axis=1,
-            ),
-        }
-    )
-    ranking = frames["test_ranking"]
-    ranking_display = pd.DataFrame({"政策": ranking["policy"]})
-    ranking_labels = {
-        "auuc_ht": "HT AUUC",
-        "auuc_plugin": "Uplift AUUC",
-        "auuc_plugin_centered": "Centered Uplift AUUC",
-        "qini_score_traditional": "Traditional Qini Score",
-        "qini_ht": "HT Centered Area",
-    }
-    for column, label in ranking_labels.items():
-        ranking_display[f"{label} × 10⁵"] = ranking[column].map(lambda x: _num(x * 100_000))
-    ranking_display["ATE_HT × 10⁵（全量终点）"] = ranking["ate_ht"].map(lambda x: _num(x * 100_000))
-    intervals = frames["ranking_intervals"]
-    ranking_ci_display = pd.DataFrame({
-        "政策": intervals["policy"],
-        "面积指标（均 × 10⁵）": intervals["metric"].map(ranking_labels),
-        "点估计": intervals["estimate"].map(lambda x: _num(x * 100_000)),
-        "95% CI": intervals.apply(lambda r: _interval(r, scale=100_000), axis=1),
-        "对 Propensity 配对差值": intervals["vs_propensity"].map(lambda x: _num(x * 100_000)),
-        "差值 95% CI": intervals.apply(
-            lambda r: _interval(r, "vs_propensity_ci_low", "vs_propensity_ci_high", scale=100_000), axis=1),
+    val_display = pd.DataFrame({
+        "政策": val.policy, "点估计": val.point_estimate.map(lambda x: _num(x * 100_000)),
+        "Bootstrap 均值": val.bootstrap_mean.map(lambda x: _num(x * 100_000)),
+        "95% CI": val.apply(lambda r: _interval(r, scale=100_000), axis=1),
+        "获胜频率": val.win_frequency.map(lambda x: _num(x * 100, 1) + "%" if pd.notna(x) else "—"),
+        "有效重复": val.valid_replicates,
+        "冻结": val.policy.map(lambda name: "是" if name == selected else ""),
     })
-    # 仅在同一指标内比较策略顺序；Test 排序用于描述，不回写冻结选择。
-    primary_order = primary.loc[primary["policy"].isin(ranking["policy"]), "policy"].tolist()
-    order_rows = [{"评价口径": f"Test {primary_pct} HT Gain", "从高到低的策略顺序": " → ".join(primary_order),
-                   "与主预算顺序": "参照"}]
-    for column, label in ranking_labels.items():
-        ordered = ranking.sort_values(column, ascending=False, kind="stable")["policy"].tolist()
-        order_rows.append({"评价口径": label, "从高到低的策略顺序": " → ".join(ordered),
-                           "与主预算顺序": "一致" if ordered == primary_order else "不同"})
-    ranking_order_display = pd.DataFrame(order_rows)
-
-    # 全部覆盖率共用评价阶段保存的点估计和配对区间，报告不重新计算统计量。
+    test_display = pd.DataFrame({
+        "政策": test_bootstrap.policy,
+        "覆盖率": test_bootstrap.budget.map(lambda q: f"{q:.1%}" if pd.notna(q) else "完整曲线"),
+        "点估计": test_bootstrap.point_estimate.map(lambda x: _num(x * 100_000)),
+        "Bootstrap 均值": test_bootstrap.bootstrap_mean.map(lambda x: _num(x * 100_000)),
+        "95% CI": test_bootstrap.apply(lambda r: _interval(r, scale=100_000), axis=1),
+        "有效重复": test_bootstrap.valid_replicates,
+    })
+    comparisons = test_pairs[
+        test_pairs.reference.isin({selected, "propensity", "random"})
+        & (test_pairs.policy.eq(selected) | test_pairs.reference.ne("random"))
+    ]
+    comparison_display = pd.DataFrame({
+        "政策": comparisons.policy, "参考策略": comparisons.reference,
+        "覆盖率": comparisons.budget.map(lambda q: f"{q:.1%}" if pd.notna(q) else "完整曲线"),
+        "点估计差值": comparisons.difference.map(lambda x: _num(x * 100_000)),
+        "配对 95% CI": comparisons.apply(lambda r: _interval(r, scale=100_000), axis=1),
+        "有效配对": comparisons.valid_replicates,
+    })
+    ranking_display = pd.DataFrame({
+        "政策": ranking.policy,
+        "AUUC × 10⁵": ranking.auuc.map(lambda x: _num(x * 100_000)),
+        "Traditional Qini Score × 10⁵": ranking.qini_score.map(lambda x: _num(x * 100_000)),
+    })
     budget_display = pd.DataFrame({
-        "政策": policies["policy"].map(lambda name: name + ("（冻结）" if name == selected else "")),
-        "投放覆盖率": policies["budget"].map(lambda q: f"{q:.0%}"),
-        "选中人数": policies["n_selected"],
-        "HT 增量 / 10 万总体用户": policies["incremental_per_100k"].map(_num),
-        "95% CI": policies.apply(_interval, axis=1),
-        "对 Random 差值 [95% CI]": policies.apply(
-            lambda r: _num(r["vs_random_per_100k"]) + " " + _interval(r, "vs_random_ci_low", "vs_random_ci_high"), axis=1),
-        "对 Propensity 差值 [95% CI]": policies.apply(
-            lambda r: _num(r["vs_propensity_per_100k"]) + " " + _interval(r, "vs_propensity_ci_low", "vs_propensity_ci_high"), axis=1),
+        "政策": policies.policy.map(lambda name: name + ("（冻结）" if name == selected else "")),
+        "投放覆盖率": policies.budget.map(lambda q: f"{q:.0%}"),
+        "选中人数": policies.n_selected,
+        "Uplift Gain × 10⁵": policies.gain_plugin.map(lambda x: _num(x * 100_000)),
+        "Traditional Qini Gain × 10⁵": policies.qini_traditional.map(lambda x: _num(x * 100_000)),
+        "HT 增量 / 10 万总体用户": policies.incremental_per_100k.map(_num),
+        "HT 对 Random 差值": policies.vs_random_per_100k.map(_num),
+        "HT 对 Propensity 差值": policies.vs_propensity_per_100k.map(_num),
     })
+    if primary_metric == "gain_ht":
+        budget_display["HT 点态 95% CI"] = policies.apply(_interval, axis=1)
     key_budgets = [.1, .2, .3, 1.]
     key_rows = []
     for name in dict.fromkeys([selected, "random", "propensity"]):
@@ -837,7 +829,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     )
     max_ks_row = frames["balance"].loc[frames["balance"]["ks_statistic"].idxmax()]
     b = int(c2["permutations"].iloc[0])
-    boot = int(selected_row["bootstrap_replicates"])
+    boot = int(selection["n_bootstrap"])
+    full_interval = f"，点态 95% CI {_interval(frozen.iloc[-1])}" if primary_metric == "gain_ht" else ""
     significant_c2st = c2.loc[c2["pvalue_holm"] < 0.05, "model"].tolist()
     c2st_conclusion = (
         "以 5% 作为探索性参考，Holm 校正后存在可观测分配差异信号的模型为 "
@@ -860,12 +853,12 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     )
     sections = [
         f'<header><p class="eyebrow">CRITEO UPLIFT · OFFLINE EXPERIMENT</p><h1>从广告实验到增量定向</h1>'
-        f'<p class="subtitle">主结果：{esc(outcome)} · 主预算：{primary_pct} · 验证集冻结选择，测试集独立评估</p></header>',
+        f'<p class="subtitle">主结果：{esc(outcome)} · 选型指标：{esc(criterion)} · 验证集冻结选择，测试集独立评估</p></header>',
         '<section class="lead"><h2>Business Background · 业务问题与本次结果</h2>'
         f'<p class="key">验证集选中的政策是 <strong>{esc(selected)}</strong>。</p><p>{conclusion}</p>'
         f'<div class="cards"><div><span>测试集规模</span><strong>{n_test:,}</strong></div>'
         f'<div><span>{primary_pct} 预算下增量 / 10 万人</span><strong>{_num(selected_row["incremental_per_100k"])}</strong></div>'
-        f'<div><span>该增量的 95% CI</span><strong>{_interval(selected_row)}</strong></div></div>'
+        + (f'<div><span>该增量的点态 95% CI</span><strong>{_interval(selected_row)}</strong></div>' if primary_metric == "gain_ht" else "") + '</div>'
         '<p>单位均为每 10 万名可触达对象的预期增量结果，比较假设每次触达成本及每个结果价值相同。预算指触达人数比例，未包含真实广告成本、收入或利润，不能解释成线上 ROI。</p></section>',
         '<section><h2>Data Preparation · 数据与分析边界</h2>'
         f'<p>源文件 <code>{source_file}</code> 共 {int(audit["n_rows"]):,} 行；本次建模样本 {int(manifest["sample_n"]):,} 行，'
@@ -913,17 +906,19 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         'Dummy 预测训练集正例率。LogLoss/Brier 越低越好，AP/ROC AUC 越高越好；AP 的基线取决于正例率。'
         '这些指标诊断结果模型，不评估个体因果效应；普通结果预测较弱不能推出不存在效应异质性。</p></section>',
         '<section><h2>Model Selection · Training &amp; Validation 冻结选择</h2>'
-        f'<p>事先设定主预算 {primary_pct}，用验证集“每 10 万名可触达对象的 HT 增量”在 random、propensity 及四个 uplift 模型间选择。'
-        f'选择已在测试评估前冻结：<strong>{esc(selected)}</strong>。表格中的测试排名不会重新改变这一选择。</p>'
+        f'<p>Validation 以预设的 {esc(criterion)} 为唯一主指标，从五个评分策略中选取 Bootstrap 均值最高者。'
+        f'冻结策略为 <strong>{esc(selected)}</strong>，表内单位为{scale_label}。</p>'
         + _table(val_display)
-        + f'<p>冻结策略在 Test 的 {primary_pct} 覆盖率下，HT 增量为 {_num(selected_row["incremental_per_100k"])} / 10 万名可触达用户，'
-        f'95% CI {_interval(selected_row)}。以下同时展示各策略的配对基线差值。</p>'
-        + _table(policy_display)
-        + f'<p>测试集共 {n_test:,} 行，其中 {esc(outcome)} 正例 {n_events:,} 个、对照组正例 {n_control_events:,} 个。'
-        '低预算区域和小分箱中的事件更少，估计容易波动。辅助预算不用于测试后选择“最好”的投放比例。</p>'
-        f'<p>CI 由 {boot} 次组内配对百分位 bootstrap 得到：各处理组人数、训练好的模型、分数与 e 保持固定，'
-        '每次重抽样重新选取 top-k；同一重抽样用于全部政策与基线，因此对随机/倾向的差值区间是配对区间。'
-        '这些区间不包含重新训练、验证选择、估计 e 或未知用户依赖的额外不确定性；多个政策/预算区间是点对点区间，未作同时覆盖校正。</p></section>',
+        + '<p>获胜频率是在所有候选均有定义的重复中排名第一的比例。'
+        '它描述固定评分下的选择稳定性。Test 复用冻结选择。</p>'
+        + f'<h3>Test 主指标 · {esc(primary_label)}</h3><p>单位为{scale_label}。'
+        f'{boot} 次处理组和对照组内的有放回配对重抽样。'
+        '仅对主指标计算区间，各预算的区间为点态区间。'
+        '有效重复数按单策略或共同有效配对计算。评分及处理概率固定。</p>'
+        + f'<p>测试集共 {n_test:,} 行，其中 {esc(outcome)} 正例 {n_events:,} 个、对照组正例 {n_control_events:,} 个。</p>'
+        + _table(test_display)
+        + '<details><summary>相对冻结策略、Propensity 与 Random 的配对差值</summary>'
+        + _table(comparison_display) + '</details></section>',
         '<section><h2>Ranking Performance · Test Evaluation 排序能力</h2>'
         + _image(
             paths["ranking"],
@@ -931,17 +926,9 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             "横轴是触达比例；各虚线均为 q 乘以该曲线自己的全样本终点。图只抽取约 501 个点，面积沿用完整分辨率计算结果，不从图中重新积分。",
         )
         + '<div id="ranking-metrics">' + _table(ranking_display) + '</div>'
-        + '<p>固定覆盖率 HT Gain 是一个覆盖率上的总体增量转化率；AUUC 是跨覆盖率积分的面积，'
-        '中心面积和 Qini Score 则扣除了各自端点参考线下的面积。上表统一乘以 10⁵，'
-        '面积指标仍是排序指标，不能直接当作某个固定预算下的新增转化次数；ATE_HT 是全量终点，不是面积。'
-        '不要直接比较不同定义的 AUUC 与 Qini Score 的数值大小，也不能与其他库的同名分数直接混用。</p>'
-        + '<details><summary>排序指标 95% CI 与相对 Propensity 的配对差值（均 × 10⁵）</summary>'
-        + _table(ranking_ci_display) + '</details>'
-        + '<h3>整体排序与主预算表现是否一致</h3>'
-        + _table(ranking_order_display)
-        + '<p>上述顺序仅比较同一指标内的点估计，未声称相邻模型的差异显著；配对区间见上方附表。'
-        'Test 主预算排序与面积排序可能不同，因为前者只评价 Top-k，后者汇总全部覆盖率。'
-        '这些描述不改变 Validation 已冻结的策略；Propensity 指响应概率基线，并非处理分配概率。</p>'
+        + '<p>AUUC 对 Uplift Gain 的完整曲线积分。Traditional Qini Score 扣除自身端点参考线面积。'
+        '上表统一乘以 10⁵，面积指标仍是排序指标。固定覆盖率的三种 Gain 见下节。'
+        'Propensity 使用 T-XGBoost 预测的处理下转化概率。</p>'
         '<div class="formula" id="calculation-definitions"><h3>本报告的计算定义</h3>'
         '<p class="formula-intro">先计算每行的 HT 伪结果，再按固定排名累计；以下定义与结果表使用同一口径。</p>'
         + _equation(r'z_i=\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}', '01 · 单行 HT 伪结果')
@@ -950,12 +937,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _equation(r'\mathrm{Incremental\ responses\ per\ 100{,}000}=100{,}000\,G_{\mathrm{HT}}(q)',
                     '每 10 万名可触达对象的增量')
         + _equation(r'G_{\mathrm{random}}(q)=\frac{k}{n}\,\bar{z}', '03 · 随机政策的预期增量')
-        + _equation(r'A_{\mathrm{HT}}=\int_0^1 G_{\mathrm{HT}}(q)\,dq', '04 · HT AUUC')
-        + _equation(r'H_{\mathrm{HT}}=A_{\mathrm{HT}}-\frac{G_{\mathrm{HT}}(1)}{2}', 'HT 中心面积')
         + _equation(r'G(q)=\frac{k}{n}\left[\frac{R_1(q)}{N_1(q)}-\frac{R_0(q)}{N_0(q)}\right]',
                     'Uplift Gain：前缀两组响应率之差乘以覆盖比例')
-        + _equation(r'A=\int_0^1G(q)\,dq,\qquad A_{\mathrm{centered}}=A-\frac{G(1)}{2}',
-                    'Uplift AUUC 与 Centered Uplift AUUC')
+        + _equation(r'\mathrm{AUUC}=\int_0^1G(q)\,dq',
+                    'Uplift AUUC')
         + _equation(r'Q_{\mathrm{trad}}(q)=\frac{1}{n}\left[R_1(q)-R_0(q)\frac{N_1(q)}{N_0(q)}\right]',
                     '05 · 传统 Qini 曲线')
         + _equation(r'\mathrm{Qini\ score}=\int_0^1\left[Q_{\mathrm{trad}}(q)-q\,Q_{\mathrm{trad}}(1)\right]dq',
@@ -974,8 +959,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<p>Budget 表示投放覆盖率（Contact Fraction），不是货币金额；所有增量均以 10 万名总体可触达用户为分母。'
         '下表展示冻结策略、Random 和 Propensity；若冻结策略就是其中一个基线，仅展示一次。</p>'
         + '<div id="budget-sensitivity">' + _table(budget_key_display) + '</div>'
-        + _image(paths["policy"], "覆盖率敏感性与主预算置信区间",
-                 f"星号标识冻结策略；10%、20%、30%、100% 为关键情景，{primary_pct} 为事先冻结的选型覆盖率，100% 为全量终点。连线仅辅助读图，未在评价点之间插值计算。")
+        + _image(paths["policy"], "HT 增量的覆盖率敏感性",
+                 f"星号标识冻结策略；10%、20%、30%、100% 为关键情景，{primary_pct} 为预设的投放情景覆盖率，100% 为全量终点。连线仅辅助读图，未在评价点之间插值计算。")
         + '<details><summary>全部候选、全部覆盖率明细（含 2%、5%、50%）</summary>'
         + _table(budget_display) + '</details>'
         + '<p>同一固定评分及同分顺序下，Top 10% ⊂ Top 20% ⊂ Top 30% ⊂ Top 100%。'
@@ -984,7 +969,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         'Random 是相同人数的随机触达解析期望，不对应模型排序。辅助预算不用于 Test 后挑选最优商业预算。</p></section>',
         '<section><h2>Marginal Incremental Gain · 新增覆盖区间贡献</h2>'
         f'<p>保持冻结策略 <strong>{esc(selected)}</strong> 不变，以 ΔV = V(b) − V(a)、V(0) = 0 计算新增区间贡献。'
-        '若冻结策略为 Random，差值表示扩大随机触达比例的预期变化。</p>'
+        '</p>'
         + '<div id="marginal-gain">' + _table(marginal_display) + '</div>'
         + f'<p>{marginal_findings}。{marginal_trend}</p>'
         '<p>这里仅报告点估计，未计算边际增量 CI，不能用两个累计 CI 的端点相减来构造区间。'
@@ -994,7 +979,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _equation(r'G_{\mathrm{HT}}(1)=\widehat{\mathrm{ATE}}_{\mathrm{HT}},\qquad V(1)=100{,}000\,\widehat{\mathrm{ATE}}_{\mathrm{HT}}',
                     '全量覆盖与 HT-ATE')
         + f'<p>100% 覆盖表示对当前 Test 的全部 {n_test:,} 名可触达用户分配处理，估计增量为 '
-        f'<strong>{_num(full_value)}</strong> / 10 万总体用户，95% CI {_interval(frozen.iloc[-1])}。'
+        f'<strong>{_num(full_value)}</strong> / 10 万总体用户{full_interval}。'
         '所有策略选择相同的全体用户，因此具有同一 HT 终点；排序不会改变全量的价值。</p>'
         + f'<p>冻结策略与全量相比（同为每 10 万总体用户）：{full_comparisons}。'
         '扩大覆盖是否继续增加估计转化，需结合上一节各新增区间的实际符号判断，不预设越多越好。</p>'
@@ -1036,18 +1021,16 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         '<p>参考：<a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab 数据集与版本说明</a>；'
         '<a href="https://arxiv.org/abs/1706.03461">Künzel et al. (2019), Meta-learners</a>。</p></section>',
     ]
-    if manifest.get('report_revision'):
-        sections.insert(1, '<section><p>' + esc(manifest['report_revision']) + '</p></section>')
     stability = json.loads((out / "stability" / "report.json").read_text(encoding="utf-8"))
     protocol = json.loads((out / "stability" / "protocol.json").read_text(encoding="utf-8"))
     aggregate = pd.read_csv(out / "stability/aggregate.csv")
     frequencies = pd.read_csv(out / "stability/selection_frequency.csv")
     stability_columns = ["split_method", "training_fraction", "policy",
-                         "incremental_per_100k_mean", "incremental_per_100k_std", "vs_propensity_per_100k_mean"]
+                         "gain_ht_per_100k_mean", "gain_ht_per_100k_std", "vs_propensity_per_100k_mean"]
     fig, ax = plt.subplots(figsize=(10, 4), constrained_layout=True)
     for name in aggregate.policy.unique():
         rows = aggregate[(aggregate.policy == name) & (aggregate.split_method == "row_stratified")].sort_values("training_fraction")
-        ax.plot(rows.training_fraction, rows.incremental_per_100k_mean, "o-", label=name)
+        ax.plot(rows.training_fraction, rows.gain_ht_per_100k_mean, "o-", label=name)
     ax.set(xlabel="Fraction of development training partition", ylabel="HT gain per 100k eligible",
            title="Development stability: mean across configured seeds")
     ax.legend(fontsize=8); ax.grid(alpha=.2)
@@ -1061,12 +1044,13 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         f'<p>{int(stability["experiments"])} 个配置、{int(stability["fitted_models"])} 次模型拟合；排除原 Test {int(stability["old_test_n_excluded"]):,} 行。'
         f'旧 Test 交集为零：{stability["all_old_test_row_overlaps_zero"]}；按特征分组的交集为零：{stability["all_group_split_feature_overlaps_zero"]}。</p>'
         f'<p>Seeds {esc(str(protocol["seeds"]))}；训练比例 {esc(str(protocol["training_fractions"]))}；比较行分层与特征分组划分。'
-        '均值和标准差描述重复开发实验的波动，不是独立 Test 置信区间。相同匿名特征不代表同一用户；此前已看过历史 Test，排除其行不能抹去分析者已有知识。</p>'
+        f'各配置按 {esc(criterion)} 的 Bootstrap 均值选择。均值和标准差描述重复开发实验的波动，不是独立 Test 置信区间。相同匿名特征不代表同一用户；此前已看过历史 Test，排除其行不能抹去分析者已有知识。</p>'
         + _image(stability_plot, "开发期训练规模敏感性", "所有点来自已保存的 aggregate.csv；没有使用原 Test 重新选型。")
         + _table(aggregate[stability_columns]) + '<h3>Validation 选择频率</h3>' + _table(frequencies) + '</section>',
         '<section><h2>Planning · A/B 规划与假设经济情景</h2>'
         '<p>以下业务参数全部为假设，沿用原项目教学情景，不是 Criteo 已验证的线上转化率、收入或 ROI。'
-        '价值区间只是在固定成本、固定转化价值、效果可迁移假设下换算离线效果区间。</p>'
+        + ('价值区间按固定成本、转化价值和效果可迁移的假设换算 HT 区间。</p>'
+           if assumptions["conditional_ht_interval"] else '本次业务情景只展示 HT 点估计。</p>')
         + '<pre>' + esc(json.dumps(assumptions["parameters"], ensure_ascii=False, indent=2)) + '</pre>'
         + _table(plans) + _table(scenarios) + '</section>',
     ]
