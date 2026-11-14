@@ -86,7 +86,7 @@ def _area(q, gain, *, centered=False):
 def evaluate_ranking(
     y, t, score_dict, e, *, budgets=(.10, .20, .30, 1.00),
     primary_metric="gain_ht", primary_budget=.20, n_bootstrap=200,
-    seed=42, include_curves=True, include_random=False,
+    seed=42, include_curves=True, include_random=False, return_bootstrap_draws=False,
 ) -> dict:
     #-------------
     # 功能：一次评价全部评分策略，生成五项指标，并可对唯一主指标做配对 Bootstrap。
@@ -101,6 +101,7 @@ def evaluate_ranking(
     #     - n_bootstrap：重抽样次数，0 表示关闭。
     #     - seed：排序和重抽样的随机种子。
     #     - include_curves：是否返回绘图节点，每策略最多 501 行。
+    #     - return_bootstrap_draws：返回逐轮结果，列索引为策略和预算。
     # 输出参数：
     #     - metrics：按策略和预算组织的五项点估计，原始标度及 HT 每十万人值。
     #     - curves：绘图表或 None，积分始终使用完整前缀。
@@ -260,6 +261,11 @@ def evaluate_ranking(
                                      "ci_low": lo, "ci_high": hi, "valid_replicates": len(paired)})
         bootstrap = {"summary": pd.DataFrame(summary), "pairwise": pd.DataFrame(pairwise),
                      "selection_frequency": pd.DataFrame(frequencies)}
+        if return_bootstrap_draws:
+            bootstrap["draws"] = pd.DataFrame(
+                draws.reshape(n_bootstrap, -1),
+                columns=pd.MultiIndex.from_product([all_names, boot_budgets], names=["policy", "budget"]),
+            )
     if include_random:
         # Analytic random reference, not a fitted/random-score candidate.
         full_plugin = float(y[t == 1].mean() - y[t == 0].mean())

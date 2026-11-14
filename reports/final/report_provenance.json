@@ -1,5 +1,4 @@
 {
-  "report_version": "1.0",
   "original_run": "final_conversion_full_seed42",
   "selected_policy": "response_xgboost",
   "selected_uplift_model": "s_xgboost",
@@ -39,7 +38,10 @@
     "stability/report.json": "6aa77af4a3466f33831ba211aaee75c3ebaaabfa3f67878fa466e3eabae2e7e7"
   },
   "score_sha256": "2dc4edeebf3c4e7753aeea450d3764983a067e4f2f0207da086eff8ad12e1f44",
-  "report_sha256": "4da8c3f3aed468a52ec0cb9b7faec6a40785e20292dddb312de909fdcd2cbf4e",
-  "generator_sha256": "35eaaa9555f6c3750806211a1655a68cc9e9f6e75fcf8db5683467af924e1e51",
-  "new_calculation_only": "Top 20% intersection, Jaccard, raw-score Spearman"
+  "report_sha256": "5a5e49b5df11c7a8961f7e189248e80b4facbba0ecde2934f5c0c17b26bfc7e7",
+  "generator_sha256": "ca6ad60ffbeeada44eac65a51c5e6a1498daf32ad37ae98744c19cfe713c8fd4",
+  "report_calculations": [
+    "Top 20% overlap, Jaccard, raw-score Spearman",
+    "Paired HT bootstrap (2000 draws) for budget margins and key policies"
+  ]
 }

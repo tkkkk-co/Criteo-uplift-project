@@ -228,7 +228,7 @@ def _policy_comparison(summary, selected, criterion, unit, n):
         f'<h3>策略比较 · {html.escape(criterion)}</h3><p class="chart-unit">{html.escape(unit)}</p>'
         + "".join(rows)
         + f'<div class="policy-axis" aria-hidden="true"><span>{low:g}</span><span>{(low + high)/2:g}</span><span>{high:g}</span></div>'
-        f'<figcaption><strong>独立测试集（{n:,} 行）</strong> · 圆点为点估计，横线为各策略的 95% Bootstrap 区间。'
+        f'<figcaption><strong>独立测试集（{n:,} 行）</strong> · 圆点为点估计，横线为各策略的 95% Bootstrap 区间。有效重复次数见附录 E。'
         '策略差异依据配对区间判断。</figcaption></figure>'
     )
 
@@ -331,8 +331,21 @@ def _pair_table(frame, *, compact=False):
     return _table(pd.DataFrame(data), wide=not compact)
 
 
+def _gain_comparison(primary):
+    ranked = primary[['gain_ht', 'gain_plugin']].sort_values('gain_ht', ascending=False)
+    return pd.DataFrame({
+        '策略': ranked.index.map(_LABELS),
+        'HT Gain': (ranked.gain_ht * 1e5).map(_num),
+        'Uplift Gain': (ranked.gain_plugin * 1e5).map(_num),
+        'HT 排名': ranked.gain_ht.rank(ascending=False, method='min').astype(int),
+        'Uplift 排名': ranked.gain_plugin.rank(ascending=False, method='min').astype(int),
+    })
+
+
 def build_report(manifest_path: Path, report_path: Path) -> Path:
-    """只读原工件；输出双层报告与新增重叠摘要到指定发布目录。"""
+    """从保存的实验工件生成报告和来源指纹。"""
+    from .budget_analysis import BOOTSTRAP_REPEATS, evaluate_budget_margins
+    from .planning import cost_value_scenario
     from .strategy_overlap import saved_score_overlap
     from .experiment_protocol import sha256_file
     manifest_path, report_path = Path(manifest_path), safe_output(report_path)
@@ -359,7 +372,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     selected, uplift = selection['selected_policy'], selection['selected_uplift_model']
     response = 'response_xgboost'
     if selection['primary_metric'] != 'gain_ht' or selection['primary_budget'] != .2 or not selection['frozen_before_test']:
-        raise ValueError('V1.0 报告只接受预冻结的 HT Gain @20% 协议')
+        raise ValueError('报告需要预冻结的 HT Gain @20% 协议')
     if set(metrics.policy) != {*selection['candidates'], 'random'}:
         raise ValueError('九策略结果不完整')
     development = args.get('stage') == 'development'
@@ -367,6 +380,18 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     scope = '开发留出集' if development else '正式测试集'
     label, uplift_label, response_label = (_LABELS[k] for k in (selected, uplift, response))
     budget = .2
+    score_path = out / 'evaluation/predictions.npz'
+    margins = None
+    if args.get('stage') == 'full':
+        margins, refined_boot, refined_pairs = evaluate_budget_margins(score_path, selection, metrics)
+        # 用同一批抽样更新报告中关键策略的区间，保留各记录的有效重复次数。
+        for original, refined, index in (
+            (bootstrap, refined_boot, ['policy', 'budget']),
+            (pairs, refined_pairs, ['policy', 'reference', 'budget']),
+        ):
+            original.set_index(index, inplace=True)
+            original.update(refined.drop(columns=['win_frequency'], errors='ignore').set_index(index))
+            original.reset_index(inplace=True)
     primary = metrics[metrics.budget.eq(budget)].set_index('policy')
     primary_boot = bootstrap[bootstrap.budget.eq(budget)].set_index('policy')
     primary_pairs = pairs[pairs.budget.eq(budget)]
@@ -381,7 +406,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         return primary_pairs[(primary_pairs.policy == policy) & (primary_pairs.reference == reference)].iloc[0]
     vs_random = comparison(selected, 'random')
     uplift_pair = comparison(uplift, response)
-    matched = saved_score_overlap(out / 'evaluation/predictions.npz', uplift, response,
+    matched = saved_score_overlap(score_path, uplift, response,
                                   budget=budget, seed=manifest['seed'])
     write_result(matched, report_path.parent / 'strategy_overlap.json')
     if matched['n'] != test_n:
@@ -435,6 +460,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     overview = _table(pd.DataFrame([
         ('原始公开记录', f'{audit["n_rows"]:,} 行'), ('本阶段建模 / 留出评价', f'{manifest["sample_n"]:,} / {test_n:,} 行'),
         ('处理组 / 对照组占比', f'{srm["observed_ratio"]:.2%} / {1-srm["observed_ratio"]:.2%}'),
+        ('公开数据处理组转化率 / 正例', f'{full_ate.response_treatment:.4%} / {audit["groups"]["1"]["conversion"]["positive"]:,}'),
+        ('公开数据对照组转化率 / 正例', f'{full_ate.response_control:.4%} / {audit["groups"]["0"]["conversion"]["positive"]:,}'),
         ('留出转化正例 / 对照正例', f'{events:,} / {int(test_c.conversion_positive):,}'),
     ], columns=['范围', '真实数据概览']))
     diag_rows = [
@@ -448,6 +475,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                    'conversion 是主要结果，visit 是辅助结果。只有匿名处理前特征 f0–f11 进入排序模型，既不按曝光筛选用户，也不把曝光或结果标签作为输入。'
                    '这是避免处理后选择偏差与结果泄漏的第一步。')
         + overview
+        + _paragraph('Criteo 为保护隐私对公开数据进行了非均匀抽样，原始实验的增量水平无法从公开数据恢复。'
+                     '本文的统计结论以公开样本为限。<a href="https://huggingface.co/datasets/criteo/criteo-uplift">Criteo 数据卡</a>')
         + _paragraph('用 Y(1) 与 Y(0) 表示同一用户在获得和未获得广告资格时的潜在结果。每人只能观察其中之一。'
                      '随机分配在实验设计层面支持可交换性，还需要处理定义一致、无干扰（SUTVA）及目标人群中两种分配均有可能。'
                      '未实际曝光的处理组用户仍保留在处理组，因此目标是分配的 ITT，不是实际曝光的因果效应。')
@@ -490,13 +519,53 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _equation(r'\widehat{G}_{\mathrm{HT}}(\pi)=\frac{1}{N}\sum_i\pi(X_i)\left[\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}\right]', '唯一主业务指标：HT Gain @20%')
         + _paragraph('HT 仅累计策略选中用户的逆概率加权结果，分母始终是全部 N 名合资格评价用户。乘以 100,000 后，就是每十万名候选用户的预期增量转化。'
                      '取 K=floor(0.20N)，不足一人的偏差来自整数预算约束；不要求选中集合内的实际处理比例恰好等于总体比例。')
-        + _paragraph(f'采用保存的 {selection["n_bootstrap"]} 次处理臂内分层配对 Bootstrap：每轮所有策略共用同一份重采样行，固定模型与评分，重取各自 Top K。'
+        + _paragraph(f'验证集选型与全策略留出评价使用 {selection["n_bootstrap"]} 次处理臂内分层配对 Bootstrap。'
+                     + (f'正式报告的关键策略比较和扩量区间使用 {BOOTSTRAP_REPEATS:,} 次重复。' if margins is not None else '')
+                     + '每轮所有策略共用同一份重采样行，固定模型与评分，重取各自 Top K。'
                      '逐轮相减才能保留两策略评价的相关性，不能用单策略区间端点相减构造差值区间。'
                      '95% CI 条件于已拟合模型、评分和处理比例，不包含全部训练、选型及分配概率估计的不确定性。'
                      '<a href="#appendix-definitions">指标公式</a>与<a href="#appendix-pairs">完整配对比较</a>用于进一步审查。')))
     plot_summary = bootstrap[bootstrap.budget.eq(.2)].copy()
     plot_summary = pd.concat([plot_summary[plot_summary.policy.eq(selected)], plot_summary[plot_summary.policy.ne(selected)]])
     key_pairs = pd.DataFrame([comparison(selected,'random'), comparison(uplift,response), comparison(selected,'response_logistic')]).drop_duplicates(['policy','reference'])
+    if margins is not None:
+        key_pairs = key_pairs.iloc[:2]
+    gain_comparison = _gain_comparison(primary)
+    budget_summary = _paragraph(
+        f'固定 20% 覆盖的 HT Gain 为 {value:.2f}，全覆盖为 {full_gain:.2f}，两者点估计比值约 {captured:.1%}。'
+    )
+    if margins is None:
+        budget_summary += _paragraph(
+            f'10%–20% 覆盖贡献 {marginal_10_20:.2f}，20%–30% 贡献 {marginal_20_30:.2f} 次增量转化／10 万名合资格用户。'
+            '这些边际结果为描述性点估计。'
+        )
+    else:
+        primary_uplift = primary.gain_plugin * 1e5
+        plugin_full = frozen.loc[1., 'gain_plugin']
+        plugin_capture = (f'，约为全覆盖的 {frozen.loc[.2, "gain_plugin"]/plugin_full:.1%}'
+                          if plugin_full != 0 else '')
+        key_labels = [_LABELS[name] for name in dict.fromkeys((selected, uplift, 'random'))]
+        budget_summary += (
+            _paragraph(f'Uplift Gain 下，冻结策略的 20% 覆盖收益为 {primary_uplift[selected]:.2f}{plugin_capture}。'
+                       f'{uplift_label} 相对 {label} 的差值由 HT 的 {comparison(uplift, selected).difference * 1e5:+.2f} '
+                       f'变为 Uplift Gain 的 {primary_uplift[uplift]-primary_uplift[selected]:+.2f}。')
+            + _table(gain_comparison.iloc[:, :3].set_index('策略').loc[key_labels].reset_index())
+            + _paragraph('HT Gain 按训练集处理比例加权，Uplift Gain 用覆盖前缀内两臂转化率之差乘覆盖率。'
+                         '两种口径均将定向策略排在 Random 之前，前部覆盖所占增量比例对口径更敏感。'
+                         '<a href="#appendix-budget">查看九策略排名对照</a>。')
+            + '<h3>每一档扩量带来的额外转化</h3>'
+            + _paragraph('下表中两种边际 Gain 及 HT 区间均按每 10 万名合资格用户展示。'
+                         'Uplift Gain 列是累计前缀估计的差值。')
+            + '<div class="main-pairs">' + _table(pd.DataFrame({
+                '新增覆盖': [f'{r.start:.0%}–{r.end:.0%}' for r in margins.itertuples()],
+                'HT 边际 Gain': (margins.gain_ht * 1e5).map(_num),
+                'HT 配对 95% CI': margins.apply(lambda r: _interval(r, scale=1e5), axis=1),
+                'Uplift 边际 Gain': (margins.gain_plugin * 1e5).map(_num),
+                '每千新增名额的 HT 增量': (margins.gain_ht * test_n / margins.n_added * 1000).map(lambda x: _num(x, 3)),
+            })) + '</div>'
+            + _paragraph(f'配对区间按 {BOOTSTRAP_REPEATS:,} 次处理臂内分层 Bootstrap 计算。每次用同一批抽样行重取各档 Top K，'
+                         '先相减再取分位数。区间为逐档的条件区间。20% 是预设覆盖率，边际结果可用于评估扩量条件。')
+        )
     main.append(_section('results', '05｜三个核心研究发现',
         '<h3>定向的价值首先体现在相对随机分配的收益</h3>'
         + _policy_comparison(plot_summary, selected, 'HT Gain @20%', '每 10 万名全部合资格用户的增量转化', test_n)
@@ -513,17 +582,12 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + '<h3>收益主要集中在排序前部，扩量需要单独判断</h3>'
         + '<figure>' + _gain_plot(curves, list(dict.fromkeys([selected,uplift,response])))
         + '<figcaption>同一留出总体、冻结评分与固定处理概率。覆盖率为预设敏感性分析，不用于测试后选择预算；全部九策略曲线见附录。</figcaption></figure>'
-        + _paragraph(f'固定 20% 覆盖的 HT Gain 为 {value:.2f}，全覆盖为 {full_gain:.2f}，两者点估计比值约 {captured:.1%}。'
-                     f'新增 10%–20% 覆盖贡献 {marginal_10_20:.2f}，20%–30% 贡献 {marginal_20_30:.2f} 次增量转化／10 万名总体用户。'
-                     '这一描述提示收益集中于高排名用户：后续扩量增加了名额使用，却未必带来成比例的增量。')
-        + _paragraph('收益捕获比例及边际差值是点估计描述，未另算其置信区间，不能解释成已经证明“20% 是最优预算”。'
-                     '100% 时所有策略选择同一总体，因此共享 HT 终点；真实竞价成本、广告频次和人群变化可能改变扩量价值。'
-                     '<a href="#appendix-budget">2%、5%、10%、20%、30%、50%、100% 的明细和辅助累计曲线</a>用于核验这一判断。')))
+        + budget_summary))
     overlap_fig = f'''<figure class="overlap-figure"><div class="overlap-counts"><div><span>仅 {uplift_label}</span><strong>{matched['only_a']:,}</strong><small>各自入选人数的 {matched['only_a_fraction_of_k']:.2%}</small></div><div class="shared"><span>共同选中</span><strong>{matched['common']:,}</strong><small>各自入选人数的 {matched['overlap']:.2%}</small></div><div><span>仅 {response_label}</span><strong>{matched['only_b']:,}</strong><small>各自入选人数的 {matched['only_b_fraction_of_k']:.2%}</small></div></div><figcaption>两策略各选 {matched['k']:,} 行，合并去重为 {matched['union']:,} 行；原始评分、共享随机破同分优先级，种子 {matched['seed']}。行号用于集合识别，不等同于可识别用户身份。</figcaption></figure>'''
     rho = '未定义（常数评分）' if matched['spearman'] is None else f'{matched["spearman"]:.4f}'
     main.append(_section('interpretation', '06｜为什么两种定向策略的收益接近',
         _paragraph('相近的策略收益至少有三种可能解释，需要把可观察的选人行为与不可观察的真实效应区分开。'
-                   '本轮新增分析只读取保存的评分与行号，不使用结果标签、不重新预测或训练，也不改变冻结决策。')
+                   '选人重叠由保存的评分与行号计算。')
         + overlap_fig
         + _paragraph(f'本阶段 {uplift_label} 与 {response_label} 的 <strong>Overlap@20% 为 {matched["overlap"]:.2%}</strong>，'
                      f'Jaccard 为 {matched["jaccard"]:.4f}，全体原始评分的 Spearman 相关为 {rho}。'
@@ -541,7 +605,31 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     # Representative economic example is selected from saved scenarios, never refitted or optimized.
     assumptions = read_json('business/assumptions.json')
     scenarios = read_csv('business/hypothetical_cost_scenarios.csv')
+    if margins is not None:
+        scenarios = pd.DataFrame([
+            cost_value_scenario(
+                value, eligible_n=int(r.eligible_n), budget=r.budget,
+                value_per_conversion=r.value_per_conversion_assumed, contact_cost=r.contact_cost_assumed,
+                ci_low=primary_boot.loc[selected, 'ci_low'] * 1e5, ci_high=primary_boot.loc[selected, 'ci_high'] * 1e5,
+            )
+            for r in scenarios.itertuples()
+        ])
     scenario = scenarios.iloc[len(scenarios)//2]
+    expansion = ''
+    if margins is not None:
+        band = margins.loc[margins.start.eq(.1)].iloc[0]
+        value_scale = scenario.eligible_n * scenario.value_per_conversion_assumed
+        benefit = band.gain_ht * value_scale
+        plugin_benefit = band.gain_plugin * value_scale
+        added = int(scenario.eligible_n * .2) - int(scenario.eligible_n * .1)
+        extra_cost = added * scenario.contact_cost_assumed
+        net_limits = band[['ci_low', 'ci_high']] * value_scale - extra_cost
+        expansion = _paragraph(
+            f'同一假设下，从 10% 扩至 20% 需增加 {added:,} 个资格名额，成本增加 {extra_cost:,.2f}。'
+            f'新增转化价值按 HT 估计为 {benefit:,.2f}，按 Uplift Gain 估计为 {plugin_benefit:,.2f}。'
+            f'HT 边际净价值估计为 {benefit-extra_cost:+,.2f}，条件 95% CI [{net_limits.ci_low:,.2f}, {net_limits.ci_high:,.2f}]。'
+            f'按 HT 点估计，每个新增资格名额的盈亏平衡成本为 {benefit/added:.4f}。'
+        )
     main.append(_section('decision', '07｜最终决策、成本与线上验证',
         _paragraph(f'保留本阶段冻结策略 {label}，将 {uplift_label} 作为增量建模候选进行后续研究。'
                    + ('这是一项开发阶段结论，正式推荐应以全量实验的验证冻结和独立评价为准。' if development else
@@ -552,9 +640,12 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                      f'保存结果对应的条件净增量价值为 {scenario.net_incremental_value:,.2f}，盈亏平衡单位触达成本为 {scenario.break_even_contact_cost:.4f}。'
                      '这些是假设常数价值、常数成本且离线效果可迁移时的换算，不是 Criteo 的真实收入、成本或 ROI。'
                      '<a href="#appendix-economics">全部经济敏感性与样本量情景</a>保留在附录。')
+        + expansion
         + _paragraph(f'建议将 {uplift_label} 与 {response_label} 作为候选策略进行用户级随机对照。两臂分别在各自入组用户中按固定 20% 覆盖执行，'
                      '主指标统计全部随机入组用户的固定窗口转化率，而非只统计曝光或被选中的用户。预先确定 MDE、样本量、观测窗口和停止规则，'
-                     '监控 SRM、跨组污染、实际花费、频次、用户负反馈及业务护栏。若要估计相对完全无广告的绝对增量，另设不处理留出组。线上实验尚未执行。')
+                     '监控 SRM、跨组污染、实际花费、频次、用户负反馈及业务护栏。达到计划样本量并完成观察窗口后，'
+                     '只有转化率达到预先约定的改善标准、增量价值覆盖新增成本且护栏通过，才切换策略。证据不足时保留基线。'
+                     '估计各策略相对完全无广告的绝对增量时，另设不投放留出组。线上实验尚未执行。')
         + _paragraph('两阶段报告承担不同职责：开发实验验证流程并选出 T-Logistic，全量实验用更大的训练和评价样本形成正式决策。'
                      '评估样本、训练规模和已拟合模型均不同，绝对 HT Gain 的变化不能解释成模型性能的因果变化。'
                      '全量评价提供更多正例支持和更窄的条件区间，但仍未纳入全部重训与选型不确定性；本轮没有新增跨种子重训稳定性证据。')
@@ -635,15 +726,18 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _details('appendix-selection','冻结记录与验证选中频率',_json(selection)+_table(read_csv('models/validation_selection_frequency.csv'),wide=True))
         + '<h3>留出评价：全部预设覆盖率</h3>' + _metric_table(metrics,bootstrap)))
     appendix.append(_details('appendix-pairs','F｜完整配对 Bootstrap 比较',
-        _paragraph('差值方向始终为“策略减参考策略”。下表保留所有保存的两两比较和预算，区间单位为每 10 万名全部合资格用户的增量转化。'
+        _paragraph('差值方向始终为“策略减参考策略”。下表列出全部两两比较和预算，并逐行标记有效配对次数。区间单位为每 10 万名全部合资格用户的增量转化。'
                    '原文件不保存自比较，自比较差值与区间按定义为零。')
         + '<h3>验证集</h3>' + _pair_table(val_pairs)
         + '<h3>留出评价</h3>' + _pair_table(pairs)))
     appendix.append(_details('appendix-budget','G｜预算敏感性与辅助累计曲线',
-        _paragraph('预算敏感性保留原始所有七档覆盖率。<a href="#appendix-results">九策略全部预算点、区间与面积明细见附录 E</a>，此处不再重复表格。'
+        '<h3>Top 20% 收益口径与排名</h3>'
+        + _paragraph('两列 Gain 均以每 10 万名合资格用户的增量转化表示。')
+        + _table(gain_comparison)
+        + _paragraph('预算敏感性覆盖七档。<a href="#appendix-results">九策略全部预算点、区间与面积明细见附录 E</a>，此处不再重复表格。'
                    '三类曲线使用各自真实保存终点，Random 为对应终点参考线。辅助面积不替代 HT Gain @20% 选型。')
         + '<figure>' + _gain_plot(curves,list(selection['candidates']),columns=('gain_ht','gain_plugin','qini_traditional'))
-        + '<figcaption>全部模型的三类累计曲线。横轴为候选总体覆盖比例；不同 Gain 的估计目标不同。</figcaption></figure>'))
+        + '<figcaption>全部模型的三类累计曲线。横轴为候选总体覆盖比例；HT 与 Uplift Gain 按不同方式估计同一覆盖策略的增量，传统 Qini Gain 对应前缀中的实际处理人数。</figcaption></figure>'))
     appendix.append(_details('appendix-overlap','H｜Top 20% 集合、Spearman 与评分溯源',
         _equation(r'\mathrm{Overlap}=|A\cap B|/K,\quad\mathrm{Jaccard}=|A\cap B|/|A\cup B|', '重叠与并集相似度的不同分母')
         + _paragraph('两策略均使用 metrics.py 的规则：按评分降序，共享种子生成的随机优先级破同分，K=floor(0.20N)。'
@@ -651,7 +745,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _json(matched)))
     appendix.append(_details('appendix-economics','I｜经济敏感性与线上样本量规划',
         _equation(r'V_{net}=v\cdot N\widehat G_{HT}-c\cdot K,\quad c_{break-even}=v\cdot N\widehat G_{HT}/K', '条件净价值与盈亏平衡单位成本')
-        + _paragraph('以下全为原保存的假设情景。固定转化价值、固定触达成本与效果可迁移是额外假设；区间只传递 HT 条件区间，未包括价格和成本的不确定性。'
+        + _paragraph('以下为假设情景。固定转化价值、固定触达成本与效果可迁移是额外假设；区间只传递 HT 条件区间，未包括价格和成本的不确定性。'
                      'A/B 样本量按全部入组用户的策略转化率差规划，不能把离线增量估计当作已经观测到的线上基线率。')
         + _json(assumptions) + _table(scenarios,wide=True)
         + _table(read_csv('business/hypothetical_ab_plans.csv'),wide=True)))
@@ -659,9 +753,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         'python -c "from pathlib import Path; from criteo_uplift.reporting import build_report; '
         f"p=Path('artifacts/{out.name}'); build_report(p/'manifest.json', Path('reports/{'development' if development else 'final'}/report.html'))\""
     )
-    appendix.append(_details('appendix-reproducibility','J｜版本、原始运行配置、复现与限制',
-        _paragraph('本报告为 V1.0 冻结展示。重建只读取保存工件；唯一新增计算为评分集合与秩相关诊断。'
-                   '原始模型、评分、划分、选择记录与统计结果不被覆盖。以下命令重建报告，不触发训练。')
+    appendix.append(_details('appendix-reproducibility','J｜运行配置、复现与限制',
+        _paragraph('重建报告从保存工件计算选人重叠和秩相关。全量正式报告同时从冻结评分计算边际区间与关键策略的配对区间。')
         + '<pre>' + html.escape(rebuild_command) + '</pre>'
         + _json({'数据SHA256':manifest['source']['sha256'],'随机种子':manifest['seed'],
                  '原始运行耗时秒':manifest['elapsed_seconds'],'运行库版本':manifest['versions'],
@@ -669,31 +762,32 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                  '估计目标':manifest['estimand'],'区间方法':manifest['ci_method'],
                  '未覆盖的不确定性':manifest['uncertainty_excluded']})
         + _paragraph('匿名数据无法识别用户级依赖，公开实验的全部分层与分配机制不可见。单变量平衡、可学习性、排序相关及选人重叠都不能替代识别假设。'
-                     '本轮没有新增重训稳定性实验，也没有真实线上验证。项目至此冻结，不继续扩展模型实验。')
+                     '正式模型依据验证集冻结记录确定，业务验证方案见第七章。')
         + _paragraph('数据来源：<a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo AI Lab</a>。'
                      '原始数据及派生成果遵循 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>。')))
     titles = [('summary','研究结论'),('business','业务问题'),('identification','数据与因果识别'),
               ('methods','建模与评价'),('results','核心发现'),('interpretation','策略解释'),('decision','业务决策')]
-    header = f'''<header><p class="eyebrow">CRITEO UPLIFT PROJECT · V1.0</p><h1>固定投放预算下的增量转化研究</h1><p>{stage_title} · 正文约 10–15 分钟 · 技术附录可展开</p>
+    header = f'''<header><p class="eyebrow">CRITEO UPLIFT PROJECT</p><h1>固定投放预算下的增量转化研究</h1><p>{stage_title} · 正文约 10–15 分钟 · 技术附录可展开</p>
     <nav class="reading-entries" aria-label="阅读入口"><a href="#research">阅读研究正文</a><a href="#appendix">查看技术附录</a><a href="#workflow">项目研究流程</a><a href="#decision">核心结果与业务建议</a></nav>
     <nav class="chapter-nav" aria-label="正文目录">{''.join(f'<a href="#{key}">{title}</a>' for key,title in titles)}</nav></header>'''
     research = ''.join(main)
     if development:
         research = research.replace('独立测试集', '开发留出集')
     document = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-                f'<title>{stage_title}｜Criteo Uplift V1.0</title><style>{_REPORT_CSS}</style></head><body><main>'
+                f'<title>{stage_title}｜Criteo Uplift</title><style>{_REPORT_CSS}</style></head><body><main>'
                 + header + workflow + '<article id="research" aria-label="研究正文">' + research + '</article>'
                 + '<section id="appendix"><h2>技术附录｜按主题核验完整证据</h2><p>默认折叠。正文中的附录链接会自动展开对应主题；长表格可在容器内横向滚动，页面本身保持适配。</p>'
-                + ''.join(appendix) + '</section><footer>V1.0 · 模型与实验结果已冻结 · <a href="#research">返回研究正文</a></footer></main>'
+                + ''.join(appendix) + '</section><footer>验证集选型已冻结 · <a href="#research">返回研究正文</a></footer></main>'
                 + _NAV_SCRIPT + '</body></html>')
     report_path.write_text(document,encoding='utf-8')
     # Public provenance contains only hashes and relative artifact identifiers, no row-level records.
     inputs = [p for p in out.rglob('*') if p.is_file() and p.suffix in ('.json','.csv')]
-    provenance = {'report_version':'1.0','original_run':out.name,'selected_policy':selected,
+    provenance = {'original_run':out.name,'selected_policy':selected,
                   'selected_uplift_model':uplift,'inputs':{str(p.relative_to(out)):sha256_file(p) for p in sorted(inputs)},
                   'score_sha256':matched['source_sha256'],'report_sha256':sha256_file(report_path),
                   'generator_sha256':sha256_file(Path(__file__)),
-                  'new_calculation_only':'Top 20% intersection, Jaccard, raw-score Spearman'}
+                  'report_calculations': ['Top 20% overlap, Jaccard, raw-score Spearman']
+                  + ([f'Paired HT bootstrap ({BOOTSTRAP_REPEATS} draws) for budget margins and key policies'] if margins is not None else [])}
     write_result(provenance,report_path.parent/'report_provenance.json')
     return report_path
 
