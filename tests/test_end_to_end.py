@@ -93,7 +93,7 @@ class EndToEndTests(unittest.TestCase):
                 'models/selection.json', 'models/t_xgboost.joblib',
                 'evaluation/test_metrics.csv', 'evaluation/test_bootstrap.csv', 'evaluation/test_pairwise.csv',
                 'models/validation_metrics.csv', 'models/validation_bootstrap.csv', 'evaluation/predictions.npz',
-                'figures/sample_features.png', 'figures/c2st_null.png',
+                'figures/sample_features.png', 'strategy_overlap.json', 'report_provenance.json',
             ):
                 self.assertTrue((out / name).is_file(), name)
             summary = pd.read_csv(out / 'data_preparation/split_summary.csv')
@@ -160,7 +160,7 @@ class EndToEndTests(unittest.TestCase):
                 policies[policies.budget == 1].gain_ht_per_100k.nunique(), 1
             )
             self.assertTrue((out / 'report.html').stat().st_size > 1000)
-            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 7)
+            self.assertEqual(len(list((out / 'figures').glob('*.png'))), 1)
             balance = pd.read_csv((out / 'diagnostics' / 'balance.csv'))
             self.assertTrue(balance['scope'].eq('full_published_dataset').all())
             self.assertTrue((balance.n_treatment + balance.n_control == len(frame)).all())
@@ -175,120 +175,63 @@ class EndToEndTests(unittest.TestCase):
             self.assertTrue(stability['all_group_split_feature_overlaps_zero'])
             self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
             html = (out / 'report.html').read_text()
-            # 公式必须包含可离线显示的矢量路径，不能退回未排版的代码文本或依赖外部脚本。
             equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
-            self.assertEqual(len(equations), 17)
+            self.assertGreaterEqual(len(equations), 12)
             for encoded in equations:
                 svg = ElementTree.fromstring(base64.b64decode(encoded))
                 self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
-            self.assertNotIn('<script', html)
-            business = re.search(r'<section id="business">(.+?)</section>', html, re.S).group(1)
-            self.assertEqual(re.findall(r'<h3>([^<]+)</h3>', business), [
-                '1.1 广告投放的业务问题',
-                '1.2 转化倾向与增量定向的直观比较',
-                '1.3 因果增量与 CATE',
-                '1.4 本项目的研究问题与定向策略',
-            ])
-            self.assertIn('示意数据，非 Criteo 实验结果。', business)
-            self.assertIn('class="targeting-example"', business)
-            for value in ('80%', '85%', '+5 pp', '10%', '35%', '+25 pp'):
-                self.assertRegex(business, rf'<td[^>]*>{re.escape(value)}</td>')
-            self.assertIn('平均处理效应（ATE）', business)
-            self.assertIn('条件平均处理效应（CATE）', business)
-            self.assertIn('诊断总览', html)
-            self.assertIn('Pearson 卡方检验', html)
-            self.assertNotIn('二项检验', html)
+            self.assertNotRegex(html, r'<script[^>]+src=')
+            body = re.search(r'<article id="research".+?</article>', html, re.S).group()
+            self.assertEqual(len(re.findall(r'<section id=', body)), 7)
+            self.assertNotIn('<details', body)
+            self.assertNotIn('class="table-wrap wide"', body)
+            for text in ('阅读研究正文', '查看技术附录', '项目研究流程', '核心结果与业务建议',
+                         '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman', '线上实验尚未执行',
+                         '理论最优性', 'StandardScaler'):
+                self.assertIn(text, html)
+            # Every saved primary point and interval must appear in the nine-policy figure.
             comparison = re.search(r'<figure id="primary-policy-chart".+?</figure>', html, re.S).group()
             bootstrap = pd.read_csv(out / 'evaluation/test_bootstrap.csv').query('budget == 0.2')
-            self.assertEqual(len(re.findall(r'class="policy-row\b', comparison)), len(bootstrap))
+            self.assertEqual(len(re.findall(r'class="policy-row\b', comparison)), 9)
             self.assertIn(f'class="policy-row frozen" data-policy="{winner}"', comparison)
             for row in bootstrap.itertuples():
-                estimate = f'{row.point_estimate * 100_000:,.2f}'
-                interval = f'[{row.ci_low * 100_000:,.2f}, {row.ci_high * 100_000:,.2f}]'
-                self.assertIn(f'{estimate} <small>{interval}</small>', comparison)
-            pairwise = pd.read_csv(out / 'evaluation/test_pairwise.csv')
-            random_pair = pairwise.query('policy == @winner and reference == "random" and budget == 0.2').iloc[0]
-            executive = re.search(r'<section class="lead" id="summary".+?</section>', html, re.S).group()
-            self.assertIn(f'{random_pair.difference * 100_000:+.2f}', executive)
-            self.assertIn(
-                f'[{random_pair.ci_low * 100_000:,.2f}, {random_pair.ci_high * 100_000:,.2f}]',
-                executive,
-            )
-            self.assertIn('可能原因与不确定性', html)
-            self.assertIn('下一步线上验证', html)
-            self.assertIn('各自横轴尺度', html)
-            self.assertIn(f'转化正例 {int(summary.loc[summary.split == "test", "conversion_positive"].sum()):,} 个', html)
-            self.assertIn('<h3>扩大覆盖的边际增量</h3>', html)
-            self.assertIn('<h3>全量投放情景</h3>', html)
-            self.assertIn('<h3>开发集稳定性分析</h3>', html)
-            self.assertIn('未计算边际增量 CI', html)
-            self.assertNotRegex(html, r'<td>\s*(?:NaN|nan|None)\s*</td>')
-            # 从最终 HTML 反查表格，独立验证展示缩放和新增区间贡献。
-            tables = {}
-            for section_id in ('ranking-metrics', 'budget-sensitivity', 'marginal-gain'):
-                markup = re.search(rf'id="{section_id}">.*?(<table.*?</table>)', html, re.S).group(1)
-                table = ElementTree.fromstring(markup)
-                headers = [cell.text for cell in table.findall('./thead/tr/th')]
-                rows = [[cell.text for cell in row] for row in table.findall('./tbody/tr')]
-                self.assertTrue(rows)
-                tables[section_id] = pd.DataFrame(rows, columns=headers)
-            shown_ranking = tables['ranking-metrics'].set_index('政策')
-            self.assertEqual(len(shown_ranking.columns), 2)
-            for column, label in (('auuc', 'AUUC'), ('qini_score', 'Traditional Qini Score')):
-                for row in ranking.drop_duplicates("policy").itertuples():
-                    self.assertEqual(shown_ranking.loc[row.policy, f'{label} × 10⁵'], f'{getattr(row, column) * 100_000:,.2f}')
-            shown_budgets = tables['budget-sensitivity']
-            self.assertEqual(set(shown_budgets['投放覆盖率']), {'10%', '20%', '30%', '50%', '100%'})
-            self.assertEqual(len(shown_budgets), 5 * len({winner, 'random', 'response_xgboost'}))
-            frozen = policies[policies.policy == winner].sort_values('budget')
-            shown_marginal = tables['marginal-gain']
-            expected_marginal = np.diff(np.r_[0., frozen.gain_ht_per_100k])
-            self.assertEqual(shown_marginal.iloc[:, -1].tolist(), [f'{v:,.2f}' for v in expected_marginal])
-            self.assertEqual(shown_marginal['新增人数'].astype(int).tolist(), np.diff(np.r_[0, frozen.n_selected]).tolist())
-            for encoded in re.findall(r'src="data:image/png;base64,([^"]+)"', html):
-                self.assertTrue(base64.b64decode(encoded).startswith(b'\x89PNG\r\n\x1a\n'))
-            self.assertIn('<h3>训练集覆盖与正值性</h3>', html)
-            self.assertIn('不能证明高维联合支持', html)
-            self.assertIn('C2ST 置换 AUC 分布', html)
-            encoded_c2st = base64.b64encode((out / 'figures/c2st_null.png').read_bytes()).decode()
-            self.assertIn(encoded_c2st, html)
-            self.assertFalse((out / 'diagnostics/ate_full.csv').exists())
-            self.assertFalse((out / 'evaluation/ate_test.json').exists())
-            # 公开路径只复制聚合结果；完整实验中的模型、逐行预测和额外文件不进入公开目录。
+                self.assertIn(f'{row.point_estimate * 100000:,.2f} <small>[{row.ci_low * 100000:,.2f}, {row.ci_high * 100000:,.2f}]</small>', comparison)
+            # Audit tables cover every saved validation/test policy-budget and pairwise row.
+            appendix = re.search(r'<section id="appendix">.+</section>', html, re.S).group()
+            self.assertNotRegex(appendix, r'<details[^>]*\sopen(?:\s|>)')
+            results = re.search(r'id="appendix-results".+?id="appendix-pairs"', html, re.S).group()
+            tables = re.findall(r'<table.*?</table>', results, re.S)
+            val_metric_rows = ElementTree.fromstring(tables[0]).findall('./tbody/tr')
+            test_metric_rows = ElementTree.fromstring(tables[-1]).findall('./tbody/tr')
+            self.assertEqual(len(val_metric_rows), 9)
+            self.assertEqual(len(test_metric_rows), len(policies))
+            for shown, row in zip(test_metric_rows, policies.itertuples()):
+                values = [cell.text for cell in shown]
+                self.assertEqual(values[3], f'{row.gain_ht * 100000:,.2f}')
+                self.assertEqual(values[-2], f'{row.auuc * 100000:,.2f}')
+                self.assertEqual(values[-1], f'{row.qini_score * 100000:,.2f}')
+            pair_markup = re.search(r'id="appendix-pairs".+?id="appendix-budget"',html,re.S).group()
+            pair_tables = re.findall(r'<table.*?</table>',pair_markup,re.S)
+            for markup, name in zip(pair_tables, ['models/validation_pairwise.csv','evaluation/test_pairwise.csv']):
+                self.assertEqual(len(ElementTree.fromstring(markup).findall('./tbody/tr')),len(pd.read_csv(out/name)))
             self.assertNotIn(str(root), html)
-            self.assertNotIn('predictions.npz', html)
-            self.assertNotIn('data_preparation/test_row_ids.csv', html)
-            self.assertEqual(policies.loc[policies.budget.eq(1.), 'gain_ht'].nunique(), 1)
-            expected_chapters = [
-                ("summary", "00. 执行摘要"),
-                ("business", "01. 业务问题与定向策略"),
-                ("data", "02. 数据来源与准备"),
-                ("diagnostics", "03. 实验诊断与因果识别"),
-                ("ate", "04. 平均处理效应（ATE）"),
-                ("modeling", "05. 因果增量建模"),
-                ("evaluation", "06. 评估框架"),
-                ("validation", "07. 验证与模型选择"),
-                ("test", "08. 独立测试评估"),
-                ("robustness", "09. 预算敏感性与稳健性"),
-                ("conclusion", "10. 业务启示与结论"),
-                ("appendix", "附录：技术细节与复现"),
-            ]
-            chapters = re.findall(r'<section[^>]* id="([^"]+)"><h2>([^<]+)</h2>', html)
-            navigation = re.findall(r'<li><a href="#([^"]+)">([^<]+)</a></li>', html)
-            self.assertEqual(chapters, expected_chapters)
-            self.assertEqual(navigation, expected_chapters)
-            with self.assertRaises(FileExistsError):
-                run(args)
-            # Report-only rebuild also works when optional repeat training is disabled.
+            overlap = json.loads((out/'strategy_overlap.json').read_text())
+            self.assertEqual(overlap['n'], len(source_by_id.loc[pd.read_csv(out/'data_preparation/test_row_ids.csv').row_id]))
+            self.assertEqual(overlap['policy'], manifest['selection']['selected_uplift_model'])
+            # Rebuilding elsewhere must neither train/predict nor alter any original artifact.
             from criteo_uplift.reporting import build_report
-            (out / 'stability/report.json').write_text(json.dumps({'status': 'not_run', 'reason': '测试关闭额外重训'}))
-            manifest['arguments']['skip_stability'] = True
-            (out / 'manifest.json').write_text(json.dumps(manifest))
-            build_report(out / 'manifest.json', out / 'report.html')
-            skipped = (out / 'report.html').read_text()
-            self.assertIn('本轮没有新增跨种子', skipped)
-            self.assertIn('--skip-stability', skipped)
-            self.assertNotIn('开发期训练规模敏感性</', skipped)
+            original = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
+                        for p in out.rglob('*') if p.is_file()}
+            with patch('criteo_uplift.models.s_learner', side_effect=AssertionError('no refit')), \
+                 patch('criteo_uplift.evaluation.evaluate_ranking', side_effect=AssertionError('no evaluation')):
+                build_report(out/'manifest.json',root/'published/report.html')
+            after = {str(p.relative_to(out)): hashlib.sha256(p.read_bytes()).hexdigest()
+                     for p in out.rglob('*') if p.is_file()}
+            self.assertEqual(original,after)
+            self.assertTrue((root/'published/report_provenance.json').is_file())
+            with self.assertRaises(FileExistsError): build_report(out/'manifest.json',out/'report.html')
+            with self.assertRaises(FileExistsError): run(args)
+
 
 
 

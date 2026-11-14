@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "criteo-uplift-project"
-version = "0.1.0"
+version = "1.0.0"
 description = "Budget-constrained incremental conversion evaluation on a public randomized benchmark"
 readme = "README.md"
 requires-python = ">=3.11"
