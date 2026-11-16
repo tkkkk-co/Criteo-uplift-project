@@ -469,10 +469,6 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _paragraph('项目交付了经过验证集选型和留出评价的策略推荐，并形成了可执行的线上实验方案。'
                      '按预设验证集规则保留冻结策略，并在目标业务人群通过同覆盖率随机实验比较挑战策略。'
                      '<a href="#decision">查看最终业务建议</a>。')))
-    flow = [('business','业务问题'),('identification','数据与因果识别'),('ate-main','ATE'),('methods','CATE / Response 建模'),
-            ('selection-flow','验证集冻结'),('results','测试集策略评价'),('interpretation','结果解释'),('decision','业务决策')]
-    workflow = '<aside id="workflow"><h2>项目研究流程</h2><ol class="workflow">' + ''.join(
-        f'<li><a href="#{anchor}">{title}</a></li>' for anchor,title in flow) + '</ol><p>沿正文顺序阅读即可复述项目；蓝色附录链接用于核验细节。</p></aside>'
     example = '<figure class="example"><div><b>高自然转化人群</b><span>80% → 85%　增量 +5 个百分点</span><div class="bar"><i style="width:80%"></i><em style="width:5%"></em></div></div><div><b>高广告敏感人群</b><span>10% → 35%　增量 +25 个百分点</span><div class="bar"><i style="width:10%"></i><em style="width:25%"></em></div></div><figcaption>示意数据，非 Criteo 实验结果。蓝色为不处理转化概率，橙色为处理分配带来的增量；两段之和为处理后转化概率。</figcaption></figure>'
     main.append(_section('business', '02｜为什么研究增量转化',
         _paragraph('广告平台需要从合资格用户中选择目标人群。预算、广告库存和频次限制使每个触达名额都有机会成本。'
@@ -798,15 +794,25 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                      '原始数据及派生成果遵循 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>。')))
     titles = [('summary','研究结论'),('business','业务问题'),('identification','数据与因果识别'),
               ('methods','建模与评价'),('results','核心发现'),('interpretation','策略解释'),('decision','业务决策')]
-    header = f'''<header><p class="eyebrow">CRITEO UPLIFT PROJECT</p><h1>固定投放预算下的增量转化研究</h1><p>{stage_title} · 正文约 10–15 分钟 · 技术附录可展开</p>
-    <nav class="reading-entries" aria-label="阅读入口"><a href="#research">阅读研究正文</a><a href="#appendix">查看技术附录</a><a href="#workflow">项目研究流程</a><a href="#decision">核心结果与业务建议</a></nav>
-    <nav class="chapter-nav" aria-label="正文目录">{''.join(f'<a href="#{key}">{title}</a>' for key,title in titles)}</nav></header>'''
+    header = f'''<header><p class="eyebrow">CRITEO UPLIFT PROJECT</p><h1>固定广告资格覆盖率下的增量转化优化</h1>
+    <div class="research-profile" role="group" aria-label="研究概况">
+      <h2 class="profile-title">RESEARCH PROFILE</h2>
+      <div class="profile-list">
+        <p class="profile-row"><span class="profile-label">DATASET · 研究数据：</span><strong class="profile-value">Criteo Uplift Prediction Dataset v2.1</strong></p>
+        <p class="profile-row"><span class="profile-label">RESEARCH DESIGN · 研究设计：</span><strong class="profile-value">Randomized Experiment (RCT)</strong></p>
+        <p class="profile-row"><span class="profile-label">METHODOLOGY · 建模方法：</span><strong class="profile-value">Uplift Modeling</strong></p>
+        <p class="profile-row"><span class="profile-label">CAUSAL ESTIMANDS · 因果估计目标：</span><strong class="profile-value">ATE<sub>T</sub> (ITT) / CATE<sub>T</sub></strong></p>
+        <p class="profile-row"><span class="profile-label">POLICY EVALUATION · 策略评价：</span><strong class="profile-value">HT-Gain@20%</strong></p>
+      </div>
+    </div>
+    <p class="nav-label">PROJECT FLOW · 项目研究流程</p>
+    <nav class="chapter-nav" aria-label="项目研究流程">{''.join(f'<a href="#{key}">{title}</a>' for key,title in titles)}</nav></header>'''
     research = ''.join(main)
     if development:
         research = research.replace('独立测试集', '开发留出集')
     document = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
                 f'<title>{stage_title}｜Criteo Uplift</title><style>{_REPORT_CSS}</style></head><body><main>'
-                + header + workflow + '<article id="research" aria-label="研究正文">' + research + '</article>'
+                + header + '<article id="research" aria-label="研究正文">' + research + '</article>'
                 + '<section id="appendix"><h2>技术附录｜按主题核验完整证据</h2><p>默认折叠。正文中的附录链接会自动展开对应主题；长表格可在容器内横向滚动，页面本身保持适配。</p>'
                 + ''.join(appendix) + '</section><footer>验证集选型已冻结 · <a href="#research">返回研究正文</a></footer></main>'
                 + _NAV_SCRIPT + '</body></html>')
@@ -827,9 +833,9 @@ _REPORT_CSS = """
 :root{color-scheme:light;--ink:#263746;--blue:#21628e;--pale:#eef5fa;--line:#d9e4ed}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f5f7fa;color:var(--ink);font:16px/1.85 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
 main{max-width:1120px;margin:auto;padding:42px 28px}header{padding:12px 6px 24px}h1{font-size:35px;line-height:1.4;margin:10px 0}h2{font-size:25px;line-height:1.5;margin:0 0 20px}h3{font-size:19px;margin:28px 0 12px}p{margin:14px 0}a{color:var(--blue);text-underline-offset:3px}b,strong{font-weight:650}
-.eyebrow{font-size:12px;letter-spacing:.12em;color:var(--blue)}section,#workflow{border:1px solid var(--line);background:white;padding:30px;border-radius:8px;margin:24px 0;scroll-margin-top:18px}
-.reading-entries,.chapter-nav{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}.reading-entries a{padding:8px 14px;background:var(--pale);border-radius:4px;text-decoration:none;font-weight:600}.chapter-nav a{font-size:14px}
-.workflow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));list-style:none;padding:0;gap:12px;counter-reset:steps}.workflow li{counter-increment:steps;background:var(--pale);padding:12px;border-radius:4px}.workflow li:before{content:counter(steps) " → ";color:#607e96}.workflow a{font-size:14px;text-decoration:none}
+.eyebrow{font-size:12px;letter-spacing:.12em;color:var(--blue)}section{border:1px solid var(--line);background:white;padding:30px;border-radius:8px;margin:24px 0;scroll-margin-top:18px}
+.research-profile{margin:24px 0 26px}.profile-title{font-size:18px;line-height:1.4;letter-spacing:.04em;margin:0 0 12px;color:var(--ink)}.profile-list{display:grid;gap:8px}.profile-row{display:flex;align-items:baseline;flex-wrap:wrap;column-gap:10px;row-gap:2px;margin:0}.profile-label{font-size:14px;color:#607487;font-weight:550}.profile-value{font-size:17px;color:var(--ink);font-weight:650}.nav-label{font-size:12px;letter-spacing:.08em;color:#607487;font-weight:650;margin:28px 0 8px}.chapter-nav{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:0}.chapter-nav a{font-size:14px}
+
 .lead{font-size:19px}.cards,.split-flow,.overlap-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.cards>div,.split-flow>div,.overlap-counts>div{background:var(--pale);padding:18px;border-radius:5px}.cards span,.cards small,.split-flow span,.overlap-counts span,.overlap-counts small{display:block;font-size:13px;color:#597185}.cards strong,.overlap-counts strong{font-size:27px;display:block}.split-flow b{display:block;font-size:15px}.shared{outline:2px solid #9fbbce}
 figure{margin:24px 0}figure img{display:block;width:100%;height:auto}figcaption{font-size:13px;color:#607487;line-height:1.7;margin:12px 0}.example{background:#f8fafc;padding:18px;border:1px solid var(--line);border-radius:5px}.example>div{margin:14px 0}.example b,.example span{display:block}.example span{font-size:14px}.bar{height:16px;background:#e6edf2;display:flex;margin-top:7px}.bar i{background:#73a0c4}.bar em{background:#c48645}
 .table-wrap{overflow-x:auto;margin:18px 0}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;line-height:1.65}th,td{text-align:left;vertical-align:top;padding:11px 10px;border-bottom:1px solid #e0e8ef;overflow-wrap:anywhere}th{background:var(--pale)}tr:nth-child(even){background:#fafcfe}.wide table{min-width:980px;table-layout:auto}.wide td{min-width:85px}.wide th{min-width:100px}
@@ -852,8 +858,8 @@ figure{margin:24px 0}figure img{display:block;width:100%;height:auto}figcaption{
 .paired-scale{display:flex;justify-content:space-between;color:#667c8d;font-size:12px;padding:6px 3px 0}
 .paired-note{margin:12px 0 0;font-size:14px;line-height:1.7}
 
-@media(max-width:700px){main{padding:20px 12px}section,#workflow{padding:18px;margin:18px 0}h1{font-size:28px}h2{font-size:23px}.workflow{grid-template-columns:repeat(2,minmax(0,1fr))}.cards,.split-flow,.overlap-counts{grid-template-columns:1fr}.policy-chart{padding:12px}.policy-row{grid-template-columns:minmax(0,1fr) minmax(100px,.9fr);gap:5px;padding:10px 4px}.policy-track{grid-row:2;grid-column:1/-1;margin-top:4px}.policy-value{text-align:right}.policy-axis{margin:12px 4px}.main-pairs table,.main-pairs tbody,.main-pairs tr,.main-pairs td{display:block;width:100%}.main-pairs thead{display:none}.main-pairs tr{padding:10px 0;border-bottom:1px solid var(--line)}.main-pairs td{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;border:0;padding:5px}.main-pairs td:before{content:attr(data-label);color:#58738a;font-weight:600}.appendix-content{padding:4px 10px 12px}th,td{padding:8px 5px;font-size:12px}.equation{padding:12px}.lead{font-size:17px}}
-@media print{@page{size:A4;margin:15mm 14mm}body{background:white;font-size:10pt;line-height:1.6;print-color-adjust:exact}main{padding:0;max-width:none}section,#workflow{padding:10pt 0;border:0;margin:8pt 0}h1{font-size:24pt}h2{font-size:18pt}h3{font-size:13pt}h2,h3,thead{break-after:avoid}p{orphans:3;widows:3}.reading-entries,.chapter-nav,footer{display:none}.workflow{grid-template-columns:repeat(4,1fr)}figure,.equation,.cards,.split-flow,.overlap-counts,tr{break-inside:avoid}img{max-height:145mm;object-fit:contain}.table-wrap{overflow:visible}table{font-size:8pt}details:not([open]){display:none}.appendix-content .table-wrap{max-height:none;overflow:visible}.wide table{min-width:0;table-layout:fixed}.wide th,.wide td{min-width:0}.policy-chart{--cols:130px minmax(130px,2fr) 120px;padding:10pt}.policy-row{font-size:9pt;gap:10px}.policy-axis{margin:6pt 140px 6pt 140px}}
+@media(max-width:700px){main{padding:20px 12px}section{padding:18px;margin:18px 0}h1{font-size:28px}h2{font-size:23px}.profile-value{font-size:16px}.cards,.split-flow,.overlap-counts{grid-template-columns:1fr}.policy-chart{padding:12px}.policy-row{grid-template-columns:minmax(0,1fr) minmax(100px,.9fr);gap:5px;padding:10px 4px}.policy-track{grid-row:2;grid-column:1/-1;margin-top:4px}.policy-value{text-align:right}.policy-axis{margin:12px 4px}.main-pairs table,.main-pairs tbody,.main-pairs tr,.main-pairs td{display:block;width:100%}.main-pairs thead{display:none}.main-pairs tr{padding:10px 0;border-bottom:1px solid var(--line)}.main-pairs td{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;border:0;padding:5px}.main-pairs td:before{content:attr(data-label);color:#58738a;font-weight:600}.appendix-content{padding:4px 10px 12px}th,td{padding:8px 5px;font-size:12px}.equation{padding:12px}.lead{font-size:17px}}
+@media print{@page{size:A4;margin:15mm 14mm}body{background:white;font-size:10pt;line-height:1.6;print-color-adjust:exact}main{padding:0;max-width:none}section,#workflow{padding:10pt 0;border:0;margin:8pt 0}h1{font-size:24pt}h2{font-size:18pt}h3{font-size:13pt}h2,h3,thead{break-after:avoid}p{orphans:3;widows:3}.nav-label,.chapter-nav,footer{display:none}.workflow{grid-template-columns:repeat(4,1fr)}figure,.equation,.cards,.split-flow,.overlap-counts,tr{break-inside:avoid}img{max-height:145mm;object-fit:contain}.table-wrap{overflow:visible}table{font-size:8pt}details:not([open]){display:none}.appendix-content .table-wrap{max-height:none;overflow:visible}.wide table{min-width:0;table-layout:fixed}.wide th,.wide td{min-width:0}.policy-chart{--cols:130px minmax(130px,2fr) 120px;padding:10pt}.policy-row{font-size:9pt;gap:10px}.policy-axis{margin:6pt 140px 6pt 140px}}
 """
 
 _NAV_SCRIPT = '''<script>

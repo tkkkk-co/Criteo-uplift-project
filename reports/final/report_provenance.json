@@ -38,8 +38,8 @@
     "stability/report.json": "6aa77af4a3466f33831ba211aaee75c3ebaaabfa3f67878fa466e3eabae2e7e7"
   },
   "score_sha256": "2dc4edeebf3c4e7753aeea450d3764983a067e4f2f0207da086eff8ad12e1f44",
-  "report_sha256": "a01890b835f076c902c4635caad8004f605d478b28617fed6e9755b47724a665",
-  "generator_sha256": "08d49285c6bc742026d5bb44b8ba852296732661269b5c743a2f0c0a8356b140",
+  "report_sha256": "deaf8e17132b15f2ba4ad29fdf797515b7b2340ef526fb2a0f8c6c3ee774e078",
+  "generator_sha256": "f8a2c320a7a78f1b55723710e6e299f67ad88cf9a523fd132e1c9020fcfe6a0a",
   "report_calculations": [
     "Top 20% overlap, Jaccard, raw-score Spearman",
     "Paired HT bootstrap (2000 draws) for budget margins and key policies"
