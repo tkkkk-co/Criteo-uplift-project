@@ -464,7 +464,91 @@ def _gain_comparison(primary):
     })
 
 
-def build_report(manifest_path: Path, report_path: Path) -> Path:
+def _dataset_audit_section(out, manifest, audit):
+    """Render chapter 02 from the saved full-run audit and reviewed figures."""
+    iqr = json.loads((out / 'diagnostics/full_feature_iqr.json').read_text())
+    n = audit['n_rows']
+    if iqr['n'] != n:
+        raise ValueError('02 全量 IQR 行数与保存的审计结果不一致')
+    features = {row['feature']: row for row in iqr['features']}
+    degenerate = sum(row['iqr_status'] == 'degenerate' for row in features.values())
+    treatment, control = (audit['groups'][arm] for arm in ('1', '0'))
+    conversion_t, conversion_c = (group['conversion'] for group in (treatment, control))
+    visit_t, visit_c = (group['visit'] for group in (treatment, control))
+    conversions = conversion_t['positive'] + conversion_c['positive']
+    visits = visit_t['positive'] + visit_c['positive']
+    duplicates = audit['duplicate_row_fingerprints']
+    duplicate_fraction = audit['duplicate_row_fraction']
+
+    schema = _table(pd.DataFrame([
+        ('处理前协变量 X', 'f0–f11', '12 个匿名数值型用户特征'),
+        ('处理分配 T', 'treatment', '广告实验分配标识（1 = Treatment，0 = Control）'),
+        ('观测结果 Y', 'conversion', '是否发生转化，项目主要分析目标（CVR）'),
+        ('辅助行为变量', 'visit', '是否访问广告主网站，用于辅助行为分析'),
+    ], columns=['数据类别', '字段', '定义']))
+    audit_table = _table(pd.DataFrame([
+        ('样本量（占比）', f'{treatment["n"]:,}（{treatment["n"] / n:.0%}）',
+         f'{control["n"]:,}（{control["n"] / n:.0%}）', f'{n:,}'),
+        ('Conversion 正例数', f'{conversion_t["positive"]:,}', f'{conversion_c["positive"]:,}', f'{conversions:,}'),
+        ('Conversion 正例率（CVR）', f'{conversion_t["rate"]:.4%}', f'{conversion_c["rate"]:.4%}', f'{conversions / n:.4%}'),
+        ('Visit 正例数', f'{visit_t["positive"]:,}', f'{visit_c["positive"]:,}', f'{visits:,}'),
+        ('Visit 正例率', f'{visit_t["rate"]:.4%}', f'{visit_c["rate"]:.4%}', f'{visits / n:.4%}'),
+        ('缺失值 / 非有限值', '—', '—', f'{audit["missing_or_nonfinite"]:,}'),
+        ('非法二元标签', '—', '—', f'{audit["invalid_binary_labels"]:,}'),
+        ('Conversion=1 但 Visit=0', '—', '—', f'{audit["conversion_without_visit"]:,}'),
+        ('完整16字段行内重复的多余记录', '—', '—', f'{duplicates:,}（{duplicate_fraction:.2%}）'),
+    ], columns=['审计项目', 'Treatment', 'Control', '全量结果']))
+    return _section('dataset-audit', '02｜数据集与数据审计',
+        _paragraph('本章围绕 Criteo Uplift v2.1 公开广告实验数据，完成数据集结构说明、全量数据质量审计及匿名特征分布分析。通过全量数据扫描，确认处理前协变量、处理分配和观测结果的完整性，评估处理组与对照组的样本规模及转化事件分布，并结合匿名特征的分布形态和取值范围，为后续因果识别与 Uplift 建模提供数据基础。')
+        + '<h3>2.1 数据集结构</h3>'
+        + _paragraph('数据来源为 Criteo AI Lab 发布的 <a href="https://ailab.criteo.com/criteo-uplift-prediction-dataset/">Criteo Uplift Prediction Dataset</a>。'
+                     f'本项目使用 Criteo Uplift v2.1，原始数据包含 {n:,} 条记录、{audit["n_columns"]} 个字段。')
+        + schema
+        + _paragraph('原始数据还包含 exposure 字段，记录实际广告曝光情况。本项目以 treatment 定义处理分配，不使用实际曝光重新定义处理组，也不将 exposure 作为处理前协变量或主要分析结果。')
+        + _paragraph('项目以 conversion 作为主要观测结果，围绕广告资格分配对转化率（CVR）的增量影响开展研究。')
+        + '<h3>2.2 全量数据审计</h3>'
+        + _paragraph('本项目采用流式分批读取方式，对原始 CSV 进行全量数据审计。Pipeline 按每批 250,000 行读取数据，逐批完成字段结构、数值有效性及标签合法性检查，并累计全量审计结果。')
+        + _paragraph('全量审计结果如下。')
+        + '<h4>表 2-1｜全量数据审计结果</h4>' + audit_table
+        + '<h4>样本规模与转化分布</h4>'
+        + _paragraph(f'处理组与对照组占比分别为 {treatment["n"] / n:.0%} 和 {control["n"] / n:.0%}，样本规模存在明显差异。')
+        + _paragraph(f'从主要业务指标 CVR 来看，处理组产生 {conversion_t["positive"]:,} 个转化正例，对照组产生 {conversion_c["positive"]:,} 个转化正例，全体样本共包含 {conversions:,} 个转化事件。')
+        + _paragraph('虽然 Conversion 属于稀疏结果，但全量样本仍提供了数万级正例事件，对照组也保有数千个正例，为后续二元转化模型拟合及处理组、对照组响应比较提供了可用的样本基础。')
+        + _paragraph(f'处理组 CVR 为 {conversion_t["rate"]:.4%}，高于对照组的 {conversion_c["rate"]:.4%}。这一差异反映了原始样本中的组间转化表现，为后续增量效果识别提供分析基础，实际因果效果仍需结合后续实验诊断及模型评价确定。')
+        + _paragraph('Visit 用于辅助观察用户访问行为，项目主要业务优化目标仍然是 Conversion。')
+        + '<h4>数据完整性与重复记录</h4>'
+        + _paragraph('全量数据未发现缺失值、非有限值、非法二元标签及 Conversion 与 Visit 的逻辑异常，说明原始数据具备较好的字段完整性和标签有效性。')
+        + _paragraph('重复记录审计基于完整 16 个字段生成行指纹，统计内容完全重复记录产生的多余行数。同一完整行指纹出现 k 次，计入 k-1 条多余记录。')
+        + _paragraph(f'全量识别出 {duplicates:,} 条多余重复行，占原始记录的 {duplicate_fraction:.2%}。')
+        + _paragraph('由于匿名特征缺少用户级唯一标识，无法确认这些记录究竟来自同一用户的真实重复记录，还是不同用户恰好具有相同的 16 字段取值。因此，本项目保留原始记录，不根据完整行重复直接删除样本。')
+        + '<h3>2.3 匿名特征分布与取值范围</h3>'
+        + _paragraph('数据集包含 12 个匿名数值型处理前协变量。本节基于全量原始数据展示特征的四分位分布、实际取值范围及统计异常值，并结合原有 EDA 图分析各特征的分布形态。')
+        + _image(out / 'figures/full_feature_iqr.png', '图 2-1｜全量匿名特征 IQR 箱线图',
+                 f'数据来源：原始 CSV 全量 {n:,} 行。橙点表示正常 IQR 的异常值位置，退化 IQR 行标注偏离集中值的方向和比例。')
+        + _paragraph(f'从全量统计结果来看，12 个特征中有 {degenerate} 个呈现退化 IQR，即 Q1、中位数与 Q3 均集中于同一取值，说明其中央分布具有明显的单点集中现象。其余 {len(features) - degenerate} 个特征具有非零 IQR，可以使用 1.5×IQR 规则识别潜在统计异常值。')
+        + _paragraph(f'其中，f6 和 f8 分别识别出 {features["f6"]["outlier_count"]:,} 条和 {features["f8"]["outlier_count"]:,} 条 IQR 异常值，占全量样本的 {features["f6"]["outlier_fraction"]:.4%} 和 {features["f8"]["outlier_fraction"]:.4%}；f0 和 f2 未发现超出 IQR 边界的观测。')
+        + _paragraph('对于退化 IQR 特征，本项目统计其偏离集中值的观测数量及比例，不将其直接认定为异常值。该处理保留了特征的实际分布信息，避免集中取值导致的异常值误判。')
+        + _image(out / 'figures/sample_features.png', '图 2-2｜12 个匿名特征 EDA 分布图',
+                 f'数据来源：本次正式运行的建模样本，共 {manifest["sample_n"]:,} 行。')
+        + _paragraph('结合 EDA 分布图，各特征表现出不同的分布形态：f0 呈现多峰及较宽分布；f1、f4、f7、f9、f10 具有明显的右侧延伸；f3、f5、f11 主要表现为左侧延伸；f6 具有较宽的连续分布，而 f8 高度集中于较窄的取值区间。')
+        + _paragraph('总体来看，12 个匿名特征存在明显的集中取值、偏态及长尾现象，特征间的分布结构具有较大差异。这些统计特征为后续模型拟合与比较提供了数据分布依据，也为分析模型对不同用户特征区间的响应差异提供了基础。由于特征缺少公开业务语义，当前分析主要限定于统计分布层面，具体业务含义需要结合后续模型结果进一步解释。')
+        + _details('dataset-audit-engineering', '工程实现｜全量数据审计与报告组装',
+            _paragraph('<code>run_pipeline.py::run()</code> → <code>criteo_uplift/preparation.py::prepare_sample()</code> → <code>criteo_uplift/raw_scan.py::scan_raw_data()</code>。扫描逐批调用 <code>validate_chunk()</code>，由 <code>AuditAccumulator</code> 和 <code>DiagnosticsAccumulator</code> 累计全量审计与特征统计。')
+            + _paragraph('<code>criteo_uplift/reporting.py::build_report()</code> 调用 <code>_dataset_audit_section()</code>，读取保存的全量审计、IQR 统计和图表，组装正式 HTML 的第 02 章。')))
+
+
+def _replace_dataset_audit(document, section):
+    previous = re.compile(r'<section id="(?:dataset-audit|feature-eda)">.*?</section>', re.DOTALL)
+    document, count = previous.subn(lambda _: section, document)
+    if count == 1:
+        return document
+    anchor = '<section id="identification">'
+    if count or document.count(anchor) != 1:
+        raise ValueError('无法唯一定位正式报告的第 02 章')
+    return document.replace(anchor, section + anchor, 1)
+
+
+def build_report(manifest_path: Path, report_path: Path, *, dataset_audit_only=False) -> Path:
     """从保存的实验工件生成报告和来源指纹。"""
     from .budget_analysis import BOOTSTRAP_REPEATS, evaluate_budget_margins
     from .planning import cost_value_scenario
@@ -478,8 +562,13 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     read_json = lambda name: json.loads((out / name).read_text())
     read_csv = lambda name: pd.read_csv(out / name, dtype={'p_value_text': 'string'})
     manifest = read_json(manifest_path.name)
-    selection = read_json('models/selection.json')
     audit = read_json('data_preparation/audit.json')
+    if dataset_audit_only:
+        section = _dataset_audit_section(out, manifest, audit)
+        document = report_path.read_text(encoding='utf-8')
+        report_path.write_text(_replace_dataset_audit(document, section), encoding='utf-8')
+        return report_path
+    selection = read_json('models/selection.json')
     sample = read_json('data_preparation/sample_report.json')
     split = read_csv('data_preparation/split_summary.csv')
     ate = read_csv('evaluation/ate_summary.csv')
@@ -657,16 +746,8 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _paragraph('本项目以增量转化人数为优化目标。由于 Criteo 公开数据缺少用户级广告成本和转化金额，研究结论限定于固定资源条件下的增量转化优化。')
         + _details('theory-business-cate', '理论推导｜业务目标函数与 CATE 排序的关系', theory)
     ))
-    full_iqr_plot = out / 'figures/full_feature_iqr.png'
-    if full_iqr_plot.is_file():
-        main.append(_section(
-            'feature-eda', '02.3｜处理前匿名特征 EDA',
-            _image(full_iqr_plot, '全量数据 IQR 横向箱线图',
-                   f'Criteo Uplift v2.1 全量 {audit["n_rows"]:,} 行。须线止于 1.5×IQR 界限内的最远观测；'
-                   '橙点表示正常 IQR 的异常值位置。退化 IQR 以竖线表示集中值，并单列偏离集中值的比例。')
-            + _image(out / 'figures/sample_features.png', '建模样本特征分布',
-                     f'原始运行保存的建模样本 EDA 图（{manifest["sample_n"]:,} 行）。'),
-        ))
+    if (out / 'diagnostics/full_feature_iqr.json').is_file():
+        main.append(_dataset_audit_section(out, manifest, audit))
     overview = _table(pd.DataFrame([
         ('原始公开记录', f'{audit["n_rows"]:,} 行'), ('本阶段建模 / 留出评价', f'{manifest["sample_n"]:,} / {test_n:,} 行'),
         ('处理组 / 对照组占比', f'{srm["observed_ratio"]:.2%} / {1-srm["observed_ratio"]:.2%}'),
