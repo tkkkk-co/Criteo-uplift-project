@@ -185,10 +185,15 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(len(re.findall(r'<section id=', body)), 7)
             self.assertNotIn('<details', body)
             self.assertNotIn('class="table-wrap wide"', body)
-            for text in ('阅读研究正文', '查看技术附录', '项目研究流程', '核心结果与业务建议',
-                         '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman', '线上实验尚未执行',
-                         '理论最优性', 'StandardScaler'):
+            for text in ('RESEARCH PROFILE', 'Criteo Uplift Prediction Dataset v2.1',
+                         'Randomized Experiment (RCT)', 'Uplift Modeling',
+                         'ATE<sub>T</sub> (ITT) / CATE<sub>T</sub>', 'HT-Gain@20%',
+                         '项目研究流程', '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman',
+                         '线上实验尚未执行', '理论最优性', 'StandardScaler'):
                 self.assertIn(text, html)
+            self.assertNotIn('reading-entries', html)
+            self.assertNotIn('id="workflow"', html)
+            self.assertEqual(len(re.findall(r'<nav class="chapter-nav"', html)), 1)
             # Every saved primary point and interval must appear in the nine-policy figure.
             comparison = re.search(r'<figure id="primary-policy-chart".+?</figure>', html, re.S).group()
             bootstrap = pd.read_csv(out / 'evaluation/test_bootstrap.csv').query('budget == 0.2')
