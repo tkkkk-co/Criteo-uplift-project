@@ -273,6 +273,107 @@ def _section(anchor, title, content):
     return f'<section id="{anchor}"><h2>{title}</h2>{content}</section>'
 
 
+def _business_chapter():
+    """Frozen chapter 01 copy and layout."""
+    return r'''<div class="business-chapter">
+<h3>1.1 业务背景与研究问题</h3>
+<p>在互联网广告投放场景中，广告平台需要从合资格用户中选择广告投放对象。受广告预算、广告库存及触达频次限制，可分配的广告资格名额有限，因此需要优化有限资源下的用户选择策略。</p>
+<p>传统广告定向通常采用 Response Modeling，根据用户接受广告处理后的预测转化概率进行排序，优先选择更可能转化的用户。然而，用户的转化行为同时受到自然转化倾向与广告增量效果的影响。部分用户即使没有获得广告资格，也具有较高的自然转化概率；另一些用户虽然自然转化概率较低，却可能对广告处理具有更强的响应。</p>
+<p>因此，单纯依据处理后的转化概率进行排序，可能将有限的广告资源分配给自然转化倾向较高、增量效果较低的用户。</p>
+<p class="business-goal"><strong>本项目研究目标：在固定广告资格覆盖率下，识别不同用户群体的广告增量效果，优化目标人群选择，从而最大化预期增量转化人数。</strong></p>
+<h3>1.2 Response Targeting 与 Uplift Targeting</h3>
+<p>两种策略的核心区别在于用户排序依据：</p>
+<ul><li><strong>Response Targeting：</strong> 根据处理后的预测转化概率排序，优先选择更可能转化的用户。</li>
+<li><strong>Uplift Targeting：</strong> 根据广告处理带来的预测增量转化排序，优先选择从广告中获益更多的用户。</li></ul>
+<figure class="business-example">
+<h3>两种定向策略的排序差异</h3>
+<div class="business-persona">
+<h4>高自然转化人群</h4>
+<div class="business-values"><strong>80% 自然转化</strong><strong>+5pp 增量</strong></div>
+<div class="business-track" role="img" aria-label="80% 自然转化加 5 个百分点增量，共 85%"><span class="business-base" style="width:80%"></span><span class="business-lift" style="width:5%"></span></div>
+<p class="business-postrate">处理后转化率：85%</p>
+</div>
+<div class="business-persona">
+<h4>高广告敏感人群</h4>
+<div class="business-values"><strong>10% 自然转化</strong><strong>+25pp 增量</strong></div>
+<div class="business-track" role="img" aria-label="10% 自然转化加 25 个百分点增量，共 35%"><span class="business-base" style="width:10%"></span><span class="business-lift" style="width:25%"></span></div>
+<p class="business-postrate">处理后转化率：35%</p>
+</div>
+<figcaption>示意数据，非 Criteo 实验结果。蓝色为自然转化基础，橙色为广告处理带来的增量。</figcaption>
+</figure>
+<p>在该示例中，Response 会优先选择高自然转化人群，Uplift 则会优先选择高广告敏感人群。同样分配 100 个广告资格名额，后者预期多产生 20 次增量转化。</p>
+<p>这体现了 Uplift Modeling 在有限广告资源分配中的业务价值：根据广告的增量贡献选择目标用户。</p>
+<h3>1.3 符号框架与固定覆盖率下的业务优化目标</h3>
+<h4>（1）业务问题的数学抽象</h4>
+<p>假设平台拥有 <i>N</i> 名合资格候选用户，需要从中选择 <i>K</i> 名用户分配广告资格。定义用户 <i>i</i> 的处理前特征为 <i>X<sub>i</sub></i>，处理分配为 <i>T<sub>i</sub></i>，潜在转化结果为 <i>Y<sub>i</sub>(1)</i> 和 <i>Y<sub>i</sub>(0)</i>。</p>
+<p>其中，<i>Y<sub>i</sub>(1)</i> 表示用户被分配至广告处理组时的潜在转化结果，<i>Y<sub>i</sub>(0)</i> 表示用户被分配至对照组时的潜在转化结果。</p>
+<p>设业务分配策略为 <i>π<sub>i</sub></i>，其取值为 0 或 1，分别表示不分配或分配广告资格。</p>
+<div class="business-table-wrap"><table class="business-symbols"><thead><tr><th>符号</th><th>定义</th></tr></thead><tbody>
+<tr><td><i>N</i></td><td>合资格候选用户总数</td></tr>
+<tr><td><i>X<sub>i</sub></i></td><td>用户处理前特征</td></tr>
+<tr><td><i>T<sub>i</sub></i></td><td>随机处理分配，1 为处理组，0 为对照组</td></tr>
+<tr><td><i>Y<sub>i</sub>(1),Y<sub>i</sub>(0)</i></td><td>用户在两种处理分配状态下的潜在转化结果</td></tr>
+<tr><td><i>Y<sub>i</sub></i></td><td>实际观测转化结果</td></tr>
+<tr><td><i>π<sub>i</sub></i></td><td>用户广告资格分配决策，取值为 0 或 1</td></tr>
+<tr><td><i>K</i></td><td>固定广告资格名额</td></tr>
+<tr><td><i>μ<sub>t</sub>(x)</i></td><td><i>E[Y(t)∣X=x]</i>，特征为 <i>x</i> 的用户在处理状态 <i>t</i> 下的条件平均转化概率</td></tr>
+<tr><td><i>τ(x)</i></td><td><i>E[Y(1)−Y(0)∣X=x]</i>，即 CATE</td></tr>
+</tbody></table></div>
+<h4>（2）业务优化目标</h4>
+<p>本项目将广告资格覆盖率固定为 20%，因此：</p>
+<div class="business-formula" role="math">K = ⌊0.2N⌋</div>
+<p>业务目标是在固定资格名额下，最大化总体预期转化人数：</p>
+<div class="business-formula business-optimization" role="math">
+<div class="business-opt-line"><span>max<sub>π</sub></span><span><span class="business-sum">∑<sub>i=1</sub><sup>N</sup> μ<sub>0</sub>(X<sub>i</sub>)<small>自然转化基础</small></span> + <span class="business-sum">∑<sub>i=1</sub><sup>N</sup> π<sub>i</sub>τ(X<sub>i</sub>)<small>策略产生的预期增量转化</small></span></span></div>
+<div class="business-constraint"><span>s.t.</span><span>∑<sub>i=1</sub><sup>N</sup> π<sub>i</sub> = K = ⌊0.2N⌋</span></div>
+<div class="business-constraint"><span></span><span>π<sub>i</sub> ∈ {0,1},　 i = 1,…,N</span></div>
+</div>
+<p>其中：</p>
+<ul><li>第一项表示全部候选用户在未获得广告资格时的预期自然转化人数。</li>
+<li>第二项表示广告资格分配策略带来的预期增量转化人数。</li></ul>
+<h4>（3）业务假设与模型约束</h4>
+<p>上述优化模型建立在以下业务假设之上：</p>
+<div class="business-table-wrap"><table class="business-assumptions"><thead><tr><th>假设</th><th>具体含义</th></tr></thead><tbody>
+<tr><td>固定候选人群</td><td>候选用户总数 <i>N</i> 固定</td></tr>
+<tr><td>固定资源容量</td><td>必须分配恰好 <i>K</i> 个广告资格名额</td></tr>
+<tr><td>单人投入成本一致</td><td>每名用户获得广告资格的单位成本相同</td></tr>
+<tr><td>单次转化价值一致</td><td>每次转化对应的业务价值相同</td></tr>
+<tr><td>无用户间处理干扰</td><td>一名用户的处理分配不影响其他用户的潜在转化结果</td></tr>
+</tbody></table></div>
+<p>在这些条件下，最大化总体预期转化人数等价于最大化总体预期增量转化人数。</p>
+<h4>（4）由业务优化目标引出 CATE 估计</h4>
+<p>由于候选用户群体固定，自然转化基础不随广告资格分配策略变化。因此，业务优化的关键在于估计每名用户的增量转化效果：</p>
+<div class="business-formula" role="math">τ(x) = E[Y(1)−Y(0)∣X=x] = μ<sub>1</sub>(x)−μ<sub>0</sub>(x)</div>
+<p>该量即为条件平均处理效应（Conditional Average Treatment Effect，CATE）。</p>
+<p>在真实 CATE 已知的情况下，按照 <i>τ(X<sub>i</sub>)</i> 从高到低选择 Top-K 用户，即可实现固定覆盖率下的理论最优分配。</p>
+<p>实际项目中，真实 CATE 无法直接观测，需要通过 Uplift 模型学习预测值 <i>τ̂(X)</i>，并根据预测增量效果进行用户排序。本项目采用固定 20% 覆盖率下的 HT-Gain 评价不同策略的增量转化表现。</p>
+<p>本项目以增量转化人数为优化目标。由于 Criteo 公开数据缺少用户级广告成本和转化金额，研究结论限定于固定资源条件下的增量转化优化。</p>
+<details class="business-details" id="business-theory"><summary>理论推导｜业务目标函数与 CATE 排序的关系</summary><div class="business-details-body">
+<h4>1. 单个用户在分配策略下的潜在结果</h4>
+<p>根据策略决策 <i>π<sub>i</sub></i>，用户对应的潜在结果为：</p>
+<div class="business-formula" role="math">Y<sub>i</sub>(π<sub>i</sub>) = (1−π<sub>i</sub>)Y<sub>i</sub>(0)+π<sub>i</sub>Y<sub>i</sub>(1)</div>
+<p>对处理前特征条件化取期望：</p>
+<div class="business-formula" role="math">E[Y<sub>i</sub>(π<sub>i</sub>)∣X<sub>i</sub>] = (1−π<sub>i</sub>)μ<sub>0</sub>(X<sub>i</sub>)+π<sub>i</sub>μ<sub>1</sub>(X<sub>i</sub>)<div>= μ<sub>0</sub>(X<sub>i</sub>)+π<sub>i</sub>τ(X<sub>i</sub>)</div></div>
+<h4>2. 推广至全部候选用户</h4>
+<p>利用期望的线性性质：</p>
+<div class="business-formula" role="math">E[∑<sub>i=1</sub><sup>N</sup>Y<sub>i</sub>(π<sub>i</sub>) ∣ X<sub>1:N</sub>] = ∑<sub>i=1</sub><sup>N</sup>μ<sub>0</sub>(X<sub>i</sub>)<div>+ ∑<sub>i=1</sub><sup>N</sup>π<sub>i</sub>τ(X<sub>i</sub>)</div></div>
+<p>得到正文中的总体预期转化目标。</p>
+<h4>3. Top-K 排序的最优性</h4>
+<p>假设当前选中的用户 A 的 CATE 低于未选中的用户 B：</p>
+<div class="business-formula" role="math">τ(X<sub>A</sub>) &lt; τ(X<sub>B</sub>)</div>
+<p>将资格名额由 A 调整给 B，预期增量转化增加：</p>
+<div class="business-formula" role="math">Δ = τ(X<sub>B</sub>)−τ(X<sub>A</sub>) &gt; 0</div>
+<p>因此，通过不断将较低 CATE 用户替换为较高 CATE 用户，最终得到 CATE 最高的 K 名用户，即固定覆盖率下的理论最优分配策略。</p>
+<h4>4. 理论最优策略</h4>
+<div class="business-formula" role="math">π<sub>i</sub><sup>*</sup> = 𝟙(i ∈ TopK{τ(X<sub>1</sub>),…,τ(X<sub>N</sub>)})</div>
+<p>实际模型使用预测 CATE <i>τ̂(X)</i> 实现用户排序，其策略表现由增量效应估计与排序质量决定。</p>
+</div></details>
+<details class="business-details" id="business-engineering"><summary>工程实现｜文件、函数与 Pipeline 调用</summary><div class="business-details-body">
+<p><code>run_pipeline.py</code> 的 <code>parse_args()</code> 将正式实验覆盖率固定为 20%；<code>run()</code> 调用 <code>fit_and_select_models()</code>，将 <code>primary_budget=args.primary_budget</code> 传递给验证集选型，并调用 <code>evaluate_test_set()</code> 完成独立测试集评价。</p>
+<p><code>criteo_uplift/training_validation.py</code> 的 <code>fit_and_select_models()</code> 通过 <code>evaluate_ranking()</code> 计算验证集 HT-Gain@20%，按 Bootstrap 均值排序并冻结选型。<code>criteo_uplift/metrics.py</code> 的 <code>evaluate_ranking()</code> 使用 <code>floor(qN)</code> 选择 Top-K，调用 <code>_ht_outcome()</code> 计算逆概率加权结果。<code>criteo_uplift/evaluation.py</code> 的 <code>evaluate_test_set()</code> 加载冻结模型与策略，按同一覆盖率在 Test 集评价。<code>criteo_uplift/reporting.py</code> 的 <code>build_report()</code> 从已保存结果构建正式 HTML。</p>
+</div></details></div>'''
+
+
 def _json(value):
     def portable(item):
         if isinstance(item, dict): return {k: portable(v) for k, v in item.items()}
@@ -469,19 +570,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _paragraph('项目交付了经过验证集选型和留出评价的策略推荐，并形成了可执行的线上实验方案。'
                      '按预设验证集规则保留冻结策略，并在目标业务人群通过同覆盖率随机实验比较挑战策略。'
                      '<a href="#decision">查看最终业务建议</a>。')))
-    example = '<figure class="example"><div><b>高自然转化人群</b><span>80% → 85%　增量 +5 个百分点</span><div class="bar"><i style="width:80%"></i><em style="width:5%"></em></div></div><div><b>高广告敏感人群</b><span>10% → 35%　增量 +25 个百分点</span><div class="bar"><i style="width:10%"></i><em style="width:25%"></em></div></div><figcaption>示意数据，非 Criteo 实验结果。蓝色为不处理转化概率，橙色为处理分配带来的增量；两段之和为处理后转化概率。</figcaption></figure>'
-    main.append(_section('business', '02｜为什么研究增量转化',
-        _paragraph('广告平台需要从合资格用户中选择目标人群。预算、广告库存和频次限制使每个触达名额都有机会成本。'
-                   '传统 Response 根据处理条件下的转化概率 μ₁(X) 排序，适合回答“获得广告资格后谁更可能购买”。'
-                   'Uplift 进一步估计广告资格分配给不同用户的增量，直接服务于有限资格名额下的资源分配。')
-        + example
-        + _paragraph('示例中，Response 会优先选择高自然转化人群，因为 85% 高于 35%；Uplift 会优先选择广告敏感人群，因为 25 个百分点高于 5 个百分点。'
-                     '同样增加 100 个处理名额，后者预期多带来 20 次增量转化。因此需要在真实数据中比较不同评分策略的实际增量收益。')
-        + _equation(r'\mathbb{E}[\mathrm{Total\ Conversions}\mid X]=\sum_i\mu_0(X_i)+\sum_i\pi_i\tau(X_i)', '总体预期转化：自然转化基础 + 策略产生的增量')
-        + _paragraph('当候选人群固定时，第一项不随策略变化。若覆盖人数固定、单位触达成本与转化价值相同、用户间不存在处理干扰，且真实 CATE 已知，'
-                     '按真实 CATE 取 Top K 同时最大化总体预期增量转化和总体预期转化人数。若允许少于 K 人且部分效应为负，约束和最优规则会不同；本项目固定人数。')
-        + _paragraph('实际能用于排序的是预测 CATE，误差可能来自有限正例、模型设定与反事实估计。理论最优性的落地依赖拟合误差、正例支持与反事实响应面的估计质量。'
-                     '本项目将 20% 覆盖率设为事先确定的资格资源约束；通过实验数据比较策略价值，检验增量建模能否兑现理论动机。')))
+    main.append(_section('business', '01｜业务背景与增量转化目标', _business_chapter()))
     overview = _table(pd.DataFrame([
         ('原始公开记录', f'{audit["n_rows"]:,} 行'), ('本阶段建模 / 留出评价', f'{manifest["sample_n"]:,} / {test_n:,} 行'),
         ('处理组 / 对照组占比', f'{srm["observed_ratio"]:.2%} / {1-srm["observed_ratio"]:.2%}'),
@@ -838,6 +927,38 @@ main{max-width:1120px;margin:auto;padding:42px 28px}header{padding:12px 6px 24px
 
 .lead{font-size:19px}.cards,.split-flow,.overlap-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:22px 0}.cards>div,.split-flow>div,.overlap-counts>div{background:var(--pale);padding:18px;border-radius:5px}.cards span,.cards small,.split-flow span,.overlap-counts span,.overlap-counts small{display:block;font-size:13px;color:#597185}.cards strong,.overlap-counts strong{font-size:27px;display:block}.split-flow b{display:block;font-size:15px}.shared{outline:2px solid #9fbbce}
 figure{margin:24px 0}figure img{display:block;width:100%;height:auto}figcaption{font-size:13px;color:#607487;line-height:1.7;margin:12px 0}.example{background:#f8fafc;padding:18px;border:1px solid var(--line);border-radius:5px}.example>div{margin:14px 0}.example b,.example span{display:block}.example span{font-size:14px}.bar{height:16px;background:#e6edf2;display:flex;margin-top:7px}.bar i{background:#73a0c4}.bar em{background:#c48645}
+
+/* Scope: business section 01 only */
+.business-chapter h3{font-size:21px;line-height:1.5;margin:30px 0 16px}
+.business-chapter h4{font-size:18px;line-height:1.5;margin:22px 0 12px}
+.business-chapter ul{padding-left:24px}.business-chapter li{margin:8px 0}
+.business-goal{background:#f1f7fb;border-left:4px solid #77a4c7;padding:16px 20px}
+.business-example{border:1px solid #e2e7ea;background:white;border-radius:16px;padding:24px 26px 18px;margin:24px 0}
+.business-example>h3{font-size:26px;color:#1e262c;line-height:1.4;margin:0 0 24px}
+.business-persona{padding-bottom:24px;border-bottom:1px solid #e8edf0;margin-bottom:26px}
+.business-persona:last-of-type{padding-bottom:0;border:0;margin-bottom:0}
+.business-persona h4{font-size:20px;margin:0 0 10px;color:#20262c}
+.business-values{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px}
+.business-values strong{font-size:20px;color:#76a3c6}.business-values strong:last-child{color:#c88744}
+.business-track{height:24px;background:#e3ebf0;border-radius:8px;display:flex;overflow:hidden}
+.business-base,.business-lift{height:100%;flex-shrink:0;display:block}.business-base{background:#77a4c7}.business-lift{background:#c88744}
+.business-postrate{font-size:17px;color:#6c6c6c;margin:5px 0 0}
+.business-example figcaption{font-size:15px;color:#707070;margin:14px 0 0}
+.business-table-wrap{overflow-x:auto;margin:16px 0 24px}
+.business-symbols,.business-assumptions{table-layout:auto;min-width:550px}
+.business-symbols th:first-child,.business-symbols td:first-child{width:29%}
+.business-assumptions th:first-child,.business-assumptions td:first-child{width:33%}
+.business-formula{font:20px/1.75 "Cambria Math","STIX Two Math",Georgia,serif;text-align:center;padding:20px 15px;margin:18px 0 22px;border:1px solid #dbe6ed;background:#f7fafc;border-radius:8px;overflow-x:auto}
+.business-formula sup,.business-formula sub{font-size:.66em}
+.business-optimization{text-align:left;display:grid;justify-content:center;gap:8px}
+.business-opt-line{display:flex;gap:18px;align-items:baseline}
+.business-sum{display:inline-flex;flex-direction:column;text-align:center;align-items:center;white-space:nowrap;padding:0 6px}
+.business-sum small{border-top:1px solid #83a0b5;font:12px/1.5 system-ui,sans-serif;color:#546e82;margin-top:3px;padding-top:3px}
+.business-constraint{display:grid;grid-template-columns:58px auto;gap:12px}
+.business-details{border:1px solid #dce6ee;border-radius:8px;margin:22px 0;background:#fff}
+.business-details>summary{cursor:pointer;background:#f1f6fa;padding:16px 20px;font-weight:650;color:#245f89}
+.business-details-body{padding:8px 20px 20px}
+@media(max-width:700px){.business-example{padding:18px 14px}.business-example>h3{font-size:21px}.business-persona h4{font-size:18px}.business-values strong{font-size:15px}.business-track{height:20px}.business-postrate{font-size:15px}.business-example figcaption{font-size:13px}.business-formula{font-size:15px}.business-sum small{font-size:9px}.business-opt-line{gap:7px}}
 .table-wrap{overflow-x:auto;margin:18px 0}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px;line-height:1.65}th,td{text-align:left;vertical-align:top;padding:11px 10px;border-bottom:1px solid #e0e8ef;overflow-wrap:anywhere}th{background:var(--pale)}tr:nth-child(even){background:#fafcfe}.wide table{min-width:980px;table-layout:auto}.wide td{min-width:85px}.wide th{min-width:100px}
 .equation{background:#f3f7fa;border:1px solid var(--line);padding:18px;margin:22px 0;border-radius:5px}.equation-label{font-size:13px;font-weight:600;color:#5c7790;margin-bottom:12px}.equation-scroll{overflow-x:auto}.math-equation{width:auto;max-width:100%;height:auto;display:block}
 .policy-chart{--cols:minmax(150px,1.3fr) minmax(200px,2fr) minmax(140px,1fr);background:#f6f9fc;border:1px solid var(--line);padding:20px;border-radius:5px}.chart-unit{font-size:13px;color:#5c7790}.policy-row{display:grid;grid-template-columns:var(--cols);gap:16px;align-items:center;padding:10px;font-size:14px}.policy-row.frozen{background:#e4eef6;border-radius:5px}.policy-track{position:relative;height:22px;background:#edf2f6}.policy-zero,.policy-ci,.policy-dot{position:absolute;top:50%;background:#4f7ca0}.policy-zero{top:0;bottom:0;width:1px;background:none;border-left:1px dashed #8ea2b3}.policy-ci{height:3px}.policy-dot{height:9px;width:9px;border-radius:50%;transform:translate(-50%,-50%);border:1px solid white}.policy-value{font-variant-numeric:tabular-nums}.policy-value small{display:block;font-size:12px;color:#5a7184}.policy-axis{display:flex;justify-content:space-between;margin:8px calc(25% + 12px) 8px calc(30% + 2px);font-size:12px;color:#607487}
