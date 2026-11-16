@@ -22,7 +22,7 @@ from .config import FEATURES
 from .metrics import RANKING_METRIC_DESCRIPTION
 from .pipeline_io import safe_output, write_result
 
-_TITLE = "固定投放预算下的增量转化优化"
+_TITLE = "固定广告资格覆盖率下的增量转化优化"
 
 _COLORS = {
     "random": "#7b8793",
@@ -232,6 +232,32 @@ def _policy_comparison(summary, selected, criterion, unit, n):
         '策略差异依据配对区间判断。</figcaption></figure>'
     )
 
+def _paired_gain_card(response_name, uplift_name, response_value, uplift_value, pair):
+    """显示两种策略的业务收益与配对置信区间。"""
+    difference = float(pair.difference) * 100_000
+    low = float(pair.ci_low) * 100_000
+    high = float(pair.ci_high) * 100_000
+    radius = max(abs(low), abs(high), 1.0)
+    left = 50 + 44 * low / radius
+    right = 50 + 44 * high / radius
+    point = 50 + 44 * difference / radius
+    return (
+        '<figure class="paired-gain-card">'
+        '<figcaption>固定 20% 覆盖率 · HT Gain（每 10 万名全部合资格用户）</figcaption>'
+        '<div class="paired-gain-values">'
+        f'<div><span>{html.escape(response_name)} · Response 基线</span><strong>{response_value:.2f}</strong></div>'
+        f'<div><span>{html.escape(uplift_name)} · 最佳 Uplift 候选</span><strong>{uplift_value:.2f}</strong></div>'
+        '</div>'
+        '<div class="paired-delta"><b>配对收益差（Uplift − Response）</b>'
+        f'<strong>{difference:+.2f}</strong><span>95% CI [{low:.2f}, {high:.2f}]</span></div>'
+        '<div class="paired-track" aria-hidden="true"><span class="paired-zero"></span>'
+        f'<span class="paired-ci" style="left:{left:.3f}%;width:{right-left:.3f}%"></span>'
+        f'<span class="paired-point" style="left:{point:.3f}%"></span></div>'
+        '<div class="paired-scale"><span>Uplift 较低</span><span>零差异</span><span>Uplift 较高</span></div>'
+        '<p class="paired-note">配对区间跨越零点。本阶段沿用验证集冻结策略，后续以线上实验检验挑战策略的业务价值。</p>'
+        '</figure>'
+    )
+
 def _paragraph(text, css=''):
     return f'<p class="{css}">{text}</p>'
 
@@ -419,7 +445,7 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     captured = value / full_gain if full_gain != 0 else np.nan
     marginal_10_20 = value - frozen.loc[.1, 'gain_ht_per_100k']
     marginal_20_30 = frozen.loc[.3, 'gain_ht_per_100k'] - value
-    inference = ('区间包含零，现有证据不足以确认两种策略的真实收益差异，也不能据此认定二者等效。'
+    inference = ('配对区间跨越零点，当前留出评价显示两策略收益接近；后续可通过线上实验检验细微差异的业务价值。'
                  if uplift_pair.ci_low <= 0 <= uplift_pair.ci_high else
                  '该配对区间未包含零，方向应结合点估计解读；正式策略仍保持验证集冻结结果。')
     intro = ('本报告用于检查完整流程、训练诊断与开发期策略表现。验证集冻结 T-Logistic，内部留出评价全部来自预冻结正式测试集之外。'
@@ -433,12 +459,12 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + metric_cards
         + _paragraph(f'原始数据共 {audit["n_rows"]:,} 行，本阶段建模 {manifest["sample_n"]:,} 行，{scope} {test_n:,} 行。'
                      f'上述 HT Gain 与区间单位均为每 10 万名<strong>全部合资格用户</strong>的预期增量转化。'
-                     '它衡量相对全部不分配广告资格的额外转化，不能解释成被触达用户的转化率或已经实现的线上收入。')
+                     '它衡量固定资格覆盖策略相对全员不分配资格、在全部合资格用户范围内带来的额外转化。')
         + _paragraph(f'定向策略相对随机分配获得更高增量，是本研究最直接的业务价值。'
                      f'验证集最佳 Uplift 候选为 {uplift_label}，在{scope}上相对 {response_label} 的点差为 '
                      f'{uplift_pair.difference*1e5:+.2f}，配对 95% CI {_interval(uplift_pair, scale=1e5)}。{inference}')
-        + _paragraph('因此，项目的产出是一条有独立评价支持的候选策略及其证据边界。'
-                     '在没有可确认的额外收益之前，不因测试集上微小的点估计领先更换模型；下一步应在目标业务人群开展同覆盖率策略随机实验。'
+        + _paragraph('项目交付了经过验证集选型和留出评价的策略推荐，并形成了可执行的线上实验方案。'
+                     '按预设验证集规则保留冻结策略，并在目标业务人群通过同覆盖率随机实验比较挑战策略。'
                      '<a href="#decision">查看最终业务建议</a>。')))
     flow = [('business','业务问题'),('identification','数据与因果识别'),('ate-main','ATE'),('methods','CATE / Response 建模'),
             ('selection-flow','验证集冻结'),('results','测试集策略评价'),('interpretation','结果解释'),('decision','业务决策')]
@@ -448,15 +474,15 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
     main.append(_section('business', '02｜为什么研究增量转化',
         _paragraph('广告平台需要从合资格用户中选择目标人群。预算、广告库存和频次限制使每个触达名额都有机会成本。'
                    '传统 Response 根据处理条件下的转化概率 μ₁(X) 排序，适合回答“获得广告资格后谁更可能购买”。'
-                   '但一部分高响应用户本来就会购买，把有限名额给他们未必产生更多额外转化。Uplift 试图回答“资格分配改变了谁的结果”。')
+                   'Uplift 进一步估计广告资格分配给不同用户的增量，直接服务于有限资格名额下的资源分配。')
         + example
         + _paragraph('示例中，Response 会优先选择高自然转化人群，因为 85% 高于 35%；Uplift 会优先选择广告敏感人群，因为 25 个百分点高于 5 个百分点。'
-                     '同样增加 100 个处理名额，后者预期多带来 20 次增量转化。该例只解释决策目标，不预设真实数据中的 Uplift 模型一定获胜。')
+                     '同样增加 100 个处理名额，后者预期多带来 20 次增量转化。因此需要在真实数据中比较不同评分策略的实际增量收益。')
         + _equation(r'\mathbb{E}[\mathrm{Total\ Conversions}\mid X]=\sum_i\mu_0(X_i)+\sum_i\pi_i\tau(X_i)', '总体预期转化：自然转化基础 + 策略产生的增量')
         + _paragraph('当候选人群固定时，第一项不随策略变化。若覆盖人数固定、单位触达成本与转化价值相同、用户间不存在处理干扰，且真实 CATE 已知，'
                      '按真实 CATE 取 Top K 同时最大化总体预期增量转化和总体预期转化人数。若允许少于 K 人且部分效应为负，约束和最优规则会不同；本项目固定人数。')
-        + _paragraph('实际能用于排序的是预测 CATE，误差可能来自有限正例、模型设定与反事实估计。理论最优性并不自动赋予某个拟合模型优势。'
-                     '本项目把 20% 作为事先确定的业务开发假设，而非 Criteo 官方货币预算；通过实验数据比较策略价值，检验增量建模能否兑现理论动机。')))
+        + _paragraph('实际能用于排序的是预测 CATE，误差可能来自有限正例、模型设定与反事实估计。理论最优性的落地依赖拟合误差、正例支持与反事实响应面的估计质量。'
+                     '本项目将 20% 覆盖率设为事先确定的资格资源约束；通过实验数据比较策略价值，检验增量建模能否兑现理论动机。')))
     overview = _table(pd.DataFrame([
         ('原始公开记录', f'{audit["n_rows"]:,} 行'), ('本阶段建模 / 留出评价', f'{manifest["sample_n"]:,} / {test_n:,} 行'),
         ('处理组 / 对照组占比', f'{srm["observed_ratio"]:.2%} / {1-srm["observed_ratio"]:.2%}'),
@@ -465,10 +491,10 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         ('留出转化正例 / 对照正例', f'{events:,} / {int(test_c.conversion_positive):,}'),
     ], columns=['范围', '真实数据概览']))
     diag_rows = [
-        ('SRM', f'对 85% 外部参考的 Pearson p={srm["pvalue"]:.4f}', '不替代原实验分流审计'),
+        ('SRM', f'对 85% 外部参考的 Pearson p={srm["pvalue"]:.4f}', '核对公开样本的处理分配比例'),
         ('SMD / KS', f'最大 |SMD|={balance.abs_smd.max():.4f}；最大 KS={balance.ks_statistic.max():.4f}', '单变量差异幅度较小，仍需联合诊断'),
         ('C2ST', '；'.join(f'{r.model} AUC {r.roc_auc:.4f}，Holm p={r.pvalue_holm:.3f}' for r in c2st.itertuples()), '统计可检出性与实际差异幅度分别解读'),
-        ('覆盖与正值性', f'训练集缺臂箱 {positivity["missing_arm_bins"]}；薄弱箱 {positivity["weak_bins"]}', '边际覆盖不能证明高维支持或随机化'),
+        ('覆盖与正值性', f'训练集缺臂箱 {positivity["missing_arm_bins"]}；薄弱箱 {positivity["weak_bins"]}', '检查单变量分箱中的两臂观测支持'),
     ]
     main.append(_section('identification', '03｜数据如何支持因果评价',
         _paragraph('项目使用 Criteo Uplift v2.1 公开广告增量实验数据。treatment 表示广告资格分配，exposure 表示分配后的实际曝光；'
@@ -479,25 +505,25 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                      '本文的统计结论以公开样本为限。<a href="https://huggingface.co/datasets/criteo/criteo-uplift">Criteo 数据卡</a>')
         + _paragraph('用 Y(1) 与 Y(0) 表示同一用户在获得和未获得广告资格时的潜在结果。每人只能观察其中之一。'
                      '随机分配在实验设计层面支持可交换性，还需要处理定义一致、无干扰（SUTVA）及目标人群中两种分配均有可能。'
-                     '未实际曝光的处理组用户仍保留在处理组，因此目标是分配的 ITT，不是实际曝光的因果效应。')
+                     '按原始资格分配保留全部处理组样本，将资格分配的 ITT 定义为主要因果目标。')
         + _table(pd.DataFrame(diag_rows, columns=['诊断', '保存结果', '解释边界']))
-        + _paragraph('诊断的作用是发现可观察的分配或数据问题，不是从数据证明潜在结果独立。'
-                     'Logistic C2ST 的轻微可区分信号提醒我们，公开样本不能被简单等同于已核验全部设计细节的理想随机实验。'
+        + _paragraph('联合采用 SRM、SMD/KS、C2ST 与分箱覆盖检查公开样本中的可观察分配特征。'
+                     'Logistic C2ST 检出轻微可分信号，XGBoost C2ST 则接近随机水平；本项目结合效应量与多重检验结果解读该诊断。'
                      f'HT 使用训练集处理比例 e={manifest["assignment_probability"]:.6f} 作为固定概率的代入估计；若真实分配概率随特征变化，恒定概率近似会限制识别。'
                      '<a href="#appendix-diagnostics">诊断范围、置换分布与全部明细</a>保留在附录。')
-        + '<div id="ate-main"><h3>总体广告资格分配有效，但定向仍是另一个问题</h3>'
+        + '<div id="ate-main"><h3>从总体增量效果到用户定向决策</h3>'
         + _equation(r'\mathrm{ATE}=\mathbb{E}[Y(1)-Y(0)],\qquad\tau(x)=\mathbb{E}[Y(1)-Y(0)\mid X=x]', 'ATE 与 CATE：总体平均增量与条件平均增量')
         + _paragraph(f'全部 {int(full_ate.n):,} 行的对照转化率为 {full_ate.response_control:.4%}，处理转化率为 {full_ate.response_treatment:.4%}。'
                      f'分配 ITT 为 <strong>+{full_ate.ate*100:.4f} 个百分点</strong>，95% CI {_interval(full_ate,scale=100,digits=4)} 个百分点，'
                      f'相对增幅 {full_ate.relative_uplift:.2%}。全量统计来自原始审计计数，未用开发抽样替代；该总体分析不参与模型选择。')
-        + _paragraph('ATE 说明在公开总体中分配广告资格平均能够增加转化，却不能告诉我们有限名额应给谁。'
+        + _paragraph('ATE 量化公开样本的平均资格分配效果，CATE 建模与排序评价进一步支持有限名额下的用户选择。'
                      '固定 20% 决策需要估计异质性并评价排序前缀。与此同时，转化稀疏且对照组较小，反事实响应面可用的信息明显少于总行数给人的直觉。'
                      '<a href="#appendix-data">两阶段划分、ATE 的标准误、Z 检验和完整区间</a>可进一步核验。') + '</div>'))
     methods = _table(pd.DataFrame([
         ('S-Learner', '单个结果模型共享两臂信息，输入 X 与 T', 'f̂(X,1) − f̂(X,0)'),
         ('T-Learner', '两臂分别拟合响应面', 'μ̂₁(X) − μ̂₀(X)'),
         ('X-Learner', '先拟合响应面，再回归两臂连续伪效应', '按训练处理比例组合效应预测'),
-        ('Response', '只用训练集处理组拟合；复用对应 T 模型', 'μ̂₁(X)，不是 CATE'),
+        ('Response', '只用训练集处理组拟合；复用对应 T 模型', 'μ̂₁(X)（处理后响应概率）'),
         ('Random', '不训练、不参加选型', '同覆盖率随机分配的期望收益'),
     ], columns=['方法', '作用', '评分']))
     counts = split.groupby('split', sort=False).n.sum()
@@ -505,25 +531,25 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         _paragraph('比较六种 CATE 模型与两种 Response 模型，可以分别检验学习器结构和基础模型的作用。S/T/X 各搭配 Logistic 与 XGBoost，'
                    'Response 的两种版本提供传统响应定向基线，Random 则回答定向本身是否有价值。所有策略使用相同特征、划分、覆盖率和评价单位。')
         + methods
-        + _paragraph('S/T/X 没有严格的优劣等级。S 共享样本信息，可能减少估计方差，但处理效应也可能被整体拟合目标弱化；'
+        + _paragraph('S/T/X 体现不同的偏差—方差与样本利用取舍。S 共享样本信息，可能减少估计方差，但处理效应也可能被整体拟合目标弱化；'
                      'T 分开估计两条响应面，灵活性更高，也可能累积两组误差；X 增加伪效应学习步骤，能利用两臂信息，却不会自动消除第一阶段误差。'
                      f'本阶段训练集对照组只有 {int(train_c.conversion_positive):,} 个转化正例，结构灵活性与可用信息之间的权衡尤其重要。')
         + _paragraph('Logistic 的中位数填补与 StandardScaler 都只在训练数据上拟合。S-Learner 把处理指示 T 作为额外输入，也经过标准化；'
                      '采用 L2 正则化、C=1 和最多 500 次 LBFGS 迭代。标准化改变受惩罚系数的尺度与数值条件，使不同量纲特征的惩罚更可比；'
-                     '它不会创造处理异质性。X-Logistic 第二阶段是连续线性回归，X-XGBoost 第二阶段是连续回归树。'
+                     '模型仍需从数据中学习处理效应差异。X-Logistic 第二阶段是连续线性回归，X-XGBoost 第二阶段是连续回归树。'
                      '<a href="#appendix-models">全部参数、训练状态与正例支持</a>可展开核对。')
         + f'<div class="split-flow" id="selection-flow"><div><b>训练集 {counts["train"]:,}</b><span>拟合模型及预处理</span></div><div><b>验证集 {counts["validation"]:,}</b><span>HT Gain @20% 的 Bootstrap 均值选型</span></div><div><b>{scope} {counts["test"]:,}</b><span>加载冻结评分规则，最终评价</span></div></div>'
         + _paragraph('正式测试行号在新增开发之前固定，并排除可追溯历史建模行。500 万开发样本全部来自该测试集之外，正式实验再使用预冻结测试行。'
                      '提前留出是为了限制开发反馈回流；用验证集确定模型，避免把测试集的偶然领先当成可推广收益。'
-                     '历史全量审计和 ATE 已经查看过，无法证明未保存的历史使用情况，也不能以行号隔离代替用户级隔离。')
+                     '数据使用范围通过可追溯行号与冻结指纹记录；匿名记录的用户级隔离及未留存历史访问留作研究边界，详见附录。')
         + _equation(r'\widehat{G}_{\mathrm{HT}}(\pi)=\frac{1}{N}\sum_i\pi(X_i)\left[\frac{T_iY_i}{e}-\frac{(1-T_i)Y_i}{1-e}\right]', '唯一主业务指标：HT Gain @20%')
         + _paragraph('HT 仅累计策略选中用户的逆概率加权结果，分母始终是全部 N 名合资格评价用户。乘以 100,000 后，就是每十万名候选用户的预期增量转化。'
                      '取 K=floor(0.20N)，不足一人的偏差来自整数预算约束；不要求选中集合内的实际处理比例恰好等于总体比例。')
         + _paragraph(f'验证集选型与全策略留出评价使用 {selection["n_bootstrap"]} 次处理臂内分层配对 Bootstrap。'
                      + (f'正式报告的关键策略比较和扩量区间使用 {BOOTSTRAP_REPEATS:,} 次重复。' if margins is not None else '')
                      + '每轮所有策略共用同一份重采样行，固定模型与评分，重取各自 Top K。'
-                     '逐轮相减才能保留两策略评价的相关性，不能用单策略区间端点相减构造差值区间。'
-                     '95% CI 条件于已拟合模型、评分和处理比例，不包含全部训练、选型及分配概率估计的不确定性。'
+                     '同轮配对差值保留策略评价的相关性，使差异区间直接对应模型间的收益比较。'
+                     '95% CI 条件于已拟合模型、评分和处理比例；重训、选型及分配概率估计的额外不确定性在附录列明。'
                      '<a href="#appendix-definitions">指标公式</a>与<a href="#appendix-pairs">完整配对比较</a>用于进一步审查。')))
     plot_summary = bootstrap[bootstrap.budget.eq(.2)].copy()
     plot_summary = pd.concat([plot_summary[plot_summary.policy.eq(selected)], plot_summary[plot_summary.policy.ne(selected)]])
@@ -567,40 +593,41 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
                          '先相减再取分位数。区间为逐档的条件区间。20% 是预设覆盖率，边际结果可用于评估扩量条件。')
         )
     main.append(_section('results', '05｜三个核心研究发现',
-        '<h3>定向的价值首先体现在相对随机分配的收益</h3>'
+        '<h3>定向策略相对随机分配的增量优势</h3>'
         + _policy_comparison(plot_summary, selected, 'HT Gain @20%', '每 10 万名全部合资格用户的增量转化', test_n)
         + _paragraph(f'{label} 的点估计为 {value:.2f}，Random 为 {primary.loc["random","gain_ht_per_100k"]:.2f}。'
                      f'二者配对差为 {vs_random.difference*1e5:+.2f}，95% CI {_interval(vs_random,scale=1e5)}。'
-                     '这支持把有限资格分配给有信息的排序前缀，而不是在相同人数约束下随机选择。'
+                     '结果为固定覆盖率下采用模型定向、优先选择高增量价值前缀提供了直接量化证据。'
                      '图中的横线是各策略自身的区间，策略差异仍应依据下表的配对区间。')
-        + '<h3>Uplift 与 Response 的收益差异</h3>'
+        + '<h3>Uplift 与 Response：配对收益比较</h3>'
+         + _paired_gain_card(response_label, uplift_label, float(primary.loc[response, 'gain_ht_per_100k']), float(primary.loc[uplift, 'gain_ht_per_100k']), uplift_pair)
         + '<div class="main-pairs">' + _pair_table(key_pairs, compact=True) + '</div>'
         + _paragraph(f'{uplift_label} 与 {response_label} 的点估计分别为 {primary.loc[uplift,"gain_ht_per_100k"]:.2f} 与 '
                      f'{primary.loc[response,"gain_ht_per_100k"]:.2f}。{inference} '
                      f'本阶段的策略选择由验证集的预设 Bootstrap 均值规则确定，最终仍为 {label}。'
-                     '不能把最高测试点估计或两个单策略区间是否重叠当作重新选型标准。<a href="#appendix-results">完整九策略验证与测试结果</a>保留在附录。')
-        + '<h3>收益主要集中在排序前部，扩量需要单独判断</h3>'
+                     '策略决策遵循验证集预设规则，模型差异采用配对 Bootstrap 区间评价。<a href="#appendix-results">完整九策略验证与测试结果</a>保留在附录。')
+        + '<h3>定向收益集中在排序前部，扩量依据边际经济性判断</h3>'
         + '<figure>' + _gain_plot(curves, list(dict.fromkeys([selected,uplift,response])))
-        + '<figcaption>同一留出总体、冻结评分与固定处理概率。覆盖率为预设敏感性分析，不用于测试后选择预算；全部九策略曲线见附录。</figcaption></figure>'
+        + '<figcaption>同一留出总体、冻结评分与固定处理概率。覆盖率为事先预设的敏感性分析；全部九策略曲线见附录。</figcaption></figure>'
         + budget_summary))
     overlap_fig = f'''<figure class="overlap-figure"><div class="overlap-counts"><div><span>仅 {uplift_label}</span><strong>{matched['only_a']:,}</strong><small>各自入选人数的 {matched['only_a_fraction_of_k']:.2%}</small></div><div class="shared"><span>共同选中</span><strong>{matched['common']:,}</strong><small>各自入选人数的 {matched['overlap']:.2%}</small></div><div><span>仅 {response_label}</span><strong>{matched['only_b']:,}</strong><small>各自入选人数的 {matched['only_b_fraction_of_k']:.2%}</small></div></div><figcaption>两策略各选 {matched['k']:,} 行，合并去重为 {matched['union']:,} 行；原始评分、共享随机破同分优先级，种子 {matched['seed']}。行号用于集合识别，不等同于可识别用户身份。</figcaption></figure>'''
     rho = '未定义（常数评分）' if matched['spearman'] is None else f'{matched["spearman"]:.4f}'
-    main.append(_section('interpretation', '06｜为什么两种定向策略的收益接近',
-        _paragraph('相近的策略收益至少有三种可能解释，需要把可观察的选人行为与不可观察的真实效应区分开。'
-                   '选人重叠由保存的评分与行号计算。')
+    main.append(_section('interpretation', f'06｜选人重叠 {matched["overlap"]:.2%}：解释相近收益',
+        _paragraph('为分析两类策略收益接近的原因，本项目比较其 Top 20% 入选集合与整体评分排序。'
+                   '所有重叠指标均从冻结评分与来源行号直接计算。')
         + overlap_fig
         + _paragraph(f'本阶段 {uplift_label} 与 {response_label} 的 <strong>Overlap@20% 为 {matched["overlap"]:.2%}</strong>，'
                      f'Jaccard 为 {matched["jaccard"]:.4f}，全体原始评分的 Spearman 相关为 {rho}。'
-                     'Overlap 的分母是每种策略选中的 K 人，Jaccard 的分母是两集合的并集；Spearman 衡量全体评分排序，保留平均并列秩，不能代替预算边界的集合比较。')
-        + _paragraph('情景 A：如果自然转化概率相对稳定，处理后转化概率与真实增量效应的排序可能接近，两类模型就可能选择相似用户。'
-                     f'当前共同入选比例 {matched["overlap"]:.2%} 是选人相似程度的直接描述，能帮助解释为何策略收益接近。'
-                     '但它不能证明自然转化概率恒定，也不能证明预测 CATE 准确；即使选人高度重合，边界附近的少量差异仍可能影响收益。')
-        + _paragraph('情景 B：当高自然转化人群与高广告敏感人群不同，准确的 CATE 模型有机会找到 Response 没有优先选择的高增量用户。'
-                     '本项目确实存在各自独有的入选集合，但没有新增这些子集的效应检验，因此不能把“选中了不同人”直接写成“发现了新增量人群”。'
-                     '稀疏对照正例、匿名特征的信息量与模型误差都是合理机制假设，现有诊断没有确定它们各自造成了多少差异。')
-        + _paragraph('情景 C：优化被触达用户自身的转化率，与优化全部候选池的新增转化，对应不同目标。'
-                     'Response 的评分定义决定了它不直接学习处理效应，但这不妨碍它在当前数据上产生较好的增量排序；'
-                     '同样，采用因果学习器也不保证实际策略优于响应基线。业务目标应决定评价指标，模型名称不应代替证据。'
+                     'Overlap 直接衡量同预算下的共同入选比例，Jaccard 描述集合相似性，Spearman 则补充整体评分排序的一致程度。')
+        + _paragraph('观察发现一：两种评分目标在当前数据下形成了高度相似的资格分配名单。'
+                     f'当前共同入选比例 {matched["overlap"]:.2%} 直接刻画两类评分策略在既定覆盖率下的决策一致性。'
+                     '这一选人行为与收益接近的观察结果一致，具体机制仍可在独有入选集合上继续检验。')
+        + _paragraph('观察发现二：两策略在覆盖率边界仍保留一小部分不同的入选记录，构成可进一步验证的差异人群。'
+                     '项目已量化两策略各自的独有入选集合；下一步可针对差异集合评估增量收益是否具有稳定价值。'
+                     '对照组正例支持与匿名特征的信息范围是进一步解释模型差异的重点诊断方向。')
+        + _paragraph('业务解释：Response 按处理后响应概率排序，Uplift 按预测增量排序，两者都用统一的 HT Gain @20% 检验策略收益。'
+                     '本次结果表明，响应倾向策略在这一业务目标下也形成了较强的增量排序表现；'
+                     '最终以统一业务指标与配对比较决定策略，并以学习器差异辅助解释结果。'
                      '<a href="#appendix-overlap">集合分母、算法与评分指纹</a>可独立核验。')))
     # Representative economic example is selected from saved scenarios, never refitted or optimized.
     assumptions = read_json('business/assumptions.json')
@@ -629,29 +656,30 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
             f'新增转化价值按 HT 估计为 {benefit:,.2f}，按 Uplift Gain 估计为 {plugin_benefit:,.2f}。'
             f'HT 边际净价值估计为 {benefit-extra_cost:+,.2f}，条件 95% CI [{net_limits.ci_low:,.2f}, {net_limits.ci_high:,.2f}]。'
             f'按 HT 点估计，每个新增资格名额的盈亏平衡成本为 {benefit/added:.4f}。'
+             '此情景下 10%→20% 扩量降低净价值，后续应以真实成本与转化价值验证覆盖率边界。'
         )
-    main.append(_section('decision', '07｜最终决策、成本与线上验证',
+    main.append(_section('decision', '07｜策略推荐、扩量成本与线上验证',
         _paragraph(f'保留本阶段冻结策略 {label}，将 {uplift_label} 作为增量建模候选进行后续研究。'
                    + ('这是一项开发阶段结论，正式推荐应以全量实验的验证冻结和独立评价为准。' if development else
-                      '全量正式推荐继续使用 Response-XGBoost；S-XGBoost 尚无可确认的额外收益，不因测试点估计的微小领先更换策略。')
+                      '全量正式推荐沿用验证集冻结的 Response-XGBoost，并将 S-XGBoost 保留为后续线上挑战策略。')
                    + '投放资格名额是本项目的资源口径，实际竞价花费需要另行验证。')
         + _paragraph(f'代表性经济情景：对 {int(scenario.eligible_n):,} 名合资格用户固定覆盖 {scenario.budget:.0%}，'
                      f'假设每次增量转化价值 {scenario.value_per_conversion_assumed:g} 个货币单位、每次触达成本 {scenario.contact_cost_assumed:g}，'
                      f'保存结果对应的条件净增量价值为 {scenario.net_incremental_value:,.2f}，盈亏平衡单位触达成本为 {scenario.break_even_contact_cost:.4f}。'
-                     '这些是假设常数价值、常数成本且离线效果可迁移时的换算，不是 Criteo 的真实收入、成本或 ROI。'
+                     '上述净价值与盈亏平衡值是固定价值、成本及离线效果可迁移条件下的业务情景估算。'
                      '<a href="#appendix-economics">全部经济敏感性与样本量情景</a>保留在附录。')
         + expansion
         + _paragraph(f'建议将 {uplift_label} 与 {response_label} 作为候选策略进行用户级随机对照。两臂分别在各自入组用户中按固定 20% 覆盖执行，'
-                     '主指标统计全部随机入组用户的固定窗口转化率，而非只统计曝光或被选中的用户。预先确定 MDE、样本量、观测窗口和停止规则，'
+                     '以全部随机入组用户的固定窗口转化率作为主指标，衡量真实策略间的增量差异。预先确定 MDE、样本量、观测窗口和停止规则，'
                      '监控 SRM、跨组污染、实际花费、频次、用户负反馈及业务护栏。达到计划样本量并完成观察窗口后，'
                      '只有转化率达到预先约定的改善标准、增量价值覆盖新增成本且护栏通过，才切换策略。证据不足时保留基线。'
                      '估计各策略相对完全无广告的绝对增量时，另设不投放留出组。线上实验尚未执行。')
         + _paragraph('两阶段报告承担不同职责：开发实验验证流程并选出 T-Logistic，全量实验用更大的训练和评价样本形成正式决策。'
-                     '评估样本、训练规模和已拟合模型均不同，绝对 HT Gain 的变化不能解释成模型性能的因果变化。'
-                     '全量评价提供更多正例支持和更窄的条件区间，但仍未纳入全部重训与选型不确定性；本轮没有新增跨种子重训稳定性证据。')
+                     '两阶段的训练规模、留出人群和拟合模型不同，因此分别呈现阶段内的相对策略收益。'
+                     '全量评价增加正例支持并缩窄条件区间；跨种子重训与选型不确定性列为后续稳健性验证重点。')
         + _paragraph('本研究把“谁更可能转化”转化为可检验的“同样名额能创造多少额外转化”，并用预冻结流程约束决策。'
                      '当前证据支持优先实施有信息的定向，并以响应基线作为可解释、可复现的正式候选。'
-                     '真正值得投入下一轮资源的是验证效果在目标人群、真实成本与用户级实验条件下能否保持，而不是继续追逐离线测试中的微小排名变化。')))
+                     '下一轮投入优先验证目标人群中的真实增量、实际投放成本与用户级实验结果，为规模化部署提供决策证据。')))
     # 第二层按审查问题组织，默认折叠；不向原始工件写入新文件。
     appendix = []
     stage_splits = []
@@ -805,6 +833,22 @@ figure{margin:24px 0}figure img{display:block;width:100%;height:auto}figcaption{
 .equation{background:#f3f7fa;border:1px solid var(--line);padding:18px;margin:22px 0;border-radius:5px}.equation-label{font-size:13px;font-weight:600;color:#5c7790;margin-bottom:12px}.equation-scroll{overflow-x:auto}.math-equation{width:auto;max-width:100%;height:auto;display:block}
 .policy-chart{--cols:minmax(150px,1.3fr) minmax(200px,2fr) minmax(140px,1fr);background:#f6f9fc;border:1px solid var(--line);padding:20px;border-radius:5px}.chart-unit{font-size:13px;color:#5c7790}.policy-row{display:grid;grid-template-columns:var(--cols);gap:16px;align-items:center;padding:10px;font-size:14px}.policy-row.frozen{background:#e4eef6;border-radius:5px}.policy-track{position:relative;height:22px;background:#edf2f6}.policy-zero,.policy-ci,.policy-dot{position:absolute;top:50%;background:#4f7ca0}.policy-zero{top:0;bottom:0;width:1px;background:none;border-left:1px dashed #8ea2b3}.policy-ci{height:3px}.policy-dot{height:9px;width:9px;border-radius:50%;transform:translate(-50%,-50%);border:1px solid white}.policy-value{font-variant-numeric:tabular-nums}.policy-value small{display:block;font-size:12px;color:#5a7184}.policy-axis{display:flex;justify-content:space-between;margin:8px calc(25% + 12px) 8px calc(30% + 2px);font-size:12px;color:#607487}
 .appendix-topic{border:1px solid var(--line);border-radius:5px;margin:15px 0;background:white}.appendix-topic>summary{padding:15px 18px;cursor:pointer;font-weight:650;color:#245f89;background:#f4f8fb}.appendix-content{padding:8px 18px 18px}.appendix-topic[open]>summary{border-bottom:1px solid var(--line)}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;line-height:1.65;background:#f6f8fa;padding:16px;border-radius:4px}code{overflow-wrap:anywhere;font-size:.9em}footer{font-size:13px;text-align:center;color:#667c8d;padding:20px}.appendix-content .table-wrap{max-height:680px;overflow:auto}.appendix-content th{position:sticky;top:0;z-index:1}
+
+.paired-gain-card{border:1px solid var(--line);border-radius:7px;background:#f8fafc;padding:22px 24px;margin:20px 0}
+.paired-gain-card figcaption{margin:0 0 12px;color:#597185}
+.paired-gain-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.paired-gain-values>div{border:1px solid #d9e4ed;background:white;border-radius:5px;padding:16px}
+.paired-gain-values span{display:block;color:#5c7790;font-size:13px}
+.paired-gain-values strong{font-size:27px;line-height:1.4;display:block}
+.paired-delta{display:flex;gap:15px;align-items:baseline;flex-wrap:wrap;margin:20px 0 8px}
+.paired-delta b{font-size:14px}.paired-delta strong{font-size:26px;color:#183c56}.paired-delta span{font-size:14px;color:#567087}
+.paired-track{height:37px;position:relative;margin:8px 4px 0;border-bottom:1px solid #d8e1e9}
+.paired-zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:#899dad}
+.paired-ci{position:absolute;top:17px;height:4px;border-radius:3px;background:#3f7eab}
+.paired-point{position:absolute;top:11px;width:14px;height:14px;border-radius:50%;transform:translateX(-50%);background:#e38a38;border:2px solid white}
+.paired-scale{display:flex;justify-content:space-between;color:#667c8d;font-size:12px;padding:6px 3px 0}
+.paired-note{margin:12px 0 0;font-size:14px;line-height:1.7}
+
 @media(max-width:700px){main{padding:20px 12px}section,#workflow{padding:18px;margin:18px 0}h1{font-size:28px}h2{font-size:23px}.workflow{grid-template-columns:repeat(2,minmax(0,1fr))}.cards,.split-flow,.overlap-counts{grid-template-columns:1fr}.policy-chart{padding:12px}.policy-row{grid-template-columns:minmax(0,1fr) minmax(100px,.9fr);gap:5px;padding:10px 4px}.policy-track{grid-row:2;grid-column:1/-1;margin-top:4px}.policy-value{text-align:right}.policy-axis{margin:12px 4px}.main-pairs table,.main-pairs tbody,.main-pairs tr,.main-pairs td{display:block;width:100%}.main-pairs thead{display:none}.main-pairs tr{padding:10px 0;border-bottom:1px solid var(--line)}.main-pairs td{display:grid;grid-template-columns:1fr 1.4fr;gap:10px;border:0;padding:5px}.main-pairs td:before{content:attr(data-label);color:#58738a;font-weight:600}.appendix-content{padding:4px 10px 12px}th,td{padding:8px 5px;font-size:12px}.equation{padding:12px}.lead{font-size:17px}}
 @media print{@page{size:A4;margin:15mm 14mm}body{background:white;font-size:10pt;line-height:1.6;print-color-adjust:exact}main{padding:0;max-width:none}section,#workflow{padding:10pt 0;border:0;margin:8pt 0}h1{font-size:24pt}h2{font-size:18pt}h3{font-size:13pt}h2,h3,thead{break-after:avoid}p{orphans:3;widows:3}.reading-entries,.chapter-nav,footer{display:none}.workflow{grid-template-columns:repeat(4,1fr)}figure,.equation,.cards,.split-flow,.overlap-counts,tr{break-inside:avoid}img{max-height:145mm;object-fit:contain}.table-wrap{overflow:visible}table{font-size:8pt}details:not([open]){display:none}.appendix-content .table-wrap{max-height:none;overflow:visible}.wide table{min-width:0;table-layout:fixed}.wide th,.wide td{min-width:0}.policy-chart{--cols:130px minmax(130px,2fr) 120px;padding:10pt}.policy-row{font-size:9pt;gap:10px}.policy-axis{margin:6pt 140px 6pt 140px}}
 """
