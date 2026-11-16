@@ -376,6 +376,105 @@ class AuditAccumulator:
 
 
 
+def _feature_files(stack):
+    return {name: stack.enter_context(TemporaryFile()) for name in FEATURES}
+
+
+def _write_feature_chunk(chunk, files):
+    for feature in FEATURES:
+        chunk[feature].to_numpy().tofile(files[feature])
+
+
+def _classify_feature_iqr(summary):
+    """Separate valid Tukey outlier counts from zero-IQR concentration deviations."""
+    summary = dict(summary)
+    degenerate = summary['iqr'] == 0
+    summary.update(
+        iqr_status='degenerate' if degenerate else 'normal',
+        iqr_bounds_applicable=not degenerate,
+        concentration_value=summary['median'] if degenerate else None,
+    )
+    for side in ('below', 'above'):
+        for measure in ('count', 'fraction'):
+            field = f'{side}_{measure}'
+            summary[f'{side}_concentration_{measure}'] = summary[field] if degenerate else None
+            if degenerate:
+                summary[field] = None
+    for measure in ('count', 'fraction'):
+        field = f'outlier_{measure}'
+        summary[f'deviation_{measure}'] = summary[field] if degenerate else None
+        if degenerate:
+            summary[field] = None
+    if degenerate:
+        summary.update(lower=None, upper=None, whislo=None, whishi=None, fliers=[])
+    return summary
+
+
+def _feature_iqr(values):
+    ordered = np.sort(values)
+    q1, median, q3 = np.quantile(ordered, [.25, .5, .75], method='linear')
+    iqr = q3 - q1
+    lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+    lo = ordered.searchsorted(lower, side='left')
+    hi = ordered.searchsorted(upper, side='right')
+    n = len(ordered)
+
+    # Plot one observed value per occupied bin, plus the endpoints. Counts
+    # and proportions use every observation, including duplicate values.
+    def markers(tail):
+        if not len(tail):
+            return []
+        edges = np.linspace(tail[0], tail[-1], 1025)
+        positions = np.unique(tail.searchsorted(edges))
+        return tail[positions].tolist()
+
+    return _classify_feature_iqr({
+        'n': n, 'q1': float(q1), 'median': float(median), 'q3': float(q3),
+        'iqr': float(iqr), 'lower': float(lower), 'upper': float(upper),
+        'whislo': float(ordered[lo]), 'whishi': float(ordered[hi - 1]),
+        'min': float(ordered[0]), 'max': float(ordered[-1]),
+        'below_count': int(lo), 'above_count': int(n - hi),
+        'below_fraction': float(lo / n), 'above_fraction': float((n - hi) / n),
+        'outlier_count': int(lo + n - hi), 'outlier_fraction': float((lo + n - hi) / n),
+        'fliers': markers(ordered[:lo]) + markers(ordered[hi:]) if iqr > 0 else [],
+    })
+
+
+def scan_full_feature_iqr(path=DEFAULT_DATA, *, chunk_size=250_000, progress=print):
+    """Read the source once and compute exact IQR summaries one column at a time."""
+    path = Path(path).resolve()
+    total = 0
+    with ExitStack() as stack:
+        files = _feature_files(stack)
+        raw = stack.enter_context(_SourceFile(path))
+        before = fstat(raw.fileno())
+        stream = stack.enter_context(BufferedReader(raw))
+        reader = stack.enter_context(pd.read_csv(
+            stream, usecols=FEATURES, dtype=np.float64, chunksize=chunk_size,
+        ))
+        for chunk in reader:
+            check_feature_matrix(chunk.to_numpy(), n_features=len(FEATURES))
+            _write_feature_chunk(chunk, files)
+            total += len(chunk)
+            if total % 1_000_000 == 0:
+                progress(f'Feature scan: {total:,} rows')
+
+        if (_file_identity(fstat(raw.fileno())) != _file_identity(before)
+                or _file_identity(path.stat()) != _file_identity(before)):
+            raise RuntimeError('原始文件在扫描期间发生变化')
+        if not total:
+            raise ValueError('原始数据为空')
+
+        summaries = []
+        for feature, file in files.items():
+            file.flush()
+            values = np.memmap(file, dtype=np.float64, mode='r', shape=(total,))
+            summaries.append({'feature': feature, **_feature_iqr(values)})
+            del values
+            progress(f'Full IQR: {feature}, n={total:,}')
+        return {'source_sha256': raw.digest.hexdigest(), 'n': total, 'features': summaries}
+
+
 class DiagnosticsAccumulator:
     #-------------
     # 全量诊断累计器：临时列文件支持精确 KS，独立样本池支持 C2ST。
@@ -392,10 +491,8 @@ class DiagnosticsAccumulator:
         #     - 无返回值；创建全量列临时文件和两臂等量样本池。
         #-------------
         self.sampler = BalancedSampler(per_arm, seed)
-        self.files = {
-            name: stack.enter_context(TemporaryFile())
-            for name in FEATURES + ['treatment']
-        }
+        self.files = _feature_files(stack)
+        self.files['treatment'] = stack.enter_context(TemporaryFile())
 
     def update(self, chunk, treatment, ids):
         #-------------
@@ -408,8 +505,7 @@ class DiagnosticsAccumulator:
         # 输出参数：
         #     - 无返回值；向临时列文件追加数据并更新 C2ST 样本池。
         #-------------
-        for feature in FEATURES:
-            chunk[feature].to_numpy().tofile(self.files[feature])
+        _write_feature_chunk(chunk, self.files)
         treatment.tofile(self.files['treatment'])
         self.sampler.update(chunk, treatment, ids)
 

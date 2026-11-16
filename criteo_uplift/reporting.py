@@ -79,6 +79,91 @@ def save_sample_feature_plot(sample, path):
     fig.savefig(path, dpi=160, bbox_inches="tight")
     return path
 
+def save_full_feature_iqr_plot(summary, path):
+    """Plot full-source feature summaries on a single raw-value axis."""
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    features = summary['features']
+    positions = np.arange(len(features), 0, -1)
+    normal = [(y, row) for y, row in zip(positions, features) if row['iqr_status'] == 'normal']
+    stats = [dict(
+        label=row['feature'], q1=row['q1'], med=row['median'], q3=row['q3'],
+        whislo=row['whislo'], whishi=row['whishi'], fliers=row['fliers'],
+    ) for _, row in normal]
+    fig = Figure(figsize=(12, 6.9), facecolor='white')
+    ax = fig.add_axes((.09, .15, .70, .70))
+    box_color, line_color, median_color, flier_color = '#c5deef', '#276287', '#253b51', '#bc611f'
+    ax.bxp(
+        stats, positions=[y for y, _ in normal], vert=False, widths=.46,
+        patch_artist=True, manage_ticks=False,
+        boxprops={'facecolor': box_color, 'edgecolor': line_color},
+        whiskerprops={'color': line_color}, capprops={'color': line_color},
+        medianprops={'color': median_color, 'linewidth': 1.7},
+        flierprops={'marker': '.', 'markersize': 3, 'markeredgewidth': 0,
+                    'markerfacecolor': flier_color, 'alpha': .65},
+    )
+    for y in positions[1::2]:
+        ax.axhspan(y - .5, y + .5, color='#f4f7fa', zorder=0)
+    ax.set_yticks(positions, [row['feature'] for row in features])
+    ax.set_ylim(.5, len(features) + .5)
+    ax.set_xlim(
+        min(row['min'] for row in features) - 4,
+        max(row['max'] for row in features) + 4,
+    )
+    ax.set_axisbelow(True)
+    ax.grid(axis='x', color='#dce5ec', linewidth=.8)
+    ax.tick_params(axis='both', length=0, pad=8, colors=median_color)
+    for side in ('top', 'right', 'left'):
+        ax.spines[side].set_visible(False)
+    ax.spines['bottom'].set_color('#a3b3c1')
+
+    title, font = _chart_text('全量匿名特征 IQR 箱线图', 'Full-source feature IQR box plots')
+    fig.text(.09, .955, title, fontsize=19, color=median_color, **font)
+    subtitle, font = _chart_text(
+        f'Criteo Uplift v2.1 · {summary["n"]:,} 行 · 原始数值，共用横轴',
+        f'Criteo Uplift v2.1 · {summary["n"]:,} rows · shared raw-value axis',
+    )
+    fig.text(.09, .906, subtitle, fontsize=11, color='#526679', **font)
+    label, font = _chart_text('实际最小值 – 最大值', 'Observed min – max')
+    ax.text(1.035, 1.015, label, transform=ax.transAxes, fontsize=10, color='#526679', **font)
+    for y, row in zip(positions, features):
+        if row['iqr_status'] == 'degenerate':
+            ax.vlines(row['concentration_value'], y - .23, y + .23,
+                      color=median_color, linewidth=1.7)
+            ratio = row['deviation_fraction']
+            note, note_font = _chart_text(
+                f'退化 IQR · 偏离集中值 {ratio:.2%}',
+                f'Degenerate IQR · {ratio:.2%} differ from concentration',
+            )
+            ax.text(.98, y, note, transform=ax.get_yaxis_transform(),
+                    ha='right', va='center', fontsize=9, color='#526679', **note_font)
+        ax.text(1.035, y, f'{row["min"]: .3f}   –   {row["max"]: .3f}',
+                transform=ax.get_yaxis_transform(), va='center',
+                fontfamily='DejaVu Sans Mono', fontsize=9, color=median_color)
+
+    handles = [
+        Patch(facecolor=box_color, edgecolor=line_color),
+        Line2D([], [], color=median_color, linewidth=1.7),
+        Line2D([], [], color=line_color, marker='|'),
+        Line2D([], [], color=flier_color, marker='.', linestyle='none'),
+    ]
+    labels = [
+        _chart_text('Q1–Q3 箱体', 'Q1–Q3 box')[0],
+        _chart_text('中位数／集中值', 'Median / concentration')[0],
+        _chart_text('1.5×IQR 须线', '1.5×IQR whiskers')[0],
+        _chart_text('IQR 异常值位置', 'IQR outlier locations')[0],
+    ]
+    fig.legend(handles, labels, loc='lower left', bbox_to_anchor=(.075, .025),
+               ncol=4, frameon=False, prop=font.get('fontproperties'))
+
+    path = safe_output(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    return path
+
+
 def _num(value, digits: int = 2) -> str:
     #-------------
     # 函数名：_num
@@ -564,6 +649,16 @@ def build_report(manifest_path: Path, report_path: Path) -> Path:
         + _paragraph('本项目以增量转化人数为优化目标。由于 Criteo 公开数据缺少用户级广告成本和转化金额，研究结论限定于固定资源条件下的增量转化优化。')
         + _details('theory-business-cate', '理论推导｜业务目标函数与 CATE 排序的关系', theory)
     ))
+    full_iqr_plot = out / 'figures/full_feature_iqr.png'
+    if full_iqr_plot.is_file():
+        main.append(_section(
+            'feature-eda', '02.3｜处理前匿名特征 EDA',
+            _image(full_iqr_plot, '全量数据 IQR 横向箱线图',
+                   f'Criteo Uplift v2.1 全量 {audit["n_rows"]:,} 行。须线止于 1.5×IQR 界限内的最远观测；'
+                   '橙点表示正常 IQR 的异常值位置。退化 IQR 以竖线表示集中值，并单列偏离集中值的比例。')
+            + _image(out / 'figures/sample_features.png', '建模样本特征分布',
+                     f'原始运行保存的建模样本 EDA 图（{manifest["sample_n"]:,} 行）。'),
+        ))
     overview = _table(pd.DataFrame([
         ('原始公开记录', f'{audit["n_rows"]:,} 行'), ('本阶段建模 / 留出评价', f'{manifest["sample_n"]:,} / {test_n:,} 行'),
         ('处理组 / 对照组占比', f'{srm["observed_ratio"]:.2%} / {1-srm["observed_ratio"]:.2%}'),
