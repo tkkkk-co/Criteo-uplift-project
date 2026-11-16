@@ -132,10 +132,18 @@ def save_full_feature_iqr_plot(summary, path):
         if row['iqr_status'] == 'degenerate':
             ax.vlines(row['concentration_value'], y - .23, y + .23,
                       color=median_color, linewidth=1.7)
-            ratio = row['deviation_fraction']
+            left = row['below_concentration_fraction']
+            right = row['above_concentration_fraction']
+            directions = [
+                (zh, en) for fraction, zh, en in (
+                    (left, f'左侧 {left:.2%}', f'left {left:.2%}'),
+                    (right, f'右侧 {right:.2%}', f'right {right:.2%}'),
+                ) if fraction
+            ] or [('无偏离', 'no deviations')]
+            zh, en = map(' / '.join, zip(*directions))
             note, note_font = _chart_text(
-                f'退化 IQR · 偏离集中值 {ratio:.2%}',
-                f'Degenerate IQR · {ratio:.2%} differ from concentration',
+                f'退化 IQR · 偏离集中值（{zh}）',
+                f'Degenerate IQR · deviation ({en})',
             )
             ax.text(.98, y, note, transform=ax.get_yaxis_transform(),
                     ha='right', va='center', fontsize=9, color='#526679', **note_font)
