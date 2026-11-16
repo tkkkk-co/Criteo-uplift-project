@@ -39,7 +39,7 @@
   },
   "score_sha256": "7fa8b45e1570f112f1e4dbee9ad96a872af2f91a922acf919614f1ab55f72739",
   "report_sha256": "351822b69f2a8fddb660624f0300de04f7268f8ac6ea53404773c5199ce0f20f",
-  "generator_sha256": "1d15ab648f81ca50a1f6d3cee3a5106ee2d7e1590bd9fa557f8ae6990815c9da",
+  "generator_sha256": "08d49285c6bc742026d5bb44b8ba852296732661269b5c743a2f0c0a8356b140",
   "report_calculations": [
     "Top 20% overlap, Jaccard, raw-score Spearman"
   ]

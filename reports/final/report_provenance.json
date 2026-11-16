@@ -39,7 +39,7 @@
   },
   "score_sha256": "2dc4edeebf3c4e7753aeea450d3764983a067e4f2f0207da086eff8ad12e1f44",
   "report_sha256": "a01890b835f076c902c4635caad8004f605d478b28617fed6e9755b47724a665",
-  "generator_sha256": "1d15ab648f81ca50a1f6d3cee3a5106ee2d7e1590bd9fa557f8ae6990815c9da",
+  "generator_sha256": "08d49285c6bc742026d5bb44b8ba852296732661269b5c743a2f0c0a8356b140",
   "report_calculations": [
     "Top 20% overlap, Jaccard, raw-score Spearman",
     "Paired HT bootstrap (2000 draws) for budget margins and key policies"

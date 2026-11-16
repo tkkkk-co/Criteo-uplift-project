@@ -241,6 +241,9 @@ def _paired_gain_card(response_name, uplift_name, response_value, uplift_value, 
     left = 50 + 44 * low / radius
     right = 50 + 44 * high / radius
     point = 50 + 44 * difference / radius
+    note = ('配对区间跨越零点。本阶段沿用验证集冻结策略，后续以线上实验检验挑战策略的业务价值。'
+            if low <= 0 <= high else
+            '配对区间位于零点一侧。策略切换仍遵循预设选型规则及后续线上验证。')
     return (
         '<figure class="paired-gain-card">'
         '<figcaption>固定 20% 覆盖率 · HT Gain（每 10 万名全部合资格用户）</figcaption>'
@@ -254,7 +257,7 @@ def _paired_gain_card(response_name, uplift_name, response_value, uplift_value, 
         f'<span class="paired-ci" style="left:{left:.3f}%;width:{right-left:.3f}%"></span>'
         f'<span class="paired-point" style="left:{point:.3f}%"></span></div>'
         '<div class="paired-scale"><span>Uplift 较低</span><span>零差异</span><span>Uplift 较高</span></div>'
-        '<p class="paired-note">配对区间跨越零点。本阶段沿用验证集冻结策略，后续以线上实验检验挑战策略的业务价值。</p>'
+        f'<p class="paired-note">{note}</p>'
         '</figure>'
     )
 
