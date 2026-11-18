@@ -4,7 +4,7 @@
 
 在广告资格仅覆盖 **20% 合资格用户**的约束下，如何分配名额，才能提高实际增量转化？本项目基于 **13,979,592 条 Criteo Uplift v2.1 公开随机实验记录**，搭建从数据审计、因果诊断、增量策略比较到选人分析与预算决策的离线研究流程，评估 Response Targeting、Uplift Targeting 与同覆盖率 Random 的策略价值。
 
-**[在线阅读完整研究报告（交互式网页）](https://tkkkk-co.github.io/Criteo-uplift-project/)** · [一页研究综述（PDF）](reports/final/executive_summary.pdf) · [报告来源与冻结记录](reports/final/report_provenance.json)
+**[在线阅读完整研究报告（交互式网页）](https://tkkkk-co.github.io/Criteo-uplift-project/)** · [一页研究综述（PDF）](https://tkkkk-co.github.io/Criteo-uplift-project/reports/final/executive_summary.pdf) · [报告来源与冻结记录](reports/final/report_provenance.json)
 
 ## 核心发现
 
