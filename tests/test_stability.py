@@ -155,14 +155,14 @@ class StabilityTests(unittest.TestCase):
             metrics = pd.read_csv(output / "longmetrics.csv")
             self.assertEqual(len(metrics), 24)
             self.assertTrue(
-                {"auuc", "qini_score", "bootstrap_mean"}.issubset(
+                {"auuc", "qini_score", "selection_metric"}.issubset(
                     metrics.columns
                 )
             )
             self.assertEqual(metrics.selected_on_validation.sum(), 3)
             self.assertNotIn("random", metrics.policy.unique())
             protocol = json.loads((output / "protocol.json").read_text())
-            self.assertEqual(protocol["selection_statistic"], "bootstrap_mean")
+            self.assertEqual(protocol["selection_statistic"], "point_estimate")
             audit = pd.read_csv(output / "split_audit.csv")
             self.assertTrue(
                 audit[

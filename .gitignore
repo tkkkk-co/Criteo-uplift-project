@@ -25,3 +25,6 @@ __pycache__/
 *.parquet
 JD*.xlsx
 node_modules/
+
+# Local document exports; released assets live under reports/final/.
+/output/

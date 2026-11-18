@@ -4,7 +4,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import patch
-import base64
 import hashlib
 import json
 import re
@@ -92,7 +91,7 @@ class EndToEndTests(unittest.TestCase):
                 'diagnostics/overlap_positivity.json', 'diagnostics/overlap_strata.csv',
                 'models/selection.json', 'models/t_xgboost.joblib',
                 'evaluation/test_metrics.csv', 'evaluation/test_bootstrap.csv', 'evaluation/test_pairwise.csv',
-                'models/validation_metrics.csv', 'models/validation_bootstrap.csv', 'evaluation/predictions.npz',
+                'models/validation_metrics.csv', 'evaluation/predictions.npz',
                 'figures/sample_features.png', 'strategy_overlap.json', 'report_provenance.json',
             ):
                 self.assertTrue((out / name).is_file(), name)
@@ -141,9 +140,9 @@ class EndToEndTests(unittest.TestCase):
                 self.assertNotIn(key, audit)
 
             self.assertTrue(manifest['selection']['frozen_before_test'])
-            val = pd.read_csv((out / 'models' / 'validation_bootstrap.csv'))
+            val = pd.read_csv((out / 'models' / 'validation_metrics.csv'))
             winner = (
-                val.query("policy != 'random'").sort_values('bootstrap_mean', ascending=False, kind='stable')
+                val.query("policy != 'random'").sort_values('gain_ht', ascending=False, kind='stable')
                 .iloc[0]
                 .policy
             )
@@ -152,7 +151,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn('qini_score', ranking)
             self.assertEqual(test_ranking.call_count, 1)
             self.assertEqual(len(test_ranking.call_args.args[2]), 8)
-            self.assertEqual(manifest['selection']['selection_statistic'], 'bootstrap_mean')
+            self.assertEqual(manifest['selection']['selection_statistic'], 'point_estimate')
             policies = pd.read_csv((out / 'evaluation' / 'test_metrics.csv'))
             self.assertEqual(set(policies.budget), {.02, .05, .1, .2, .3, .5, 1.})
             np.testing.assert_array_equal(policies.n_selected, np.floor(policies.budget * summary.loc[summary.split == 'test', 'n'].sum()))
@@ -175,25 +174,30 @@ class EndToEndTests(unittest.TestCase):
             self.assertTrue(stability['all_group_split_feature_overlaps_zero'])
             self.assertTrue(json.loads((out / 'business/assumptions.json').read_text())['hypothetical'])
             html = (out / 'report.html').read_text()
-            equations = re.findall(r'class="math-equation" src="data:image/svg\+xml;base64,([^"]+)"', html)
+            equations = re.findall(r'<div class="math-equation">(.*?)</div>', html, re.S)
             self.assertGreaterEqual(len(equations), 12)
-            for encoded in equations:
-                svg = ElementTree.fromstring(base64.b64decode(encoded))
-                self.assertTrue(svg.findall('.//{http://www.w3.org/2000/svg}path'))
-            self.assertNotRegex(html, r'<script[^>]+src=')
+            for equation in equations:
+                self.assertTrue(equation.startswith(r'\[') and equation.endswith(r'\]'))
+            self.assertIn('window.MathJax', html)
+            self.assertIn('tex-chtml', html)
             body = re.search(r'<article id="research".+?</article>', html, re.S).group()
-            self.assertEqual(len(re.findall(r'<section id=', body)), 7)
-            self.assertEqual(len(re.findall(r'<details class="business-details"', body)), 2)
+            section_ids = re.findall(r'<section id="([^"]+)"', body)
+            self.assertEqual(len(section_ids), len(set(section_ids)))
+            self.assertTrue({'business', 'identification', 'ate-main', 'uplift-evaluation', 'methods'}.issubset(section_ids))
+            validation_section = re.search(r'6.3 .*?(?=<h3 id="results">)', body, re.S).group()
+            self.assertNotIn('Bootstrap 均值', validation_section)
+            self.assertIn('HT Gain 点估计', validation_section)
             self.assertNotIn('class="table-wrap wide"', body)
-            for text in ('RESEARCH PROFILE', 'Criteo Uplift Prediction Dataset v2.1',
-                         'Randomized Experiment (RCT)', 'Uplift Modeling',
-                         'ATE<sub>T</sub> (ITT) / CATE<sub>T</sub>', 'HT-Gain@20%',
-                         '项目研究流程', '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman',
-                         '线上实验尚未执行', 'Top-K 排序的最优性', 'StandardScaler'):
-                self.assertIn(text, html)
-            self.assertNotIn('reading-entries', html)
+            header = re.search(r'<header>.*?</header>', html, re.S).group()
+            nav_links = re.findall(r'<a href="#([^"]+)"', header)
+            self.assertEqual(set(nav_links), set(section_ids))
+            self.assertEqual(len(nav_links), len(set(nav_links)))
+            self.assertNotIn('id="summary"', html)
             self.assertNotIn('id="workflow"', html)
-            self.assertEqual(len(re.findall(r'<nav class="chapter-nav"', html)), 1)
+            for text in ('基于随机实验的广告增量评估与投放策略优化', '正文目录',
+                         '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman', '线上实验尚未执行',
+                         '理论最优分配', '标准化'):
+                self.assertIn(text, html)
             # Every saved primary point and interval must appear in the nine-policy figure.
             comparison = re.search(r'<figure id="primary-policy-chart".+?</figure>', html, re.S).group()
             bootstrap = pd.read_csv(out / 'evaluation/test_bootstrap.csv').query('budget == 0.2')
@@ -201,24 +205,22 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn(f'class="policy-row frozen" data-policy="{winner}"', comparison)
             for row in bootstrap.itertuples():
                 self.assertIn(f'{row.point_estimate * 100000:,.2f} <small>[{row.ci_low * 100000:,.2f}, {row.ci_high * 100000:,.2f}]</small>', comparison)
-            # Audit tables cover every saved validation/test policy-budget and pairwise row.
-            appendix = re.search(r'<section id="appendix">.+</section>', html, re.S).group()
-            self.assertNotRegex(appendix, r'<details[^>]*\sopen(?:\s|>)')
-            results = re.search(r'id="appendix-results".+?id="appendix-pairs"', html, re.S).group()
-            tables = re.findall(r'<table.*?</table>', results, re.S)
-            val_metric_rows = ElementTree.fromstring(tables[0]).findall('./tbody/tr')
-            test_metric_rows = ElementTree.fromstring(tables[-1]).findall('./tbody/tr')
-            self.assertEqual(len(val_metric_rows), 9)
-            self.assertEqual(len(test_metric_rows), len(policies))
-            for shown, row in zip(test_metric_rows, policies.itertuples()):
+            # Main tables must preserve the nine primary-budget results after appendix removal.
+            self.assertNotIn('id="appendix"', html)
+            self.assertNotIn('href="#appendix', html)
+            self.assertNotRegex(body, r'<details[^>]*\sopen(?:\s|>)')
+            val_table = re.search(r'表 6-3.*?(<table.*?</table>)', body, re.S).group(1)
+            test_table = re.search(r'表 6-4.*?(<table.*?</table>)', body, re.S).group(1)
+            val_rows = ElementTree.fromstring(val_table).findall('./tbody/tr')
+            test_rows = ElementTree.fromstring(test_table).findall('./tbody/tr')
+            self.assertEqual(len(val_rows), 9)
+            primary_rows = policies.query('budget == 0.2').sort_values('gain_ht', ascending=False, kind='stable')
+            self.assertEqual(len(test_rows), len(primary_rows))
+            for shown, row in zip(test_rows, primary_rows.itertuples()):
                 values = [cell.text for cell in shown]
-                self.assertEqual(values[3], f'{row.gain_ht * 100000:,.2f}')
+                self.assertEqual(values[1], f'{row.gain_ht * 100000:,.2f}')
                 self.assertEqual(values[-2], f'{row.auuc * 100000:,.2f}')
                 self.assertEqual(values[-1], f'{row.qini_score * 100000:,.2f}')
-            pair_markup = re.search(r'id="appendix-pairs".+?id="appendix-budget"',html,re.S).group()
-            pair_tables = re.findall(r'<table.*?</table>',pair_markup,re.S)
-            for markup, name in zip(pair_tables, ['models/validation_pairwise.csv','evaluation/test_pairwise.csv']):
-                self.assertEqual(len(ElementTree.fromstring(markup).findall('./tbody/tr')),len(pd.read_csv(out/name)))
             self.assertNotIn(str(root), html)
             overlap = json.loads((out/'strategy_overlap.json').read_text())
             self.assertEqual(overlap['n'], len(source_by_id.loc[pd.read_csv(out/'data_preparation/test_row_ids.csv').row_id]))

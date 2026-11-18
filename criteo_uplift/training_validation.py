@@ -73,7 +73,7 @@ def fit_and_select_models(
     #     - trees：XGBoost 候选模型的树数量。
     #     - primary_budget：Gain 主指标的选型覆盖率。
     #     - primary_metric：选型使用的唯一主指标。
-    #     - n_bootstrap：选型的分层配对重抽样次数。
+    #     - n_bootstrap：冻结后 Test 评价使用的重抽样次数，Validation 仅计算点估计。
     #     - assignment_probability：用于 HT 指标的处理分配概率代入值。
     #     - out：模型、验证指标和 selection.json 的输出目录。
     #     - progress：接收模型训练进度的回调函数。
@@ -81,8 +81,8 @@ def fit_and_select_models(
     #     - 结果字典：模型参数、拟合耗时和冻结选择。
     #-------------
     out = safe_output(out)
-    if n_bootstrap == 0:
-        raise ValueError("Validation 选型需要至少两次 Bootstrap")
+    if n_bootstrap < 2:
+        raise ValueError("Test 评价需要至少两次 Bootstrap")
     results = _fit_candidates(train, validation, outcome, seed, trees, progress)
     validation_scores = policy_scores(results)
 
@@ -90,37 +90,34 @@ def fit_and_select_models(
     evaluation = evaluate_ranking(
         validation[outcome], validation.treatment, validation_scores, assignment_probability,
         include_random=True, budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
-        n_bootstrap=n_bootstrap, seed=seed, include_curves=False,
+        n_bootstrap=0, seed=seed, include_curves=False,
     )
-    inference = evaluation["bootstrap"]
 
-    # 4. 按主指标的 Bootstrap 均值排序。随机参考线不参与选择，同分沿用固定候选顺序。
-    ordered = inference["summary"].query("policy != 'random'").sort_values(
-        "bootstrap_mean", ascending=False, kind="stable", na_position="last",
+    # 4. 按主指标点估计排序。随机参考线不参与选择，同分沿用固定候选顺序。
+    ordered = evaluation["metrics"].query("policy != 'random'").sort_values(
+        primary_metric, ascending=False, kind="stable", na_position="last",
     )
     uplift = ordered[ordered.policy.isin(UPLIFT_NAMES)]
-    if ordered.bootstrap_mean.isna().all() or uplift.bootstrap_mean.isna().all():
-        raise ValueError("Validation 主指标没有可用的 Bootstrap 均值，无法冻结策略或 uplift 候选")
+    if ordered[primary_metric].isna().all() or uplift[primary_metric].isna().all():
+        raise ValueError("Validation 主指标没有可用的点估计，无法冻结策略或 uplift 候选")
     selection = {
         "primary_metric": primary_metric,
         "frozen_at_utc": datetime.now(timezone.utc).isoformat(),
         "assignment_probability": assignment_probability,
         "seed": seed,
         "primary_budget": primary_budget,
-        "selection_statistic": "bootstrap_mean",
+        "selection_statistic": "point_estimate",
+        "validation_n_bootstrap": 0,
         "n_bootstrap": n_bootstrap,
         "selected_policy": ordered.iloc[0].policy,
         "selected_uplift_model": uplift.iloc[0].policy,
         "candidates": POLICY_NAMES,
         "frozen_before_test": True,
-        "note": "Models are fitted on Train only. Validation selects by the preset bootstrap mean.",
+        "note": "Models are fitted on Train only. Validation selects by the preset metric point estimate. Bootstrap is used for Test inference.",
     }
 
     # 5. 保存 Validation 评价、冻结选择和 Train 模型，供 Test 独立预测。
     write_result(evaluation["metrics"], out / 'validation_metrics.csv')
-    write_result(inference["summary"], out / 'validation_bootstrap.csv')
-    write_result(inference["pairwise"], out / 'validation_pairwise.csv')
-    write_result(inference["selection_frequency"], out / 'validation_selection_frequency.csv')
     outcome_support = []
     for arm in (0, 1):
         labels = train.loc[train.treatment == arm, outcome]
