@@ -4,7 +4,7 @@
 
 在广告资格仅覆盖 **20% 合资格用户**的约束下，如何分配名额，才能提高实际增量转化？本项目基于 **13,979,592 条 Criteo Uplift v2.1 公开随机实验记录**，搭建从数据审计、因果诊断、增量策略比较到选人分析与预算决策的离线研究流程，评估 Response Targeting、Uplift Targeting 与同覆盖率 Random 的策略价值。
 
-**[在线阅读完整研究报告](https://tkkkk-co.github.io/Criteo-uplift-project/)** · [一页研究综述（PDF）](reports/final/executive_summary.pdf) · [报告来源与冻结记录](reports/final/report_provenance.json)
+**[在线阅读完整研究报告（交互式网页）](https://tkkkk-co.github.io/Criteo-uplift-project/)** · [一页研究综述（PDF）](reports/final/executive_summary.pdf) · [报告来源与冻结记录](reports/final/report_provenance.json)
 
 ## 核心发现
 
@@ -38,7 +38,7 @@
 | 决策分析 | 比较 Top-K 收益与名单重叠、入选特征分布、十分层效应、逐档扩量的边际增益；以三轮补充重训检查选型及人群稳定性 |
 | 工程交付 | 提供数据处理、诊断、训练、策略评价与报告生成模块；保留实验协议和来源指纹，使用自动化测试验证核心实现与合成数据端到端流程 |
 
-完整的实验配置、统计口径、置信区间、分析图表和业务决策依据均在 **[正式研究报告（八章）](https://tkkkk-co.github.io/Criteo-uplift-project/)** 中展开。
+完整的实验配置、统计口径、置信区间、分析图表和业务决策依据均在 **[正式研究报告（八章，在线网页）](https://tkkkk-co.github.io/Criteo-uplift-project/)** 中展开。GitHub 的 HTML 文件页显示源代码，在线网页链接可直接阅读排版后的报告。
 
 ## 项目代码与验证
 
@@ -46,7 +46,7 @@
 | --- | --- |
 | [`run_pipeline.py`](run_pipeline.py) | 研究流程入口与阶段组织 |
 | [`criteo_uplift/`](criteo_uplift/) | 流式审计、实验诊断、Meta-Learner、选型、收益评价、画像和稳定性分析 |
-| [`reports/final/report.html`](reports/final/report.html) | 唯一正式研究报告（Report v2） |
+| `reports/final/report.html` | 唯一正式研究报告（Report v2）；[在网页中阅读](https://tkkkk-co.github.io/Criteo-uplift-project/) |
 | [`reports/final/report_provenance.json`](reports/final/report_provenance.json) | 冻结报告指纹与历史实验来源 |
 | [`tests/`](tests/) · [GitHub Actions](.github/workflows/ci.yml) | 单元测试与合成数据端到端验收 |
 
