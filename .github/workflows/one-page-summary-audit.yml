@@ -1,0 +1,45 @@
+name: one-page-summary-audit
+on:
+  push:
+    paths:
+      - ".github/workflows/one-page-summary-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  examine-pdf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install PDF inspector
+        run: python -m pip install --disable-pip-version-check pymupdf
+      - name: Inspect PDF headings and coordinates
+        run: |
+          python - <<'PY'
+          import fitz
+          path="reports/final/executive_summary.pdf"
+          doc=fitz.open(path)
+          items=[
+            "全量审计识别数据约束",
+            "多层诊断确认可观测差异",
+            "预设增量指标统一比较目标",
+            "重训分析量化选择敏感性",
+            "模型定向提高固定名额",
+            "收益接近与名单重合",
+            "一致的入选画像与分层增量",
+            "边际回报下降支持较低覆盖率",
+            "交付方案将离线结论",
+          ]
+          print("pages",len(doc))
+          for i,p in enumerate(doc):
+            print("page",i, "rect",p.rect, "first_words",repr(p.get_text()[:180]))
+          for n,phrase in enumerate(items,1):
+            matches=[(i,[tuple(round(v,2) for v in r) for r in p.search_for(phrase)]) for i,p in enumerate(doc)]
+            matches=[(i,r) for i,r in matches if r]
+            print(f"ITEM {n}: {phrase} => {matches}")
+          PY
