@@ -193,7 +193,7 @@ def _summarize(longmetrics):
     #-------------
     dimensions = ["split_method", "training_fraction", "policy"]
     quantities = [
-        "gain_ht_per_100k", "vs_propensity_per_100k", "bootstrap_mean",
+        "gain_ht_per_100k", "vs_response_xgboost_per_100k", "selection_metric",
         *RANKING_METRICS, "fit_seconds", "train_n", "train_control_events",
         "validation_control_events",
     ]
@@ -238,7 +238,7 @@ def run_stability(
     #     - trees：Stability 中 XGBoost 模型的树数量。
     #     - primary_budget：Gain 主指标的选型覆盖率。
     #     - primary_metric：与正式 Validation 一致的主指标。
-    #     - n_bootstrap：各开发实验使用的重抽样次数。
+    #     - n_bootstrap：兼容既有调用的参数；开发验证仅计算点估计。
     #     - outcome：模型训练和指标计算使用的结果列名。
     # 输出参数：
     #     - 完成后的 Stability 输出目录 pathlib.Path；同时写入 protocol、逐次指标、划分审计和汇总文件。
@@ -251,8 +251,8 @@ def run_stability(
         raise ValueError("trees 必须为正整数")
     if not np.isfinite(primary_budget) or not 0 < primary_budget <= 1:
         raise ValueError("primary_budget 必须属于 (0, 1]")
-    if primary_metric not in RANKING_METRICS or not isinstance(n_bootstrap, (int, np.integer)) or n_bootstrap < 2:
-        raise ValueError("Stability 需要有效主指标和至少两次 Bootstrap")
+    if primary_metric not in RANKING_METRICS:
+        raise ValueError("Stability 需要有效主指标")
     output = safe_output(output)
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError(f"output already exists and is nonempty: {output}")
@@ -279,12 +279,12 @@ def run_stability(
         "group_interpretation": "identical anonymous feature vectors are not established user identities; no automatic deduplication; hash collisions theoretically possible",
         "assignment_probability": "plug-in treatment fraction of the full training partition, shared across its nested fractions; validation outcomes do not estimate it",
         "primary_metric": primary_metric,
-        "n_bootstrap": n_bootstrap,
-        "selection_statistic": "bootstrap_mean",
+        "n_bootstrap": 0,
+        "selection_statistic": "point_estimate",
         "ranking_metric_definition_from_loaded_function": RANKING_METRIC_DESCRIPTION,
         "response_baseline": "response_logistic and response_xgboost estimate P(Y=1|X,T=1), reused from corresponding T-Learners; not P(T=1|X)",
-        "selection": "one development winner by bootstrap mean per seed/split/fraction; stable ties follow candidate order",
-        "uncertainty": "descriptive spread across overlapping development runs; each run selects by its own fixed-score bootstrap mean",
+        "selection": "one development winner by point estimate per seed/split/fraction; stable ties follow candidate order",
+        "uncertainty": "descriptive spread across overlapping development runs; each run selects by its own metric point estimate",
         "limitations": [
             "The group holdout changes feature support; its values are sensitivity results, not a matched causal comparison of splitting methods.",
             "Rare-event counts and performance associations do not establish a causal explanation for model differences.",
@@ -360,14 +360,14 @@ def run_stability(
                 evaluated = evaluate_ranking(
                     validation[outcome], validation.treatment, score_dict, e,
                     budgets=[primary_budget], primary_metric=primary_metric, primary_budget=primary_budget,
-                    n_bootstrap=n_bootstrap, seed=seed, include_curves=False,
+                    n_bootstrap=0, seed=seed, include_curves=False,
                 )
-                means = evaluated["bootstrap"]["summary"].query("policy != 'random'").set_index("policy")
-                if means.bootstrap_mean.isna().all():
-                    raise ValueError("Stability 主指标没有可用的 Bootstrap 均值")
-                winner = means.bootstrap_mean.idxmax()
                 points = evaluated["metrics"]
-                propensity_ht = points.loc[points.policy.eq("response_xgboost"), "gain_ht_per_100k"].iloc[0]
+                ordered = points.sort_values(primary_metric, ascending=False, kind="stable")
+                if ordered[primary_metric].isna().all():
+                    raise ValueError("Validation 主指标没有可用点估计")
+                winner = ordered.policy.iloc[0]
+                response_ht = points.loc[points.policy.eq("response_xgboost"), "gain_ht_per_100k"].iloc[0]
                 for row in points.to_dict("records"):
                     name = row["policy"]
                     records.append({
@@ -379,8 +379,8 @@ def run_stability(
                             "validation_treatment_events",
                         )},
                         **row,
-                        "vs_propensity_per_100k": row["gain_ht_per_100k"] - propensity_ht,
-                        "bootstrap_mean": float(means.loc[name, "bootstrap_mean"]),
+                        "vs_response_xgboost_per_100k": row["gain_ht_per_100k"] - response_ht,
+                        "selection_metric": float(row[primary_metric]),
                         "fit_seconds": fit_seconds.get(name, 0.0),
                         "fit_source": "t_xgboost_reused" if name == "response_xgboost" else name,
                         "selected_on_validation": name == winner,
