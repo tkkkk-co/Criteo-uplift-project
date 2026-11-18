@@ -183,13 +183,13 @@ class EndToEndTests(unittest.TestCase):
             self.assertNotRegex(html, r'<script[^>]+src=')
             body = re.search(r'<article id="research".+?</article>', html, re.S).group()
             self.assertEqual(len(re.findall(r'<section id=', body)), 7)
-            self.assertNotIn('<details', body)
+            self.assertEqual(len(re.findall(r'<details class="business-details"', body)), 2)
             self.assertNotIn('class="table-wrap wide"', body)
             for text in ('RESEARCH PROFILE', 'Criteo Uplift Prediction Dataset v2.1',
                          'Randomized Experiment (RCT)', 'Uplift Modeling',
                          'ATE<sub>T</sub> (ITT) / CATE<sub>T</sub>', 'HT-Gain@20%',
                          '项目研究流程', '示意数据，非 Criteo 实验结果', 'SUTVA', 'Spearman',
-                         '线上实验尚未执行', '理论最优性', 'StandardScaler'):
+                         '线上实验尚未执行', 'Top-K 排序的最优性', 'StandardScaler'):
                 self.assertIn(text, html)
             self.assertNotIn('reading-entries', html)
             self.assertNotIn('id="workflow"', html)
